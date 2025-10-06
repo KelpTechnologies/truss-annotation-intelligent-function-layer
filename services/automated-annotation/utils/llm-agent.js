@@ -50,7 +50,7 @@ class LLMAgent {
         .promise();
 
       const secret = JSON.parse(result.SecretString);
-      return secret.api_key || secret;
+      return secret.KEY || secret;
     } catch (error) {
       console.error(`❌ Failed to retrieve secret ${secretName}:`, error);
       throw error;
