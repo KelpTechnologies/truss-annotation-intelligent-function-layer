@@ -184,13 +184,14 @@ Resources:`;
             Version: "2012-10-17"
             Statement:`;
 
-  // Always add BigQuery secrets access
+  // Always add secrets access for BigQuery and OpenAI
   template += `
               - Effect: Allow
                 Action:
                   - secretsmanager:GetSecretValue
                 Resource:
-                  - "arn:aws:secretsmanager:${config.aws.region}:${config.aws.account_id}:secret:bigquery-service-account*"`;
+                  - "arn:aws:secretsmanager:${config.aws.region}:${config.aws.account_id}:secret:bigquery-service-account*"
+                  - "arn:aws:secretsmanager:${config.aws.region}:${config.aws.account_id}:secret:openAI*"`;
 
   // Add database permissions if needed
   if (requiresDatabase) {
@@ -231,7 +232,7 @@ Resources:`;
       Timeout: ${config.deployment.timeout}
       MemorySize: ${config.deployment.memory}
       Layers:
-        - "${config.deployment.layers[0]}"`;
+${config.deployment.layers.map((layer) => `        - "${layer}"`).join("\n")}`;
 
   // VPC Config only if required
   if (requiresVPC) {
@@ -251,7 +252,10 @@ Resources:`;
           DEFAULT_AUTH_MODE: "${defaultSecurity}"
           BIGQUERY_SECRET_ARN: "arn:aws:secretsmanager:${config.aws.region}:${
     config.aws.account_id
-  }:secret:bigquery-service-account-GipBFQ"`;
+  }:secret:bigquery-service-account-GipBFQ"
+          OPENAI_SECRET_ARN: "arn:aws:secretsmanager:${config.aws.region}:${
+    config.aws.account_id
+  }:secret:openAI-FNAJfl"`;
 
   // Database environment variables only if needed
   if (requiresDatabase) {

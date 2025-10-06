@@ -49,6 +49,7 @@ Resources:
                   - secretsmanager:GetSecretValue
                 Resource:
                   - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:bigquery-service-account*"
+                  - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:openAI*"
 
   ServiceLambda:
     Type: AWS::Lambda::Function
@@ -64,6 +65,7 @@ Resources:
       MemorySize: 1024
       Layers:
         - "arn:aws:lambda:eu-west-2:193757560043:layer:truss-toolkit-nodejs-layer:194"
+        - "arn:aws:lambda:eu-west-2:193757560043:layer:service-layer-utils:1"
       Environment:
         Variables:
           STAGE: !Ref StageName
@@ -71,6 +73,7 @@ Resources:
           SUPPORTED_AUTH_MODES: "cognito,api_key"
           DEFAULT_AUTH_MODE: "cognito"
           BIGQUERY_SECRET_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:bigquery-service-account-GipBFQ"
+          OPENAI_SECRET_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:openAI-FNAJfl"
           API_KEY_ID: !Ref ServiceApiKey
           COGNITO_USER_POOL_ARNS: "arn:aws:cognito-idp:eu-west-2:193757560043:userpool/eu-west-2_JyaPgaRFW"
 

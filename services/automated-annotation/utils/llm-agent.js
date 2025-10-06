@@ -21,7 +21,10 @@ class LLMAgent {
     if (this.llm) return;
 
     try {
-      const apiKey = await this.getSecret(this.config.api_key_secret);
+      // Use environment variable for secret ARN if available, otherwise fall back to config
+      const secretArn =
+        process.env.OPENAI_SECRET_ARN || this.config.api_key_secret;
+      const apiKey = await this.getSecret(secretArn);
       this.llm = new ChatOpenAI({
         openAIApiKey: apiKey,
         modelName: this.config.model,
