@@ -250,7 +250,7 @@ jobs:
     strategy:
       matrix:
         service_name: ${{ fromJson(needs.set-environment.outputs.services_to_deploy_json) }}
-      max-parallel: ${{ needs.set-environment.outputs.max_parallel }}
+      max-parallel: 5
       fail-fast: false
     env:
       STAGE: ${{ needs.set-environment.outputs.stage }}
