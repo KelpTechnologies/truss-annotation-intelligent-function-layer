@@ -274,7 +274,19 @@ jobs:
           echo "Looking for service: ${{ matrix.service_name }}"
 
           # Convert flattened name back to path
-          service_path=$(echo "${{ matrix.service_name }}" | tr '-' '/')
+          # For single-level services, just use the name directly
+          # For nested services (like meta-routes), convert dashes to slashes
+          if [[ "${{ matrix.service_name }}" == *"-"* ]]; then
+            # Check if it's a known nested service pattern
+            if [[ "${{ matrix.service_name }}" == "meta-"* ]]; then
+              service_path=$(echo "${{ matrix.service_name }}" | tr '-' '/')
+            else
+              # Single-level service, use as-is
+              service_path="${{ matrix.service_name }}"
+            fi
+          else
+            service_path="${{ matrix.service_name }}"
+          fi
           full_service_path="services/$service_path"
 
           echo "Trying service path: $full_service_path"
