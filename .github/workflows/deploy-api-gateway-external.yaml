@@ -1,0 +1,313 @@
+name: Deploy External API Gateway
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "services/**/openapi.yaml"
+      - "services/**/config.json"
+      - "api-gateway-external/**"
+      - "scripts/aggregate-openapi.js"
+      - "scripts/prepare-api-deployment.js"
+      - "scripts/generate-service-registry.js"
+      - ".github/workflows/deploy-api-gateway-external.yaml"
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Deployment stage for external API"
+        required: true
+        default: "external-dev"
+        type: choice
+        options:
+          - external-dev
+          - external-prod
+
+jobs:
+  set-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      stage: ${{ steps.set-stage.outputs.stage }}
+    steps:
+      - name: Set deployment stage
+        id: set-stage
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "stage=${{ github.event.inputs.stage }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "stage=external-prod" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
+            echo "stage=external-dev" >> $GITHUB_OUTPUT
+          else
+            echo "stage=external-dev" >> $GITHUB_OUTPUT
+          fi
+
+  validate-services:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+      - name: Install dependencies
+        run: |
+          npm install js-yaml glob
+      - name: Generate service registry
+        run: |
+          echo "🔄 Generating service registry for API Gateway..."
+          node scripts/generate-service-registry.js
+      - name: Validate service configurations
+        run: |
+          echo "🔍 Validating service configurations..."
+          is_service_directory() {
+            local dir=$1
+            if [ -f "$dir/config.json" ] && ([ -f "$dir/index.js" ] || [ -f "$dir/index.py" ]); then
+              return 0
+            else
+              return 1
+            fi
+          }
+          service_count=0
+          for service_dir in services/*/; do
+            if [ -d "$service_dir" ]; then
+              service_name=$(basename "$service_dir")
+              if is_service_directory "$service_dir"; then
+                echo "Validating $service_name..."
+                service_count=$((service_count + 1))
+                if [ ! -f "$service_dir/config.json" ]; then
+                  echo "❌ Missing config.json in $service_name"
+                  exit 1
+                fi
+                if [ ! -f "$service_dir/openapi.yaml" ]; then
+                  echo "⚠️  Missing openapi.yaml in $service_name - will be skipped from API"
+                fi
+                if ! jq empty "$service_dir/config.json" 2>/dev/null; then
+                  echo "❌ Invalid JSON in $service_name/config.json"
+                  exit 1
+                fi
+                echo "✅ $service_name is valid"
+              else
+                echo "⏭️  Skipping $service_name (not a service - missing config.json or handler)"
+              fi
+            fi
+          done
+          echo "📊 Found $service_count services to validate"
+          echo "🔍 Services found:"
+          for service_dir in services/*/; do
+            if [ -d "$service_dir" ]; then
+              service_name=$(basename "$service_dir")
+              if is_service_directory "$service_dir"; then
+                echo "  ✅ $service_name"
+              else
+                echo "  ⏭️  $service_name (not a service)"
+              fi
+            fi
+          done
+      - name: Test OpenAPI aggregation
+        run: |
+          echo "🧪 Testing OpenAPI aggregation..."
+          node scripts/aggregate-openapi.js --stage=${{ needs.set-environment.outputs.stage }} --output test-aggregated.yaml
+          if [ ! -f "test-aggregated.yaml" ]; then
+            echo "❌ OpenAPI aggregation failed"
+            exit 1
+          fi
+          echo "✅ OpenAPI aggregation test passed"
+
+  deploy-api-gateway-external:
+    needs: [set-environment, validate-services]
+    runs-on: ubuntu-latest
+    env:
+      STAGE: ${{ needs.set-environment.outputs.stage }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+      - name: Install dependencies
+        run: |
+          npm install js-yaml glob
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: eu-west-2
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: Generate service registry for API Gateway
+        run: |
+          echo "🔄 Generating service registry for API Gateway deployment..."
+          node scripts/generate-service-registry.js
+          if [ -f "api-gateway-external/service-registry.json" ]; then
+            echo "✅ Service registry created for API Gateway"
+            jq '.services | length' api-gateway-external/service-registry.json
+            echo "services found in API Gateway registry"
+          else
+            echo "⚠️  No API Gateway registry found, but continuing..."
+          fi
+      - name: Wait for service Lambda deployments to complete
+        run: |
+          echo "⏳ Waiting for service Lambda deployments to complete..."
+          is_service_directory() {
+            local dir=$1
+            if [ -f "$dir/config.json" ] && ([ -f "$dir/index.js" ] || [ -f "$dir/index.py" ]); then
+              return 0
+            else
+              return 1
+            fi
+          }
+          # Get list of actual services only (recursively)
+          services=""
+          while IFS= read -r -d '' config_file; do
+            service_dir=$(dirname "$config_file")
+            if is_service_directory "$service_dir"; then
+              # Create flattened service name (e.g., meta/routes -> meta-routes)
+              relative_path="${service_dir#services/}"
+              flattened_name=$(echo "$relative_path" | tr '/' '-')
+              services="$services $flattened_name"
+            fi
+          done < <(find services/ -name "config.json" -type f -print0)
+
+          lambda_stage=$STAGE
+          if [[ "$STAGE" == "external-prod" ]]; then
+            lambda_stage=prod
+          elif [[ "$STAGE" == "external-dev" ]]; then
+            lambda_stage=dev
+          fi
+          for service in $services; do
+            stack_name="truss-data-service-${service}-${lambda_stage}"
+            echo "Checking stack: $stack_name"
+            aws cloudformation wait stack-create-complete --stack-name $stack_name 2>/dev/null || \
+            aws cloudformation wait stack-update-complete --stack-name $stack_name 2>/dev/null || \
+            echo "Stack $stack_name already in stable state or doesn't exist"
+          done
+      - name: Prepare API Gateway deployment
+        run: |
+          echo "🚀 Preparing API Gateway deployment for stage: ${STAGE}"
+          if ! node scripts/prepare-api-deployment.js --stage=${STAGE}; then
+            echo "❌ API preparation script failed"
+            exit 1
+          fi
+          echo "✅ Checking preparation outputs..."
+          if [ ! -f "api-gateway-external/template-${STAGE}.yaml" ]; then
+            echo "❌ API Gateway template not generated"
+            exit 1
+          fi
+          if [ ! -f "api-gateway-external/deployment-ready-${STAGE}.yaml" ]; then
+            echo "❌ Deployment-ready spec not generated"
+            exit 1
+          fi
+          echo "🔍 Verifying S3 upload..."
+          if ! aws s3 ls "s3://truss-api-automated-deployments/api-specs/deployment-ready-${STAGE}.yaml"; then
+            echo "❌ Deployment spec not found in S3, attempting manual upload..."
+            aws s3 cp "api-gateway-external/deployment-ready-${STAGE}.yaml" "s3://truss-api-automated-deployments/api-specs/deployment-ready-${STAGE}.yaml"
+          fi
+          echo "✅ API Gateway preparation complete"
+      - name: Generate service templates for external API
+        run: |
+          for service_dir in services/*/; do
+            if [ -f "$service_dir/config.json" ]; then
+              # Check if service supports external access
+              if jq -e '.access.external == true' "$service_dir/config.json" >/dev/null 2>&1; then
+                node scripts/generate-service-templates.js "$service_dir" config.json ${{ needs.set-environment.outputs.stage }}
+              else
+                echo "Skipping $service_dir (no external access configured)"
+              fi
+            else
+              echo "Skipping $service_dir (no config.json)"
+            fi
+          done
+      - name: Upload OpenAPI spec to S3
+        run: |
+          aws s3 cp api-gateway-external/deployment-ready-${STAGE}.yaml s3://truss-api-automated-deployments/api-specs/deployment-ready-${STAGE}.yaml
+      - name: Deploy API Gateway
+        run: |
+          STACK_NAME="truss-data-service-api-${STAGE}"
+          TEMPLATE_FILE="api-gateway-external/template-${STAGE}.yaml"
+          echo "🚀 Deploying API Gateway stack: $STACK_NAME"
+          aws cloudformation deploy \
+            --stack-name $STACK_NAME \
+            --template-file $TEMPLATE_FILE \
+            --parameter-overrides StageName=${STAGE} \
+            --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
+            --no-fail-on-empty-changeset \
+            --s3-bucket truss-api-automated-deployments
+      - name: Get API Gateway URL
+        id: get-url
+        run: |
+          API_URL=$(aws cloudformation describe-stacks \
+            --stack-name "truss-data-service-api-${STAGE}" \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayUrl'].OutputValue" \
+            --output text)
+          echo "api_url=$API_URL" >> $GITHUB_OUTPUT
+          echo "API_URL=$API_URL" >> $GITHUB_ENV
+      - name: Output deployment summary
+        run: |
+          echo "🎉 API Gateway Deployment Complete!"
+          echo "📍 Stage: ${STAGE}"
+          echo "🔗 API URL: ${{ steps.get-url.outputs.api_url }}"
+          echo ""
+          echo "📊 Deployment Summary:"
+          is_service_directory() {
+            local dir=$1
+            if [ -f "$dir/config.json" ] && ([ -f "$dir/index.js" ] || [ -f "$dir/index.py" ]); then
+              return 0
+            else
+              return 1
+            fi
+          }
+          # List all deployed services (recursively)
+          services=""
+          service_count=0
+          while IFS= read -r -d '' config_file; do
+            service_dir=$(dirname "$config_file")
+            if is_service_directory "$service_dir"; then
+              relative_path="${service_dir#services/}"
+              flattened_name=$(echo "$relative_path" | tr '/' '-')
+              services="$services $flattened_name"
+              service_count=$((service_count + 1))
+            fi
+          done < <(find services/ -name "config.json" -type f -print0)
+
+          echo "   - Services deployed: $service_count"
+          echo "   - Services:"
+          for service in $services; do
+            if [ "$service" = "automated-annotation" ]; then
+              echo "     * $service (LangChain-powered AI service)"
+            else
+              echo "     * $service"
+            fi
+          done
+          echo ""
+          echo "🔗 Available Endpoints:"
+          echo "   Base URL: ${{ steps.get-url.outputs.api_url }}"
+          if [ -f "api-gateway-external/aggregated-openapi-${STAGE}.yaml" ]; then
+            echo "   Paths discovered:"
+            grep "^  /" "api-gateway-external/aggregated-openapi-${STAGE}.yaml" | head -10 | sed 's/^/     /'
+            total_paths=$(grep -c "^  /" "api-gateway-external/aggregated-openapi-${STAGE}.yaml" || echo "0")
+            echo "   Total paths: $total_paths"
+            
+            # Highlight automated annotation endpoints
+            if grep -q "/automations/annotation" "api-gateway-external/aggregated-openapi-${STAGE}.yaml"; then
+              echo ""
+              echo "🤖 Automated Annotation Endpoints:"
+              grep "/automations/annotation" "api-gateway-external/aggregated-openapi-${STAGE}.yaml" | sed 's/^/     /'
+            fi
+          fi
+          echo ""
+          echo "📚 API Documentation:"
+          echo "   Swagger UI: ${{ steps.get-url.outputs.api_url }}/swagger"
+          echo "   OpenAPI Spec: ${{ steps.get-url.outputs.api_url }}/openapi.json"
+
+  notify-deployment:
+    needs: [deploy-api-gateway-external, set-environment]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Notify deployment status
+        run: |
+          if [[ "${{ needs.deploy-api-gateway-external.result }}" == "success" ]]; then
+            echo "✅ External API Gateway deployment successful for stage: ${{ needs.set-environment.outputs.stage }}"
+          else
+            echo "❌ External API Gateway deployment failed for stage: ${{ needs.set-environment.outputs.stage }}"
+            exit 1
+          fi

@@ -1,0 +1,81 @@
+{
+  "service": {
+    "name": "automated-annotation",
+    "description": "Automated annotation service using LangChain for knowledge extraction and text annotation",
+    "version": "1.0.0"
+  },
+  "deployment": {
+    "runtime": "nodejs18.x",
+    "timeout": 300,
+    "memory": 1024,
+    "layers": [
+      "arn:aws:lambda:eu-west-2:193757560043:layer:truss-toolkit-nodejs-layer:194"
+    ]
+  },
+  "database": {
+    "required": false,
+    "connection_type": "none",
+    "permissions": []
+  },
+  "api": {
+    "base_path": "/automations/annotation",
+    "cors_enabled": true,
+    "endpoints": [
+      {
+        "path": "/extract-knowledge",
+        "method": "POST",
+        "description": "Extract knowledge from text using automated annotation",
+        "parameters": {
+          "body": {
+            "text": "string (required) - Text to extract knowledge from",
+            "extraction_type": "string (optional) - Type of extraction (entities, relationships, attributes)",
+            "domain": "string (optional) - Domain context (fashion, luxury, etc.)"
+          }
+        }
+      },
+      {
+        "path": "/annotate",
+        "method": "POST",
+        "description": "Annotate text with structured data using automated annotation",
+        "parameters": {
+          "body": {
+            "text": "string (required) - Text to annotate",
+            "annotation_schema": "object (optional) - Schema for annotation structure",
+            "confidence_threshold": "number (optional) - Minimum confidence for annotations"
+          }
+        }
+      },
+      {
+        "path": "/health",
+        "method": "GET",
+        "description": "Health check endpoint for the automated annotation service",
+        "parameters": {}
+      }
+    ]
+  },
+  "aws": {
+    "region": "eu-west-2",
+    "account_id": "193757560043",
+    "vpc_id": "vpc-04e79f1770f4205de"
+  },
+  "access": {
+    "internal": true,
+    "external": true,
+    "auth_config": {
+      "cognito": {
+        "user_pool_arn": "arn:aws:cognito-idp:eu-west-2:193757560043:userpool/eu-west-2_JyaPgaRFW",
+        "cors_origin": "*"
+      },
+      "api_key": {
+        "cors_origin": "*"
+      }
+    }
+  },
+  "llm": {
+    "provider": "openai",
+    "model": "gpt-4",
+    "max_tokens": 2000,
+    "temperature": 0.1,
+    "api_key_secret": "openai-api-key"
+  }
+}

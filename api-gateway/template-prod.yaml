@@ -1,0 +1,56 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "Truss Data Service API Gateway - Generated for prod"
+
+Parameters:
+  StageName:
+    Type: String
+    Default: prod
+    Description: Deployment stage
+
+Resources:
+  TrussDataServiceApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "truss-annotation-data-service-api-${StageName}"
+      StageName: !Ref StageName
+      DefinitionUri: s3://truss-api-automated-deployments/api-specs/e3c1463ad69a/deployment-ready-prod.yaml
+      EndpointConfiguration:
+        Type: REGIONAL
+      TracingEnabled: true
+      Variables:
+        customAuthorizerArn: "arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-custom-authorizer-prod"
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          MetricsEnabled: true
+          DataTraceEnabled: false
+          LoggingLevel: INFO
+          ThrottlingRateLimit: 1000
+          ThrottlingBurstLimit: 2000
+
+Outputs:
+  ApiGatewayUrl:
+    Description: API Gateway Invoke URL
+    Value: !Sub "https://${TrussDataServiceApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
+    Export:
+      Name: !Sub "truss-annotation-data-service-api-${StageName}-url"
+
+  ApiGatewayId:
+    Description: API Gateway ID
+    Value: !Ref TrussDataServiceApi
+    Export:
+      Name: !Sub "truss-annotation-data-service-api-${StageName}-id"
+
+  Stage:
+    Description: Deployment stage
+    Value: !Ref StageName
+    Export:
+      Name: !Sub "truss-annotation-data-service-api-${StageName}-stage"
+
+  CustomAuthorizerArn:
+    Description: Custom Authorizer ARN used by this API
+    Value: "arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-custom-authorizer-prod"
+    Export:
+      Name: !Sub "truss-annotation-data-service-api-prod-custom-authorizer-arn"
+

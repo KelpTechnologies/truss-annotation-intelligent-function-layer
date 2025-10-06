@@ -1,0 +1,289 @@
+{
+  "generated_at": "2025-10-06T13:04:08.676Z",
+  "generator_version": "3.1.0",
+  "total_services": 1,
+  "services": [
+    {
+      "name": "knowledge-api",
+      "description": "Knowledge base service for annotation platform entity data and dataset exploration (api)",
+      "base_path": "/api/knowledge",
+      "endpoints": [
+        {
+          "path": "/brands",
+          "method": "GET",
+          "description": "Get all brands (filterable)",
+          "parameters": {
+            "filters": [
+              "brands",
+              "types",
+              "materials",
+              "colors",
+              "conditions",
+              "sizes",
+              "vendors",
+              "genders",
+              "models",
+              "decades",
+              "locations",
+              "hardwares",
+              "key_words"
+            ]
+          }
+        },
+        {
+          "path": "/types",
+          "method": "GET",
+          "description": "Get all garment types (filterable)",
+          "parameters": {
+            "filters": [
+              "brands",
+              "types",
+              "materials",
+              "colors",
+              "conditions",
+              "sizes",
+              "vendors",
+              "genders",
+              "models",
+              "decades",
+              "locations",
+              "hardwares",
+              "key_words"
+            ]
+          }
+        },
+        {
+          "path": "/materials",
+          "method": "GET",
+          "description": "Get all materials (filterable)",
+          "parameters": {
+            "filters": [
+              "brands",
+              "types",
+              "materials",
+              "colors",
+              "conditions",
+              "sizes",
+              "vendors",
+              "genders",
+              "models",
+              "decades",
+              "locations",
+              "hardwares",
+              "key_words"
+            ]
+          }
+        },
+        {
+          "path": "/colors",
+          "method": "GET",
+          "description": "Get all colors (filterable)",
+          "parameters": {
+            "filters": [
+              "brands",
+              "types",
+              "materials",
+              "colors",
+              "conditions",
+              "sizes",
+              "vendors",
+              "genders",
+              "models",
+              "decades",
+              "locations",
+              "hardwares",
+              "key_words"
+            ]
+          }
+        },
+        {
+          "path": "/sizes",
+          "method": "GET",
+          "description": "Get all sizes (filterable)",
+          "parameters": {
+            "filters": [
+              "brands",
+              "types",
+              "materials",
+              "colors",
+              "conditions",
+              "sizes",
+              "vendors",
+              "genders",
+              "models",
+              "decades",
+              "locations",
+              "hardwares",
+              "key_words"
+            ]
+          }
+        },
+        {
+          "path": "/conditions",
+          "method": "GET",
+          "description": "Get all conditions (filterable)",
+          "parameters": {
+            "filters": [
+              "brands",
+              "types",
+              "materials",
+              "colors",
+              "conditions",
+              "sizes",
+              "vendors",
+              "genders",
+              "models",
+              "decades",
+              "locations",
+              "hardwares",
+              "key_words"
+            ]
+          }
+        },
+        {
+          "path": "/models",
+          "method": "GET",
+          "description": "Get all models (filterable)",
+          "parameters": {
+            "filters": [
+              "brands",
+              "types",
+              "materials",
+              "colors",
+              "conditions",
+              "sizes",
+              "vendors",
+              "genders",
+              "models",
+              "decades",
+              "locations",
+              "hardwares",
+              "key_words"
+            ]
+          }
+        },
+        {
+          "path": "/vendors",
+          "method": "GET",
+          "description": "Get all vendors (filterable)",
+          "parameters": {
+            "filters": [
+              "brands",
+              "types",
+              "materials",
+              "colors",
+              "conditions",
+              "sizes",
+              "vendors",
+              "genders",
+              "models",
+              "decades",
+              "locations",
+              "hardwares",
+              "key_words"
+            ]
+          }
+        },
+        {
+          "path": "/summary",
+          "method": "GET",
+          "description": "Get dataset summary statistics (filterable)",
+          "parameters": {
+            "filters": [
+              "brands",
+              "types",
+              "materials",
+              "colors",
+              "conditions",
+              "sizes",
+              "vendors",
+              "genders",
+              "models",
+              "decades",
+              "locations",
+              "hardwares",
+              "key_words"
+            ]
+          }
+        },
+        {
+          "path": "/decades",
+          "method": "GET",
+          "description": "Get available decades (decade distribution)",
+          "parameters": {
+            "filters": [
+              "brands",
+              "types",
+              "materials",
+              "colors",
+              "conditions",
+              "sizes",
+              "vendors",
+              "genders",
+              "models",
+              "locations",
+              "hardwares",
+              "key_words"
+            ]
+          }
+        },
+        {
+          "path": "/locations",
+          "method": "GET",
+          "description": "Get all locations (location distribution)",
+          "parameters": {
+            "filters": [
+              "brands",
+              "types",
+              "materials",
+              "colors",
+              "conditions",
+              "sizes",
+              "vendors",
+              "genders",
+              "models",
+              "decades",
+              "hardwares",
+              "key_words"
+            ]
+          }
+        },
+        {
+          "path": "/hardwares",
+          "method": "GET",
+          "description": "Get all hardware materials (hardware distribution)",
+          "parameters": {
+            "filters": [
+              "brands",
+              "types",
+              "materials",
+              "colors",
+              "conditions",
+              "sizes",
+              "vendors",
+              "genders",
+              "models",
+              "decades",
+              "locations",
+              "hardwares"
+            ]
+          }
+        },
+        {
+          "path": "/health",
+          "method": "GET",
+          "description": "Health check endpoint for the knowledge service",
+          "parameters": {
+            "filters": [
+              "models",
+              "hardwares"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_endpoints": 13
+  }
+}

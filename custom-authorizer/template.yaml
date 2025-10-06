@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "Truss Annotation Custom Authorizer for multi-Cognito user pool support"
+
+Parameters:
+  StageName:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+    Description: Deployment stage
+
+  FunctionName:
+    Type: String
+    Default: truss-annotation-custom-authorizer
+    Description: Name for the custom authorizer function
+
+  CodeS3Bucket:
+    Type: String
+    Description: S3 bucket containing the deployment package
+
+  CodeS3Key:
+    Type: String
+    Description: S3 key for the deployment package
+
+Conditions:
+  IsProd: !Equals [!Ref StageName, "prod"]
+
+Resources:
+  # IAM Role for the Custom Authorizer
+  CustomAuthorizerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${FunctionName}-${StageName}-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: CustomAuthorizerPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${FunctionName}-${StageName}*"
+
+  # Custom Authorizer Lambda Function
+  CustomAuthorizerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${FunctionName}-${StageName}"
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt CustomAuthorizerRole.Arn
+      Code:
+        S3Bucket: !Ref CodeS3Bucket
+        S3Key: !Ref CodeS3Key
+      Timeout: 30
+      MemorySize: 256
+      Description: "Custom authorizer supporting multiple Cognito user pools"
+      Environment:
+        Variables:
+          STAGE: !Ref StageName
+          LOG_LEVEL: !If [IsProd, "ERROR", "INFO"]
+          USER_POOL_1: "eu-west-2_JyaPgaRFW"
+          USER_POOL_2: "eu-west-2_kTdl3FlEo"
+          REGION: !Ref AWS::Region
+
+  # Permission for API Gateway to invoke the authorizer
+  CustomAuthorizerInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CustomAuthorizerFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*/*/*"
+
+  # CloudWatch Log Group for the authorizer
+  CustomAuthorizerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${FunctionName}-${StageName}"
+      RetentionInDays: !If [IsProd, 30, 7]
+
+  ApiGatewayAuthorizerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "truss-api-gateway-authorizer-role-${StageName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: "InvokeLambda"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: "*"
+
+Outputs:
+  CustomAuthorizerFunctionArn:
+    Description: "ARN of the Custom Authorizer Lambda function"
+    Value: !GetAtt CustomAuthorizerFunction.Arn
+    Export:
+      Name: !Sub "truss-annotation-custom-authorizer-${StageName}-arn"
+
+  CustomAuthorizerFunctionName:
+    Description: "Name of the Custom Authorizer Lambda function"
+    Value: !Ref CustomAuthorizerFunction
+    Export:
+      Name: !Sub "truss-annotation-custom-authorizer-${StageName}-name"
+
+  AuthorizerRoleArn:
+    Description: "ARN of the API Gateway Authorizer Role"
+    Value: !GetAtt ApiGatewayAuthorizerRole.Arn

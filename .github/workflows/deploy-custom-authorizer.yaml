@@ -1,0 +1,172 @@
+name: Deploy Custom Authorizer
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "custom-authorizer/**"
+      - "api-gateway/api-gateway-authorizer-role.yaml"
+      - ".github/workflows/deploy-custom-authorizer.yml"
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Deployment stage"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - prod
+      force_deploy:
+        description: "Force deployment even if no changes"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  set-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      stage: ${{ steps.set-stage.outputs.stage }}
+    steps:
+      - name: Set deployment stage
+        id: set-stage
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "stage=${{ github.event.inputs.stage }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "stage=prod" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
+            echo "stage=dev" >> $GITHUB_OUTPUT
+          else
+            echo "stage=dev" >> $GITHUB_OUTPUT
+          fi
+
+  package-and-deploy-authorizer:
+    runs-on: ubuntu-latest
+    needs: [set-environment]
+    env:
+      STAGE: ${{ needs.set-environment.outputs.stage }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: eu-west-2
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Package Custom Authorizer
+        run: |
+          echo "📦 Packaging custom authorizer for stage: ${STAGE}"
+
+          cd custom-authorizer
+
+          # Install dependencies
+          npm install --production
+
+          # Create deployment package
+          PACKAGE_NAME="custom-authorizer-${STAGE}-$(date +%s).zip"
+          zip -r "../${PACKAGE_NAME}" . -x "*.git*" "node_modules/.cache/*" "*.md"
+
+          cd ..
+
+          # Upload to S3
+          S3_BUCKET="truss-api-automated-deployments"
+          S3_KEY="lambda-packages/${PACKAGE_NAME}"
+
+          echo "☁️  Uploading package to S3: s3://${S3_BUCKET}/${S3_KEY}"
+          aws s3 cp "${PACKAGE_NAME}" "s3://${S3_BUCKET}/${S3_KEY}"
+
+          # Store package info for next job
+          echo "S3_BUCKET=${S3_BUCKET}" >> $GITHUB_ENV
+          echo "S3_KEY=${S3_KEY}" >> $GITHUB_ENV
+          echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_ENV
+
+          # Clean up local package
+          rm "${PACKAGE_NAME}"
+
+          echo "✅ Custom authorizer packaged and uploaded"
+
+      - name: Deploy Custom Authorizer
+        run: |
+          echo "🚀 Deploying custom authorizer Lambda for stage: ${STAGE}"
+
+          STACK_NAME="truss-custom-authorizer-${STAGE}"
+
+          aws cloudformation deploy \
+            --stack-name "${STACK_NAME}" \
+            --template-file custom-authorizer/template.yaml \
+            --parameter-overrides \
+              StageName=${STAGE} \
+              CodeS3Bucket=${S3_BUCKET} \
+              CodeS3Key=${S3_KEY} \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset
+
+          echo "✅ Custom authorizer deployed successfully"
+
+      - name: Verify deployment
+        run: |
+          echo "🔍 Verifying custom authorizer deployment..."
+
+          FUNCTION_NAME="truss-custom-authorizer-${STAGE}"
+
+          # Check if function exists and get its status
+          if aws lambda get-function --function-name "${FUNCTION_NAME}" >/dev/null 2>&1; then
+            echo "✅ Custom authorizer function exists: ${FUNCTION_NAME}"
+            
+            # Get function details
+            FUNCTION_ARN=$(aws lambda get-function --function-name "${FUNCTION_NAME}" --query 'Configuration.FunctionArn' --output text)
+            FUNCTION_STATE=$(aws lambda get-function --function-name "${FUNCTION_NAME}" --query 'Configuration.State' --output text)
+            LAST_UPDATE_STATUS=$(aws lambda get-function --function-name "${FUNCTION_NAME}" --query 'Configuration.LastUpdateStatus' --output text)
+            
+            echo "📍 Function ARN: ${FUNCTION_ARN}"
+            echo "📊 Function State: ${FUNCTION_STATE}"
+            echo "🔄 Last Update Status: ${LAST_UPDATE_STATUS}"
+            
+            if [[ "$FUNCTION_STATE" == "Active" ]] && [[ "$LAST_UPDATE_STATUS" == "Successful" ]]; then
+              echo "✅ Custom authorizer is ready for use"
+            else
+              echo "⚠️  Custom authorizer may not be ready yet"
+            fi
+          else
+            echo "❌ Custom authorizer function not found: ${FUNCTION_NAME}"
+            exit 1
+          fi
+
+      - name: Output deployment summary
+        run: |
+          echo "🎉 Custom Authorizer Deployment Complete!"
+          echo "📍 Stage: ${STAGE}"
+          echo "🔗 Function: truss-custom-authorizer-${STAGE}"
+          echo "📦 Package: ${PACKAGE_NAME}"
+          echo ""
+          echo "📊 Deployment Summary:"
+          echo "   - Authorizer Stack: truss-custom-authorizer-${STAGE}"
+          echo "   - Function Name: truss-custom-authorizer-${STAGE}"
+          echo ""
+          echo "🔗 Next Steps:"
+          echo "   1. Automated annotation service using Cognito auth will automatically use the custom authorizer"
+          echo "   2. Regenerate service templates if needed"
+          echo "   3. Deploy API Gateway to pick up the new authorizer"
+
+  notify-deployment:
+    needs: [package-and-deploy-authorizer, set-environment]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Notify deployment status
+        run: |
+          if [[ "${{ needs.package-and-deploy-authorizer.result }}" == "success" ]]; then
+            echo "✅ Custom Authorizer deployment successful for stage: ${{ needs.set-environment.outputs.stage }}"
+          else
+            echo "❌ Custom Authorizer deployment failed for stage: ${{ needs.set-environment.outputs.stage }}"
+            exit 1
+          fi

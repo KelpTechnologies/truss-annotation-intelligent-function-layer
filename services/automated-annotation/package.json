@@ -1,0 +1,26 @@
+{
+  "name": "truss-automated-annotation-service",
+  "version": "1.0.0",
+  "description": "Automated annotation service using LangChain for knowledge extraction and text annotation",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "langchain": "^0.0.208",
+    "@langchain/openai": "^0.0.14",
+    "@langchain/core": "^0.1.0",
+    "aws-sdk": "^2.1490.0"
+  },
+  "keywords": [
+    "langchain",
+    "ai",
+    "annotation",
+    "knowledge-extraction",
+    "lambda",
+    "aws",
+    "automation"
+  ],
+  "author": "Truss",
+  "license": "ISC"
+}

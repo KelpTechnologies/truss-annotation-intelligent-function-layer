@@ -1,0 +1,388 @@
+name: Deploy Services
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "services/**"
+      - "scripts/deploy-service.js"
+      - "scripts/deploy-all-services.js"
+      - "scripts/generate-service-templates.js"
+      - "scripts/generate-service-registry.js"
+      - ".github/workflows/deploy-services.yml"
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Deployment stage"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - prod
+      max_parallel:
+        description: "Maximum parallel deployments"
+        required: false
+        default: "5"
+        type: string
+
+jobs:
+  set-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      stage: ${{ steps.set-stage.outputs.stage }}
+      services_to_deploy_json: ${{ steps.detect-changes.outputs.services_to_deploy_json }}
+      services_count: ${{ steps.detect-changes.outputs.services_count }}
+      max_parallel: ${{ steps.set-max-parallel.outputs.max_parallel }}
+    steps:
+      - name: Set deployment stage
+        id: set-stage
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "stage=${{ github.event.inputs.stage }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "stage=prod" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
+            echo "stage=dev" >> $GITHUB_OUTPUT
+          else
+            echo "stage=dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set max parallel deployments
+        id: set-max-parallel
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "max_parallel=${{ github.event.inputs.max_parallel }}" >> $GITHUB_OUTPUT
+          else
+            echo "max_parallel=5" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up service list for deployment
+        id: detect-changes
+        run: |
+          # This job now deploys ALL services every time.
+          # The old logic for detecting changed services has been removed for simplicity and reliability.
+
+          is_service_directory() {
+            local dir=$1
+            if [ -f "$dir/config.json" ] && ([ -f "$dir/index.js" ] || [ -f "$dir/index.py" ]); then
+              return 0
+            else
+              return 1
+            fi
+          }
+
+          # Find all services and format as JSON array for the deployment matrix
+          all_services=()
+          echo "🔍 Searching for services in services/ directory..."
+
+          while IFS= read -r -d '' config_file; do
+            service_dir=$(dirname "$config_file")
+            echo "  Found config at: $config_file"
+            echo "  Service dir: $service_dir"
+            
+            if is_service_directory "$service_dir"; then
+              relative_path="${service_dir#services/}"
+              # Remove any leading slash that might remain
+              relative_path="${relative_path#/}"
+              flattened_name=$(echo "$relative_path" | tr '/' '-')
+              all_services+=("$flattened_name")
+              echo "  ✅ Added service: $flattened_name"
+            else
+              echo "  ❌ Not a valid service directory: $service_dir"
+            fi
+          done < <(find "services/" -name "config.json" -type f -print0)
+
+          echo "📊 Total services found: ${#all_services[@]}"
+          echo "📋 Services list: ${all_services[*]}"
+
+          if [ ${#all_services[@]} -eq 0 ]; then
+            echo "❌ No services found! This should not happen."
+            echo "🔍 Debug: Checking if services directory exists..."
+            if [ -d "services/" ]; then
+              echo "✅ services/ directory exists"
+              echo "📂 Contents of services/:"
+              ls -la services/
+            else
+              echo "❌ services/ directory does not exist!"
+            fi
+            exit 1
+          fi
+
+          json_services=$(printf '%s\n' "${all_services[@]}" | jq -R . | jq -sc .)
+          echo "🔧 Generated JSON: $json_services"
+
+          echo "services_to_deploy_json=$json_services" >> $GITHUB_OUTPUT
+          echo "services_list=${all_services[*]}" >> $GITHUB_OUTPUT
+          echo "services_count=${#all_services[@]}" >> $GITHUB_OUTPUT
+
+  validate-services:
+    runs-on: ubuntu-latest
+    needs: set-environment
+    if: needs.set-environment.outputs.services_count != '0' && needs.set-environment.outputs.services_count != ''
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        run: |
+          npm install js-yaml glob
+
+      - name: Generate service registry
+        run: |
+          echo "🔄 Generating service registry..."
+          node scripts/generate-service-registry.js
+
+          echo "📋 Registry contents:"
+          if [ -f "services/meta/routes/service-registry.json" ]; then
+            jq '.services | length' services/meta/routes/service-registry.json
+            echo "services found in registry"
+          fi
+
+      - name: Validate all services
+        run: |
+          echo "🔍 Validating all service configurations..."
+
+          # Function to check if directory is a service
+          is_service_directory() {
+            local dir=$1
+            # A service directory must have config.json AND (index.js OR index.py)
+            if [ -f "$dir/config.json" ] && ([ -f "$dir/index.js" ] || [ -f "$dir/index.py" ]); then
+              return 0  # true
+            else
+              return 1  # false
+            fi
+          }
+
+          # Function to validate a service
+          validate_service() {
+            local service_dir=$1
+            # Remove trailing slash and get the full relative path for display
+            service_dir=${service_dir%/}
+            local service_name=$(basename "$service_dir")
+            local service_path=${service_dir#services/}
+            
+            echo "Validating $service_path..."
+            
+            # Check required files
+            if [ ! -f "$service_dir/config.json" ]; then
+              echo "❌ Missing config.json in $service_path"
+              return 1
+            fi
+            
+            if [ ! -f "$service_dir/index.js" ] && [ ! -f "$service_dir/index.py" ]; then
+              echo "❌ Missing handler file in $service_path"
+              return 1
+            fi
+            
+            # Validate JSON syntax
+            if ! jq empty "$service_dir/config.json" 2>/dev/null; then
+              echo "❌ Invalid JSON in $service_path/config.json"
+              return 1
+            fi
+            
+            # Generate templates to validate config
+            if ! node scripts/generate-service-templates.js "$service_dir"; then
+              echo "❌ Template generation failed for $service_path"
+              return 1
+            fi
+            
+            echo "✅ $service_path is valid"
+            return 0
+          }
+
+          # Function to find all service directories recursively
+          find_service_directories() {
+            local base_dir=$1
+            local services=()
+            
+            # Use find to locate all config.json files, then check if parent dir is a service
+            while IFS= read -r -d '' config_file; do
+              local service_dir=$(dirname "$config_file")
+              if is_service_directory "$service_dir"; then
+                services+=("$service_dir")
+              fi
+            done < <(find "$base_dir" -name "config.json" -type f -print0)
+            
+            printf '%s\n' "${services[@]}"
+          }
+
+          # Validate all services
+          validation_failed=false
+          service_count=0
+
+          mapfile -t service_dirs < <(find_service_directories "services/")
+
+          for service_dir in "${service_dirs[@]}"; do
+            if [ -n "$service_dir" ] && [ -d "$service_dir" ]; then
+              if ! validate_service "$service_dir"; then
+                validation_failed=true
+              fi
+              service_count=$((service_count + 1))
+            fi
+          done
+
+          echo "📊 Found $service_count services to validate"
+
+          if [ "$validation_failed" = true ]; then
+            echo "❌ Service validation failed"
+            exit 1
+          fi
+
+          if [ "$service_count" -eq 0 ]; then
+            echo "⚠️  No services found to validate"
+            exit 0
+          fi
+
+          echo "✅ All $service_count services validated successfully"
+
+  deploy-service:
+    runs-on: ubuntu-latest
+    needs: [set-environment, validate-services]
+    strategy:
+      matrix:
+        service_name: ${{ fromJson(needs.set-environment.outputs.services_to_deploy_json) }}
+      max-parallel: ${{ needs.set-environment.outputs.max_parallel }}
+      fail-fast: false
+    env:
+      STAGE: ${{ needs.set-environment.outputs.stage }}
+      SERVICE_NAME: ${{ matrix.service_name }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Debug outputs
+        run: |
+          echo "🔍 Debugging job outputs:"
+          echo "services_count: '${{ needs.set-environment.outputs.services_count }}'"
+          echo "services_to_deploy_json: '${{ needs.set-environment.outputs.services_to_deploy_json }}'"
+          echo "max_parallel: '${{ needs.set-environment.outputs.max_parallel }}'"
+          echo "stage: '${{ needs.set-environment.outputs.stage }}'"
+          echo "service_name: '${{ matrix.service_name }}'"
+
+      - name: Locate service directory
+        id: locate-service
+        run: |
+          echo "Looking for service: ${{ matrix.service_name }}"
+
+          # Convert flattened name back to path
+          service_path=$(echo "${{ matrix.service_name }}" | tr '-' '/')
+          full_service_path="services/$service_path"
+
+          echo "Trying service path: $full_service_path"
+
+          if [ -d "$full_service_path" ]; then
+            echo "Found service directory: $full_service_path"
+            echo "SERVICE_DIR=$full_service_path" >> $GITHUB_ENV
+            echo "SERVICE_PATH=$service_path" >> $GITHUB_ENV
+          else
+            echo "Service directory not found at: $full_service_path"
+            echo "Let me check what's actually in services/:"
+            ls -la services/
+            echo "Checking if automated-annotation directory exists:"
+            ls -la services/automated-annotation/ || echo "automated-annotation directory does not exist"
+            exit 1
+          fi
+
+      - name: Debug service info
+        run: |
+          echo "🔍 Debug: Service deployment info:"
+          echo "Service Path: $SERVICE_PATH"
+          echo "Service Name: $SERVICE_NAME"
+          echo "Service Dir: $SERVICE_DIR"
+          echo "Stage: $STAGE"
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        run: |
+          npm install js-yaml glob
+
+      - name: Generate service templates
+        run: |
+          echo "🔧 Generating templates for $SERVICE_NAME..."
+          node scripts/generate-service-templates.js "$SERVICE_DIR"
+
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: eu-west-2
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Deploy service
+        run: |
+          echo "🚀 Deploying $SERVICE_NAME to $STAGE..."
+          echo "Service Path: $SERVICE_PATH"
+          echo "Service Dir: $SERVICE_DIR"
+
+          # Verify service directory exists
+          if [ ! -d "$SERVICE_DIR" ]; then
+            echo "❌ Service directory does not exist: $SERVICE_DIR"
+            exit 1
+          fi
+
+          # Verify config.json exists
+          if [ ! -f "$SERVICE_DIR/config.json" ]; then
+            echo "❌ Service config.json does not exist: $SERVICE_DIR/config.json"
+            exit 1
+          fi
+
+          # Build deployment command
+          DEPLOY_CMD="node scripts/deploy-service.js $SERVICE_DIR --stage=$STAGE"
+
+          # Set required environment variables
+          export DATABASE_USER="${{ secrets.DATABASE_USER }}"
+          export DATABASE_PASSWORD="${{ secrets.DATABASE_PASSWORD }}"
+
+          echo "Executing: $DEPLOY_CMD"
+          $DEPLOY_CMD
+
+      - name: Verify deployment
+        run: |
+          echo "✅ $SERVICE_NAME deployment completed"
+          echo "Stage: $STAGE"
+          echo "Service: $SERVICE_NAME"
+          echo "Path: $SERVICE_PATH"
+
+  deploy-summary:
+    runs-on: ubuntu-latest
+    needs: [set-environment, deploy-service]
+    if: always()
+    steps:
+      - name: Deployment Summary
+        run: |
+          echo "📊 Deployment Summary"
+          echo "════════════════════════════════════════"
+          echo "Stage: ${{ needs.set-environment.outputs.stage }}"
+          echo "Services: automated-annotation (LangChain-powered AI service)"
+          echo "Max Parallel: ${{ needs.set-environment.outputs.max_parallel }}"
+          echo "════════════════════════════════════════"
+
+          # Check deployment results
+          if [[ "${{ needs.deploy-service.result }}" == "success" ]]; then
+            echo "✅ Automated annotation service deployed successfully"
+            echo "🔗 Service endpoints:"
+            echo "   - POST /automations/annotation/extract-knowledge"
+            echo "   - POST /automations/annotation/annotate"
+            echo "   - GET /automations/annotation/health"
+          elif [[ "${{ needs.deploy-service.result }}" == "failure" ]]; then
+            echo "❌ Automated annotation service failed to deploy"
+            exit 1
+          else
+            echo "⚠️  Deployment status unclear"
+          fi

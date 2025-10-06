@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "Truss Data Service API Gateway - Generated for external-prod"
+
+Parameters:
+  StageName:
+    Type: String
+    Default: external-prod
+    Description: Deployment stage
+
+Resources:
+  TrussDataServiceApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "truss-annotation-data-service-api-${StageName}"
+      StageName: !Ref StageName
+      DefinitionUri: s3://truss-api-automated-deployments/api-specs/6160cc19fefe/deployment-ready-external-prod.yaml
+      EndpointConfiguration:
+        Type: REGIONAL
+      TracingEnabled: true
+
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          MetricsEnabled: true
+          DataTraceEnabled: false
+          LoggingLevel: INFO
+          ThrottlingRateLimit: 1000
+          ThrottlingBurstLimit: 2000
+
+Outputs:
+  ApiGatewayUrl:
+    Description: API Gateway Invoke URL
+    Value: !Sub "https://${TrussDataServiceApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
+    Export:
+      Name: !Sub "truss-annotation-data-service-api-${StageName}-url"
+
+  ApiGatewayId:
+    Description: API Gateway ID
+    Value: !Ref TrussDataServiceApi
+    Export:
+      Name: !Sub "truss-annotation-data-service-api-${StageName}-id"
+
+  Stage:
+    Description: Deployment stage
+    Value: !Ref StageName
+    Export:
+      Name: !Sub "truss-annotation-data-service-api-${StageName}-stage"
+
