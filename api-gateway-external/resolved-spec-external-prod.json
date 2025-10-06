@@ -6,7 +6,7 @@
     "description": "Comprehensive API for Truss Data Services with multi-authentication support\n\n## Services Included\n\n- **automated-annotation**: Automated annotation service using LangChain for knowledge extraction and text annotation (api_key)",
     "x-deployment": {
       "stage": "external-prod",
-      "timestamp": "2025-10-06T13:30:31.324Z",
+      "timestamp": "2025-10-06T13:37:16.109Z",
       "lambdaArns": [
         "automated-annotationFunctionArn"
       ],
@@ -180,7 +180,7 @@
           }
         },
         "x-amazon-apigateway-integration": {
-          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-data-service-automated-annotation-prod/invocations",
+          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-automated-annotation-prod/invocations",
           "passthroughBehavior": "when_no_match",
           "httpMethod": "POST",
           "type": "aws_proxy",
@@ -423,7 +423,7 @@
           }
         },
         "x-amazon-apigateway-integration": {
-          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-data-service-automated-annotation-prod/invocations",
+          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-automated-annotation-prod/invocations",
           "passthroughBehavior": "when_no_match",
           "httpMethod": "POST",
           "type": "aws_proxy",
@@ -666,7 +666,7 @@
           }
         },
         "x-amazon-apigateway-integration": {
-          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-data-service-automated-annotation-prod/invocations",
+          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-automated-annotation-prod/invocations",
           "passthroughBehavior": "when_no_match",
           "httpMethod": "POST",
           "type": "aws_proxy",
