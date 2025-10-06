@@ -174,7 +174,7 @@ jobs:
             lambda_stage=dev
           fi
           for service in $services; do
-            stack_name="truss-annotation-intelligent-function-${service}-${lambda_stage}"
+            stack_name="truss-ai-${service}-${lambda_stage}"
             echo "Checking stack: $stack_name"
             aws cloudformation wait stack-create-complete --stack-name $stack_name 2>/dev/null || \
             aws cloudformation wait stack-update-complete --stack-name $stack_name 2>/dev/null || \
@@ -221,7 +221,7 @@ jobs:
           aws s3 cp api-gateway-external/deployment-ready-${STAGE}.yaml s3://truss-api-automated-deployments/api-specs/deployment-ready-${STAGE}.yaml
       - name: Deploy API Gateway
         run: |
-          STACK_NAME="truss-annotation-intelligent-function-api-${STAGE}"
+          STACK_NAME="truss-ai-api-${STAGE}"
           TEMPLATE_FILE="api-gateway-external/template-${STAGE}.yaml"
           echo "🚀 Deploying API Gateway stack: $STACK_NAME"
           aws cloudformation deploy \
@@ -235,7 +235,7 @@ jobs:
         id: get-url
         run: |
           API_URL=$(aws cloudformation describe-stacks \
-            --stack-name "truss-annotation-intelligent-function-api-${STAGE}" \
+            --stack-name "truss-ai-api-${STAGE}" \
             --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayUrl'].OutputValue" \
             --output text)
           echo "api_url=$API_URL" >> $GITHUB_OUTPUT
