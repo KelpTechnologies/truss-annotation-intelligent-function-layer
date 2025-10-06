@@ -229,15 +229,17 @@ function runMain() {
       writeRegistry(combinedRegistry, outputPath);
     });
 
-    // Write per-root registries (e.g., bags, all)
+    // Write per-root registries only if they have services
     Object.entries(perRootRegistries).forEach(([root, registry]) => {
-      const suffix = `service-registry-${root}.json`;
-      const outputs = [
-        `services/meta/routes/${suffix}`,
-        `api-gateway/${suffix}`,
-        `${suffix}`,
-      ];
-      outputs.forEach((outputPath) => writeRegistry(registry, outputPath));
+      if (registry.total_services > 0) {
+        const suffix = `service-registry-${root}.json`;
+        const outputs = [
+          `services/meta/routes/${suffix}`,
+          `api-gateway/${suffix}`,
+          `${suffix}`,
+        ];
+        outputs.forEach((outputPath) => writeRegistry(registry, outputPath));
+      }
     });
 
     console.log("✅ Service registry generation complete!");
