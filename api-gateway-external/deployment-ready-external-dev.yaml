@@ -1,5 +1,5 @@
 # Deployment-ready OpenAPI specification
-# Generated on: 2025-10-06T13:30:24.756Z
+# Generated on: 2025-10-06T13:37:09.901Z
 # Stage: external-dev
 # Lambda ARNs resolved: 1
 
@@ -15,7 +15,7 @@ info:
     - **automated-annotation**: Automated annotation service using LangChain for knowledge extraction and text annotation (api_key)
   x-deployment:
     stage: external-dev
-    timestamp: '2025-10-06T13:30:24.755Z'
+    timestamp: '2025-10-06T13:37:09.900Z'
     lambdaArns:
       - automated-annotationFunctionArn
     services:
@@ -120,7 +120,7 @@ paths:
               schema:
                 type: string
       x-amazon-apigateway-integration:
-        uri: arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-data-service-automated-annotation-dev/invocations
+        uri: arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-automated-annotation-dev/invocations
         passthroughBehavior: when_no_match
         httpMethod: POST
         type: aws_proxy
@@ -273,7 +273,7 @@ paths:
               schema:
                 type: string
       x-amazon-apigateway-integration:
-        uri: arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-data-service-automated-annotation-dev/invocations
+        uri: arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-automated-annotation-dev/invocations
         passthroughBehavior: when_no_match
         httpMethod: POST
         type: aws_proxy
@@ -426,7 +426,7 @@ paths:
               schema:
                 type: string
       x-amazon-apigateway-integration:
-        uri: arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-data-service-automated-annotation-dev/invocations
+        uri: arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-automated-annotation-dev/invocations
         passthroughBehavior: when_no_match
         httpMethod: POST
         type: aws_proxy

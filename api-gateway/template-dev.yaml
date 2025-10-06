@@ -12,9 +12,9 @@ Resources:
   TrussDataServiceApi:
     Type: AWS::Serverless::Api
     Properties:
-      Name: !Sub "truss-annotation-data-service-api-${StageName}"
+      Name: !Sub "truss-annotation-intelligent-function-api-${StageName}"
       StageName: !Ref StageName
-      DefinitionUri: s3://truss-api-automated-deployments/api-specs/0c06a9881538/deployment-ready-dev.yaml
+      DefinitionUri: s3://truss-api-automated-deployments/api-specs/d2d84dac650e/deployment-ready-dev.yaml
       EndpointConfiguration:
         Type: REGIONAL
       TracingEnabled: true
@@ -34,23 +34,23 @@ Outputs:
     Description: API Gateway Invoke URL
     Value: !Sub "https://${TrussDataServiceApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
     Export:
-      Name: !Sub "truss-annotation-data-service-api-${StageName}-url"
+      Name: !Sub "truss-annotation-intelligent-function-api-${StageName}-url"
 
   ApiGatewayId:
     Description: API Gateway ID
     Value: !Ref TrussDataServiceApi
     Export:
-      Name: !Sub "truss-annotation-data-service-api-${StageName}-id"
+      Name: !Sub "truss-annotation-intelligent-function-api-${StageName}-id"
 
   Stage:
     Description: Deployment stage
     Value: !Ref StageName
     Export:
-      Name: !Sub "truss-annotation-data-service-api-${StageName}-stage"
+      Name: !Sub "truss-annotation-intelligent-function-api-${StageName}-stage"
 
   CustomAuthorizerArn:
     Description: Custom Authorizer ARN used by this API
     Value: "arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-custom-authorizer-dev"
     Export:
-      Name: !Sub "truss-annotation-data-service-api-dev-custom-authorizer-arn"
+      Name: !Sub "truss-annotation-intelligent-function-api-dev-custom-authorizer-arn"
 

@@ -345,8 +345,8 @@ async function deployStack(
 ) {
   console.log(`   🏗️  Deploying CloudFormation stack...`);
 
-  const stackName = `truss-annotation-data-service-${serviceName}-${stage}`;
-  const functionName = `truss-annotation-data-service-${serviceName}-${stage}`;
+  const stackName = `truss-annotation-intelligent-function-${serviceName}-${stage}`;
+  const functionName = `truss-annotation-intelligent-function-${serviceName}-${stage}`;
   const templatePath = path.join(servicePath, "template.yaml");
 
   // Prepare parameters
