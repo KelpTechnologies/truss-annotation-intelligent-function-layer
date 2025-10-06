@@ -350,7 +350,11 @@ async function deployStack(
   const templatePath = path.join(servicePath, "template.yaml");
 
   // Prepare parameters
-  const parameters = [`StageName=${stage}`, `FunctionName=${functionName}`, `ServiceName=${serviceName}`];
+  const parameters = [
+    `StageName=${stage}`,
+    `FunctionName=${functionName}`,
+    `ServiceName=${serviceName}`,
+  ];
 
   if (packageInfo) {
     parameters.push(`CodeS3Bucket=${packageInfo.s3Bucket}`);
