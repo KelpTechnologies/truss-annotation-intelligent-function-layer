@@ -14,7 +14,7 @@ Resources:
     Properties:
       Name: !Sub "truss-annotation-data-service-api-${StageName}"
       StageName: !Ref StageName
-      DefinitionUri: s3://truss-api-automated-deployments/api-specs/e3c1463ad69a/deployment-ready-prod.yaml
+      DefinitionUri: s3://truss-api-automated-deployments/api-specs/259ab388e7c2/deployment-ready-prod.yaml
       EndpointConfiguration:
         Type: REGIONAL
       TracingEnabled: true
