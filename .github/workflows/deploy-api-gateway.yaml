@@ -236,7 +236,7 @@ jobs:
           done < <(find services/ -name "config.json" -type f -print0)
 
           for service in $services; do
-            stack_name="truss-ai-${service}-${STAGE}"
+            stack_name="truss-annotation-intelligent-function-${service}-${STAGE}"
             echo "Checking stack: $stack_name"
             
             # Wait for stack to be in stable state
@@ -279,7 +279,7 @@ jobs:
 
       - name: Deploy API Gateway
         run: |
-          STACK_NAME="truss-ai-api-${STAGE}"
+          STACK_NAME="truss-annotation-intelligent-function-api-${STAGE}"
           TEMPLATE_FILE="api-gateway/template-${STAGE}.yaml"
 
           echo "🚀 Deploying API Gateway stack: $STACK_NAME"
@@ -297,7 +297,7 @@ jobs:
         id: get-url
         run: |
           API_URL=$(aws cloudformation describe-stacks \
-            --stack-name "truss-ai-api-${STAGE}" \
+            --stack-name "truss-annotation-intelligent-function-api-${STAGE}" \
             --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayUrl'].OutputValue" \
             --output text)
 

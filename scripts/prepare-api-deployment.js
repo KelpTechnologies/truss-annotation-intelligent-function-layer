@@ -109,7 +109,7 @@ async function resolveLambdaArns(serviceNames, stage) {
   for (const serviceName of serviceNames) {
     try {
       // Use flattened service name for stack name
-      const stackName = `truss-ai-${serviceName}-${lambdaStage}`;
+      const stackName = `truss-annotation-intelligent-function-${serviceName}-${lambdaStage}`;
       const exportName = `${stackName}-FunctionArn`;
 
       console.log(`   🔍 Looking for export: ${exportName}`);
@@ -122,7 +122,7 @@ async function resolveLambdaArns(serviceNames, stage) {
         console.log(`   ✅ ${serviceName}: ${arn}`);
       } else {
         // Fallback to constructed ARN
-        const fallbackArn = `arn:aws:lambda:eu-west-2:193757560043:function:truss-ai-${serviceName}-${lambdaStage}`;
+        const fallbackArn = `arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-${serviceName}-${lambdaStage}`;
         lambdaArns[`${serviceName}FunctionArn`] = fallbackArn;
         console.log(`   ⚠️  ${serviceName}: Using fallback ARN ${fallbackArn}`);
       }
@@ -132,7 +132,7 @@ async function resolveLambdaArns(serviceNames, stage) {
         error.message
       );
       // Use fallback
-      const fallbackArn = `arn:aws:lambda:eu-west-2:193757560043:function:truss-ai-${serviceName}-${lambdaStage}`;
+      const fallbackArn = `arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-${serviceName}-${lambdaStage}`;
       lambdaArns[`${serviceName}FunctionArn`] = fallbackArn;
       console.log(`   ⚠️  ${serviceName}: Using fallback ARN ${fallbackArn}`);
     }
@@ -301,7 +301,7 @@ function generateApiGatewayTemplate(
 
   const customAuthorizerOutput = isExternal
     ? ""
-    : `\n  CustomAuthorizerArn:\n    Description: Custom Authorizer ARN used by this API\n    Value: \"${customAuthorizerArn}\"\n    Export:\n      Name: !Sub "truss-ai-api-${stage}-custom-authorizer-arn"\n`;
+    : `\n  CustomAuthorizerArn:\n    Description: Custom Authorizer ARN used by this API\n    Value: \"${customAuthorizerArn}\"\n    Export:\n      Name: !Sub "truss-annotation-intelligent-function-api-${stage}-custom-authorizer-arn"\n`;
 
   const template = `AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
@@ -317,7 +317,7 @@ Resources:
   TrussDataServiceApi:
     Type: AWS::Serverless::Api
     Properties:
-      Name: !Sub "truss-ai-api-\${StageName}"
+      Name: !Sub "truss-annotation-intelligent-function-api-\${StageName}"
       StageName: !Ref StageName
       DefinitionUri: s3://truss-api-automated-deployments/${
         definitionS3Key || `api-specs/deployment-ready-${stage}.yaml`
@@ -340,19 +340,19 @@ Outputs:
     Description: API Gateway Invoke URL
     Value: !Sub "https://\${TrussDataServiceApi}.execute-api.\${AWS::Region}.amazonaws.com/\${StageName}"
     Export:
-      Name: !Sub "truss-ai-api-\${StageName}-url"
+      Name: !Sub "truss-annotation-intelligent-function-api-\${StageName}-url"
 
   ApiGatewayId:
     Description: API Gateway ID
     Value: !Ref TrussDataServiceApi
     Export:
-      Name: !Sub "truss-ai-api-\${StageName}-id"
+      Name: !Sub "truss-annotation-intelligent-function-api-\${StageName}-id"
 
   Stage:
     Description: Deployment stage
     Value: !Ref StageName
     Export:
-      Name: !Sub "truss-ai-api-\${StageName}-stage"
+      Name: !Sub "truss-annotation-intelligent-function-api-\${StageName}-stage"
 ${customAuthorizerOutput}
 `;
 

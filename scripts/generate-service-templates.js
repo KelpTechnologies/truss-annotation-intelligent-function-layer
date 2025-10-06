@@ -75,6 +75,8 @@ Parameters:
     Default: dev
   FunctionName:
     Type: String
+  ServiceName:
+    Type: String
   CodeS3Bucket:
     Type: String
   CodeS3Key:
@@ -144,7 +146,7 @@ Resources:`;
   ServiceRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "\${FunctionName}-execution-role"
+      RoleName: !Sub "truss-ai-\${ServiceName}-\${StageName}-role"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:

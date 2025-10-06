@@ -345,12 +345,12 @@ async function deployStack(
 ) {
   console.log(`   🏗️  Deploying CloudFormation stack...`);
 
-  const stackName = `truss-ai-${serviceName}-${stage}`;
-  const functionName = `truss-ai-${serviceName}-${stage}`;
+  const stackName = `truss-annotation-intelligent-function-${serviceName}-${stage}`;
+  const functionName = `truss-annotation-intelligent-function-${serviceName}-${stage}`;
   const templatePath = path.join(servicePath, "template.yaml");
 
   // Prepare parameters
-  const parameters = [`StageName=${stage}`, `FunctionName=${functionName}`];
+  const parameters = [`StageName=${stage}`, `FunctionName=${functionName}`, `ServiceName=${serviceName}`];
 
   if (packageInfo) {
     parameters.push(`CodeS3Bucket=${packageInfo.s3Bucket}`);
