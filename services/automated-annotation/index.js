@@ -24,7 +24,6 @@ exports.handler = async (event, context) => {
   console.log("🚀 Automated Annotation service handler called");
   console.log("📅 Timestamp:", new Date().toISOString());
   console.log("🔍 Event:", JSON.stringify(event, null, 2));
-
   try {
     // Handle CORS preflight
     if (event.httpMethod === "OPTIONS") {
