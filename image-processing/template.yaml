@@ -73,13 +73,13 @@ Resources:
                   - s3:GetObject
                   - s3:GetObjectVersion
                 Resource:
-                  - !Sub "${SourceBucketName}/*"
+                  - !Sub "arn:aws:s3:::${SourceBucketName}/*"
               - Effect: Allow
                 Action:
                   - s3:PutObject
                   - s3:PutObjectAcl
                 Resource:
-                  - !Sub "${ProcessedBucketName}/*"
+                  - !Sub "arn:aws:s3:::${ProcessedBucketName}/*"
         - PolicyName: DynamoDBAccessPolicy
           PolicyDocument:
             Version: "2012-10-17"
