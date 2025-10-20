@@ -171,33 +171,7 @@ jobs:
                 {
                   "Id": "ImageProcessingTrigger",
                   "LambdaFunctionArn": "'${LAMBDA_ARN}'",
-                  "Events": ["s3:ObjectCreated:*"],
-                  "Filter": {
-                    "Key": {
-                      "FilterRules": [
-                        {
-                          "Name": "suffix",
-                          "Value": ".jpg"
-                        },
-                        {
-                          "Name": "suffix", 
-                          "Value": ".jpeg"
-                        },
-                        {
-                          "Name": "suffix",
-                          "Value": ".png"
-                        },
-                        {
-                          "Name": "suffix",
-                          "Value": ".webp"
-                        },
-                        {
-                          "Name": "suffix",
-                          "Value": ".gif"
-                        }
-                      ]
-                    }
-                  }
+                  "Events": ["s3:ObjectCreated:*"]
                 }
               ]
             }'
