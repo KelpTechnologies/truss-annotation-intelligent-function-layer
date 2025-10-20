@@ -1,0 +1,364 @@
+name: Deploy Image Processing Infrastructure
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "image-processing/**"
+      - "services/image-service/**"
+      - ".github/workflows/deploy-image-processing.yaml"
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Deployment stage"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - prod
+      deploy_infrastructure:
+        description: "Deploy S3 buckets and infrastructure"
+        required: false
+        default: true
+        type: boolean
+      deploy_image_service:
+        description: "Deploy image service API"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  set-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      stage: ${{ steps.set-stage.outputs.stage }}
+    steps:
+      - name: Set deployment stage
+        id: set-stage
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "stage=${{ github.event.inputs.stage }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "stage=prod" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
+            echo "stage=dev" >> $GITHUB_OUTPUT
+          else
+            echo "stage=dev" >> $GITHUB_OUTPUT
+          fi
+
+  deploy-image-processing-infrastructure:
+    needs: set-environment
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.deploy_infrastructure != 'false' }}
+    env:
+      STAGE: ${{ needs.set-environment.outputs.stage }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: eu-west-2
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Package Image Processing Lambda
+        run: |
+          echo "📦 Packaging image processing Lambda for stage: ${STAGE}"
+
+          cd image-processing
+
+          # Install dependencies
+          npm install --production
+
+          # Create deployment package
+          PACKAGE_NAME="image-processing-${STAGE}-$(date +%s).zip"
+          zip -r "../${PACKAGE_NAME}" . -x "*.git*" "node_modules/.cache/*" "*.md"
+
+          cd ..
+
+          # Upload to S3
+          S3_BUCKET="truss-api-automated-deployments"
+          S3_KEY="lambda-packages/${PACKAGE_NAME}"
+
+          echo "☁️  Uploading package to S3: s3://${S3_BUCKET}/${S3_KEY}"
+          aws s3 cp "${PACKAGE_NAME}" "s3://${S3_BUCKET}/${S3_KEY}"
+
+          # Store package info for deployment
+          echo "S3_BUCKET=${S3_BUCKET}" >> $GITHUB_ENV
+          echo "S3_KEY=${S3_KEY}" >> $GITHUB_ENV
+          echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_ENV
+
+          # Clean up local package
+          rm "${PACKAGE_NAME}"
+
+          echo "✅ Image processing Lambda packaged and uploaded"
+
+      - name: Deploy Image Processing Infrastructure
+        run: |
+          echo "🚀 Deploying image processing infrastructure for stage: ${STAGE}"
+
+          STACK_NAME="truss-image-processing-${STAGE}"
+          FUNCTION_NAME="truss-image-processing-${STAGE}"
+
+          aws cloudformation deploy \
+            --stack-name "${STACK_NAME}" \
+            --template-file image-processing/template.yaml \
+            --parameter-overrides \
+              StageName=${STAGE} \
+              FunctionName=${FUNCTION_NAME} \
+              CodeS3Bucket=${S3_BUCKET} \
+              CodeS3Key=${S3_KEY} \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset
+
+          echo "✅ Image processing infrastructure deployed successfully"
+
+      - name: Get Infrastructure Outputs
+        id: get-outputs
+        run: |
+          echo "🔍 Getting infrastructure outputs..."
+
+          STACK_NAME="truss-image-processing-${STAGE}"
+
+          SOURCE_BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name "${STACK_NAME}" \
+            --query "Stacks[0].Outputs[?OutputKey=='SourceBucketName'].OutputValue" \
+            --output text)
+
+          PROCESSED_BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name "${STACK_NAME}" \
+            --query "Stacks[0].Outputs[?OutputKey=='ProcessedBucketName'].OutputValue" \
+            --output text)
+
+          PROCESSED_BUCKET_URL=$(aws cloudformation describe-stacks \
+            --stack-name "${STACK_NAME}" \
+            --query "Stacks[0].Outputs[?OutputKey=='ProcessedBucketUrl'].OutputValue" \
+            --output text)
+
+          CLOUDFRONT_URL=$(aws cloudformation describe-stacks \
+            --stack-name "${STACK_NAME}" \
+            --query "Stacks[0].Outputs[?OutputKey=='CloudFrontUrl'].OutputValue" \
+            --output text)
+
+          PROCESSING_TABLE=$(aws cloudformation describe-stacks \
+            --stack-name "${STACK_NAME}" \
+            --query "Stacks[0].Outputs[?OutputKey=='ProcessingTableName'].OutputValue" \
+            --output text)
+
+          echo "source_bucket=${SOURCE_BUCKET}" >> $GITHUB_OUTPUT
+          echo "processed_bucket=${PROCESSED_BUCKET}" >> $GITHUB_OUTPUT
+          echo "processed_bucket_url=${PROCESSED_BUCKET_URL}" >> $GITHUB_OUTPUT
+          echo "cloudfront_url=${CLOUDFRONT_URL}" >> $GITHUB_OUTPUT
+          echo "processing_table=${PROCESSING_TABLE}" >> $GITHUB_OUTPUT
+
+          echo "✅ Infrastructure outputs retrieved:"
+          echo "   Source Bucket: ${SOURCE_BUCKET}"
+          echo "   Processed Bucket: ${PROCESSED_BUCKET}"
+          echo "   CloudFront URL: ${CLOUDFRONT_URL}"
+          echo "   Processing Table: ${PROCESSING_TABLE}"
+
+  deploy-image-service:
+    needs: [set-environment, deploy-image-processing-infrastructure]
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.deploy_image_service != 'false' }}
+    env:
+      STAGE: ${{ needs.set-environment.outputs.stage }}
+      SOURCE_BUCKET: ${{ needs.deploy-image-processing-infrastructure.outputs.source_bucket }}
+      PROCESSED_BUCKET: ${{ needs.deploy-image-processing-infrastructure.outputs.processed_bucket }}
+      PROCESSED_BUCKET_URL: ${{ needs.deploy-image-processing-infrastructure.outputs.processed_bucket_url }}
+      CLOUDFRONT_URL: ${{ needs.deploy-image-processing-infrastructure.outputs.cloudfront_url }}
+      PROCESSING_TABLE: ${{ needs.deploy-image-processing-infrastructure.outputs.processing_table }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        run: |
+          npm install js-yaml glob
+
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: eu-west-2
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Generate service templates for image service
+        run: |
+          echo "🔧 Generating templates for image service..."
+          node scripts/generate-service-templates.js "services/image-service"
+
+      - name: Deploy image service
+        run: |
+          echo "🚀 Deploying image service to ${STAGE}..."
+
+          # Set required environment variables for the service
+          export SOURCE_BUCKET="${SOURCE_BUCKET}"
+          export PROCESSED_BUCKET="${PROCESSED_BUCKET}"
+          export PROCESSED_BUCKET_URL="${PROCESSED_BUCKET_URL}"
+          export CLOUDFRONT_URL="${CLOUDFRONT_URL}"
+          export PROCESSING_TABLE="${PROCESSING_TABLE}"
+
+          # Deploy the service
+          node scripts/deploy-service.js "services/image-service" --stage=${STAGE}
+
+      - name: Verify image service deployment
+        run: |
+          echo "🔍 Verifying image service deployment..."
+
+          SERVICE_NAME="truss-annotation-intelligent-function-image-service-${STAGE}"
+
+          if aws lambda get-function --function-name "${SERVICE_NAME}" >/dev/null 2>&1; then
+            echo "✅ Image service deployed successfully: ${SERVICE_NAME}"
+            
+            # Get function details
+            FUNCTION_ARN=$(aws lambda get-function --function-name "${SERVICE_NAME}" --query 'Configuration.FunctionArn' --output text)
+            FUNCTION_STATE=$(aws lambda get-function --function-name "${SERVICE_NAME}" --query 'Configuration.State' --output text)
+            
+            echo "📍 Function ARN: ${FUNCTION_ARN}"
+            echo "📊 Function State: ${FUNCTION_STATE}"
+          else
+            echo "❌ Image service deployment failed: ${SERVICE_NAME}"
+            exit 1
+          fi
+
+  update-api-gateway:
+    needs: [set-environment, deploy-image-service]
+    runs-on: ubuntu-latest
+    env:
+      STAGE: ${{ needs.set-environment.outputs.stage }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        run: |
+          npm install js-yaml glob
+
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: eu-west-2
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Generate service registry
+        run: |
+          echo "🔄 Generating service registry..."
+          node scripts/generate-service-registry.js
+
+      - name: Prepare API Gateway deployment
+        run: |
+          echo "🚀 Preparing API Gateway deployment for stage: ${STAGE}"
+
+          if ! node scripts/prepare-api-deployment.js --stage=${STAGE}; then
+            echo "❌ API preparation script failed"
+            exit 1
+          fi
+
+          echo "✅ API Gateway preparation complete"
+
+      - name: Deploy API Gateway
+        run: |
+          STACK_NAME="truss-annotation-intelligent-function-api-${STAGE}"
+          TEMPLATE_FILE="api-gateway/template-${STAGE}.yaml"
+
+          echo "🚀 Deploying API Gateway stack: $STACK_NAME"
+
+          aws cloudformation deploy \
+            --stack-name $STACK_NAME \
+            --template-file $TEMPLATE_FILE \
+            --parameter-overrides StageName=${STAGE} \
+            --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
+            --no-fail-on-empty-changeset \
+            --s3-bucket truss-api-automated-deployments
+
+      - name: Get API Gateway URL
+        id: get-url
+        run: |
+          API_URL=$(aws cloudformation describe-stacks \
+            --stack-name "truss-annotation-intelligent-function-api-${STAGE}" \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayUrl'].OutputValue" \
+            --output text)
+
+          echo "api_url=$API_URL" >> $GITHUB_OUTPUT
+          echo "API_URL=$API_URL" >> $GITHUB_ENV
+
+  deployment-summary:
+    needs:
+      [
+        set-environment,
+        deploy-image-processing-infrastructure,
+        deploy-image-service,
+        update-api-gateway,
+      ]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Deployment Summary
+        run: |
+          echo "🎉 Image Processing Infrastructure Deployment Complete!"
+          echo "════════════════════════════════════════════════════════════════"
+          echo "📍 Stage: ${{ needs.set-environment.outputs.stage }}"
+          echo "🔗 API URL: ${{ needs.update-api-gateway.outputs.api_url }}"
+          echo ""
+          echo "📊 Infrastructure Summary:"
+          echo "   - Source S3 Bucket: ${{ needs.deploy-image-processing-infrastructure.outputs.source_bucket }}"
+          echo "   - Processed S3 Bucket: ${{ needs.deploy-image-processing-infrastructure.outputs.processed_bucket }}"
+          echo "   - CloudFront URL: ${{ needs.deploy-image-processing-infrastructure.outputs.cloudfront_url }}"
+          echo "   - Processing Table: ${{ needs.deploy-image-processing-infrastructure.outputs.processing_table }}"
+          echo ""
+          echo "🔗 Available Endpoints:"
+          echo "   Base URL: ${{ needs.update-api-gateway.outputs.api_url }}"
+          echo "   Image Service: ${{ needs.update-api-gateway.outputs.api_url }}/images"
+          echo ""
+          echo "📚 API Documentation:"
+          echo "   Swagger UI: ${{ needs.update-api-gateway.outputs.api_url }}/swagger"
+          echo "   OpenAPI Spec: ${{ needs.update-api-gateway.outputs.api_url }}/openapi.json"
+          echo ""
+          echo "🚀 Image Processing Workflow:"
+          echo "   1. POST /images/upload-url - Get presigned upload URL"
+          echo "   2. Upload image to S3 using presigned URL"
+          echo "   3. S3 event triggers image processing Lambda"
+          echo "   4. GET /images/status/{processingId} - Check processing status"
+          echo "   5. GET /images/processed/{uniqueId} - Get processed image URLs"
+          echo ""
+          echo "✅ All components deployed successfully!"
+
+  notify-deployment:
+    needs:
+      [
+        set-environment,
+        deploy-image-processing-infrastructure,
+        deploy-image-service,
+        update-api-gateway,
+      ]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Notify deployment status
+        run: |
+          if [[ "${{ needs.deploy-image-processing-infrastructure.result }}" == "success" && "${{ needs.deploy-image-service.result }}" == "success" && "${{ needs.update-api-gateway.result }}" == "success" ]]; then
+            echo "✅ Image Processing Infrastructure deployment successful for stage: ${{ needs.set-environment.outputs.stage }}"
+          else
+            echo "❌ Image Processing Infrastructure deployment failed for stage: ${{ needs.set-environment.outputs.stage }}"
+            echo "Infrastructure: ${{ needs.deploy-image-processing-infrastructure.result }}"
+            echo "Image Service: ${{ needs.deploy-image-service.result }}"
+            echo "API Gateway: ${{ needs.update-api-gateway.result }}"
+            exit 1
+          fi

@@ -1,7 +1,7 @@
 {
-  "generated_at": "2025-10-06T15:17:30.198Z",
+  "generated_at": "2025-10-20T16:42:42.613Z",
   "generator_version": "3.1.0",
-  "total_services": 1,
+  "total_services": 2,
   "services": [
     {
       "name": "automated-annotation",
@@ -39,9 +39,98 @@
           "parameters": {}
         }
       ]
+    },
+    {
+      "name": "image-service",
+      "description": "Image service for managing image uploads, processing status, and processed image URLs",
+      "base_path": "/images",
+      "endpoints": [
+        {
+          "path": "/upload-url",
+          "method": "POST",
+          "description": "Generate a presigned URL for uploading images",
+          "parameters": {
+            "body": {
+              "filename": "string (required) - Original filename of the image",
+              "contentType": "string (optional) - MIME type of the image",
+              "expiresIn": "number (optional) - URL expiration time in seconds (default: 3600)"
+            }
+          }
+        },
+        {
+          "path": "/upload-url",
+          "method": "GET",
+          "description": "Generate a presigned URL for uploading images (query params)",
+          "parameters": {
+            "query": {
+              "filename": "string (required) - Original filename of the image",
+              "contentType": "string (optional) - MIME type of the image",
+              "expiresIn": "number (optional) - URL expiration time in seconds (default: 3600)"
+            }
+          }
+        },
+        {
+          "path": "/status/{processingId}",
+          "method": "GET",
+          "description": "Get processing status for an image",
+          "parameters": {
+            "path": {
+              "processingId": "string (required) - Processing ID returned from upload"
+            }
+          }
+        },
+        {
+          "path": "/list",
+          "method": "GET",
+          "description": "List images with optional filtering",
+          "parameters": {
+            "query": {
+              "status": "string (optional) - Filter by processing status (uploaded, processing, completed, failed)",
+              "limit": "number (optional) - Maximum number of results (default: 50)",
+              "lastKey": "string (optional) - Pagination token for next page"
+            }
+          }
+        },
+        {
+          "path": "/processed/{uniqueId}",
+          "method": "GET",
+          "description": "Get processed image URLs for a specific upload",
+          "parameters": {
+            "path": {
+              "uniqueId": "string (required) - Unique ID returned from upload"
+            }
+          }
+        },
+        {
+          "path": "/process/{uniqueId}",
+          "method": "POST",
+          "description": "Manually trigger processing for an uploaded image",
+          "parameters": {
+            "path": {
+              "uniqueId": "string (required) - Unique ID returned from upload"
+            }
+          }
+        },
+        {
+          "path": "/image/{uniqueId}",
+          "method": "DELETE",
+          "description": "Delete an image and all its processed versions",
+          "parameters": {
+            "path": {
+              "uniqueId": "string (required) - Unique ID returned from upload"
+            }
+          }
+        },
+        {
+          "path": "/health",
+          "method": "GET",
+          "description": "Health check endpoint for the image service",
+          "parameters": {}
+        }
+      ]
     }
   ],
   "summary": {
-    "total_endpoints": 3
+    "total_endpoints": 11
   }
 }

@@ -1,0 +1,137 @@
+{
+  "service": {
+    "name": "image-service",
+    "description": "Image service for managing image uploads, processing status, and processed image URLs",
+    "version": "1.0.0"
+  },
+  "deployment": {
+    "runtime": "nodejs18.x",
+    "timeout": 30,
+    "memory": 512,
+    "layers": [
+      "arn:aws:lambda:eu-west-2:193757560043:layer:truss-toolkit-nodejs-layer:194",
+      "arn:aws:lambda:eu-west-2:193757560043:layer:service-layer-utils:1"
+    ]
+  },
+  "database": {
+    "required": false,
+    "connection_type": "none",
+    "permissions": []
+  },
+  "api": {
+    "base_path": "/images",
+    "cors_enabled": true,
+    "endpoints": [
+      {
+        "path": "/upload-url",
+        "method": "POST",
+        "description": "Generate a presigned URL for uploading images",
+        "parameters": {
+          "body": {
+            "filename": "string (required) - Original filename of the image",
+            "contentType": "string (optional) - MIME type of the image",
+            "expiresIn": "number (optional) - URL expiration time in seconds (default: 3600)"
+          }
+        }
+      },
+      {
+        "path": "/upload-url",
+        "method": "GET",
+        "description": "Generate a presigned URL for uploading images (query params)",
+        "parameters": {
+          "query": {
+            "filename": "string (required) - Original filename of the image",
+            "contentType": "string (optional) - MIME type of the image",
+            "expiresIn": "number (optional) - URL expiration time in seconds (default: 3600)"
+          }
+        }
+      },
+      {
+        "path": "/status/{processingId}",
+        "method": "GET",
+        "description": "Get processing status for an image",
+        "parameters": {
+          "path": {
+            "processingId": "string (required) - Processing ID returned from upload"
+          }
+        }
+      },
+      {
+        "path": "/list",
+        "method": "GET",
+        "description": "List images with optional filtering",
+        "parameters": {
+          "query": {
+            "status": "string (optional) - Filter by processing status (uploaded, processing, completed, failed)",
+            "limit": "number (optional) - Maximum number of results (default: 50)",
+            "lastKey": "string (optional) - Pagination token for next page"
+          }
+        }
+      },
+      {
+        "path": "/processed/{uniqueId}",
+        "method": "GET",
+        "description": "Get processed image URLs for a specific upload",
+        "parameters": {
+          "path": {
+            "uniqueId": "string (required) - Unique ID returned from upload"
+          }
+        }
+      },
+      {
+        "path": "/process/{uniqueId}",
+        "method": "POST",
+        "description": "Manually trigger processing for an uploaded image",
+        "parameters": {
+          "path": {
+            "uniqueId": "string (required) - Unique ID returned from upload"
+          }
+        }
+      },
+      {
+        "path": "/image/{uniqueId}",
+        "method": "DELETE",
+        "description": "Delete an image and all its processed versions",
+        "parameters": {
+          "path": {
+            "uniqueId": "string (required) - Unique ID returned from upload"
+          }
+        }
+      },
+      {
+        "path": "/health",
+        "method": "GET",
+        "description": "Health check endpoint for the image service",
+        "parameters": {}
+      }
+    ]
+  },
+  "aws": {
+    "region": "eu-west-2",
+    "account_id": "193757560043",
+    "vpc_id": "vpc-04e79f1770f4205de"
+  },
+  "access": {
+    "internal": true,
+    "external": true,
+    "auth_config": {
+      "cognito": {
+        "user_pool_arn": "arn:aws:cognito-idp:eu-west-2:193757560043:userpool/eu-west-2_JyaPgaRFW",
+        "cors_origin": "*"
+      },
+      "api_key": {
+        "cors_origin": "*"
+      }
+    }
+  },
+  "image_processing": {
+    "source_bucket": "truss-image-source-{stage}-{account_id}",
+    "processed_bucket": "truss-image-processed-{stage}-{account_id}",
+    "processing_table": "truss-image-processing-{stage}",
+    "cloudfront_url": "https://{cloudfront_domain}",
+    "supported_formats": ["jpg", "jpeg", "png", "webp", "gif"],
+    "processed_sizes": ["thumbnail", "medium", "large", "webp"],
+    "max_file_size": "10MB",
+    "presigned_url_expiry": 3600
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "image-service",
+  "version": "1.0.0",
+  "description": "Image service for managing image uploads and processing",
+  "main": "index.js",
+  "dependencies": {
+    "aws-sdk": "^2.1500.0",
+    "uuid": "^9.0.1"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "aws",
+    "lambda",
+    "image",
+    "s3",
+    "upload"
+  ],
+  "author": "Truss",
+  "license": "ISC"
+}

@@ -1,0 +1,248 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "Image processing infrastructure with S3 buckets and Lambda function"
+
+Parameters:
+  StageName:
+    Type: String
+    Default: dev
+    Description: Deployment stage (dev/prod)
+  FunctionName:
+    Type: String
+    Description: Name of the image processing Lambda function
+  CodeS3Bucket:
+    Type: String
+    Description: S3 bucket containing the Lambda deployment package
+  CodeS3Key:
+    Type: String
+    Description: S3 key of the Lambda deployment package
+
+Resources:
+  # Source S3 Bucket for uploaded images
+  SourceImageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "truss-image-source-${StageName}-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt ImageProcessingLambda.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .jpg
+                  - Name: suffix
+                    Value: .jpeg
+                  - Name: suffix
+                    Value: .png
+                  - Name: suffix
+                    Value: .webp
+                  - Name: suffix
+                    Value: .gif
+
+  # Processed S3 Bucket for processed images
+  ProcessedImageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "truss-image-processed-${StageName}-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  # DynamoDB table for processing status
+  ProcessingStatusTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "truss-image-processing-${StageName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: processingId
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: processingId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: TimestampIndex
+          KeySchema:
+            - AttributeName: timestamp
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # IAM Role for Lambda function
+  ImageProcessingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "truss-image-processing-${StageName}-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: !Sub "${FunctionName}-Policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub "${SourceImageBucket}/*"
+                  - !Sub "${ProcessedImageBucket}/*"
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !Ref SourceImageBucket
+                  - !Ref ProcessedImageBucket
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt ProcessingStatusTable.Arn
+
+  # Lambda function for image processing
+  ImageProcessingLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref FunctionName
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Role: !GetAtt ImageProcessingRole.Arn
+      Code:
+        S3Bucket: !Ref CodeS3Bucket
+        S3Key: !Ref CodeS3Key
+      Timeout: 300
+      MemorySize: 1024
+      Environment:
+        Variables:
+          STAGE: !Ref StageName
+          SOURCE_BUCKET: !Ref SourceImageBucket
+          PROCESSED_BUCKET: !Ref ProcessedImageBucket
+          PROCESSING_TABLE: !Ref ProcessingStatusTable
+      Layers:
+        - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:truss-toolkit-nodejs-layer:194"
+
+  # Lambda permission for S3 to invoke the function
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ImageProcessingLambda
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub "${SourceImageBucket}/*"
+
+  # CloudFront distribution for processed images (optional)
+  ProcessedImageDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - Id: ProcessedImageOrigin
+            DomainName: !GetAtt ProcessedImageBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${ProcessedImageOriginAccessIdentity}"
+        DefaultCacheBehavior:
+          TargetOriginId: ProcessedImageOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # CachingDisabled
+          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03 # SecurityHeadersPolicy
+        Enabled: true
+        Comment: !Sub "CloudFront distribution for processed images - ${StageName}"
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_100
+
+  # CloudFront Origin Access Identity
+  ProcessedImageOriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub "OAI for processed images - ${StageName}"
+
+  # S3 bucket policy for CloudFront
+  ProcessedImageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ProcessedImageBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${ProcessedImageOriginAccessIdentity}"
+            Action: s3:GetObject
+            Resource: !Sub "${ProcessedImageBucket}/*"
+
+Outputs:
+  SourceBucketName:
+    Description: "Name of the source S3 bucket"
+    Value: !Ref SourceImageBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-SourceBucketName"
+
+  ProcessedBucketName:
+    Description: "Name of the processed S3 bucket"
+    Value: !Ref ProcessedImageBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-ProcessedBucketName"
+
+  ProcessedBucketUrl:
+    Description: "URL of the processed S3 bucket"
+    Value: !Sub "https://${ProcessedImageBucket}.s3.${AWS::Region}.amazonaws.com"
+    Export:
+      Name: !Sub "${AWS::StackName}-ProcessedBucketUrl"
+
+  CloudFrontUrl:
+    Description: "CloudFront URL for processed images"
+    Value: !Sub "https://${ProcessedImageDistribution.DomainName}"
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudFrontUrl"
+
+  ProcessingTableName:
+    Description: "Name of the processing status DynamoDB table"
+    Value: !Ref ProcessingStatusTable
+    Export:
+      Name: !Sub "${AWS::StackName}-ProcessingTableName"
+
+  LambdaFunctionArn:
+    Description: "ARN of the image processing Lambda function"
+    Value: !GetAtt ImageProcessingLambda.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-LambdaFunctionArn"

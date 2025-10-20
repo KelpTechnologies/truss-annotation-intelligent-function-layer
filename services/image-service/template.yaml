@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "Image service for managing image uploads, processing status, and processed image URLs"
+
+Parameters:
+  StageName:
+    Type: String
+    Default: dev
+  FunctionName:
+    Type: String
+  ServiceName:
+    Type: String
+  CodeS3Bucket:
+    Type: String
+  CodeS3Key:
+    Type: String
+  ApiGatewayId:
+    Type: String
+    Description: API Gateway ID that will invoke this Lambda
+    Default: "*"
+
+Resources:
+  ServiceApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    Properties:
+      Name: !Sub "${FunctionName}-api-key"
+      Description: "API Key for image-service service"
+      Enabled: true
+  ServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "truss-ai-${ServiceName}-${StageName}-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: !Sub "${FunctionName}-Policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:bigquery-service-account*"
+                  - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:openAI*"
+
+  ServiceLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref FunctionName
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Role: !GetAtt ServiceRole.Arn
+      Code:
+        S3Bucket: !Ref CodeS3Bucket
+        S3Key: !Ref CodeS3Key
+      Timeout: 30
+      MemorySize: 512
+      Layers:
+        - "arn:aws:lambda:eu-west-2:193757560043:layer:truss-toolkit-nodejs-layer:194"
+        - "arn:aws:lambda:eu-west-2:193757560043:layer:service-layer-utils:1"
+      Environment:
+        Variables:
+          STAGE: !Ref StageName
+          SERVICE_NAME: "image-service"
+          SUPPORTED_AUTH_MODES: "cognito,api_key"
+          DEFAULT_AUTH_MODE: "cognito"
+          BIGQUERY_SECRET_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:bigquery-service-account-GipBFQ"
+          OPENAI_SECRET_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:openAI-FNAJfl"
+          API_KEY_ID: !Ref ServiceApiKey
+          COGNITO_USER_POOL_ARNS: "arn:aws:cognito-idp:eu-west-2:193757560043:userpool/eu-west-2_JyaPgaRFW"
+
+  ServiceLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ServiceLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*/*/*"
+
+Outputs:
+  FunctionArn:
+    Description: "ARN of the image-service Service Lambda"
+    Value: !GetAtt ServiceLambda.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-FunctionArn"
+
+  FunctionName:
+    Description: "Name of the image-service Service Lambda"
+    Value: !Ref ServiceLambda
+    Export:
+      Name: !Sub "${AWS::StackName}-FunctionName"
+
+  ApiKeyId:
+    Description: API Key ID for private access
+    Value: !Ref ServiceApiKey
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiKeyId"
