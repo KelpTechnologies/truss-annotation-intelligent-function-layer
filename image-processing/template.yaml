@@ -123,7 +123,7 @@ Resources:
       FunctionName: !Ref ImageProcessingLambda
       Action: lambda:InvokeFunction
       Principal: s3.amazonaws.com
-      SourceArn: !Sub "${SourceBucketName}/*"
+      SourceArn: !Sub "arn:aws:s3:::${SourceBucketName}"
 
 Outputs:
   ProcessingTableName:
