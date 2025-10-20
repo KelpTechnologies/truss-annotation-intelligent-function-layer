@@ -89,12 +89,14 @@ jobs:
 
           echo "✅ Image processing Lambda packaged and uploaded"
 
-      - name: Deploy Image Processing Infrastructure
+      - name: Deploy Image Processing Lambda
         run: |
-          echo "🚀 Deploying image processing infrastructure for stage: ${STAGE}"
+          echo "🚀 Deploying image processing Lambda for stage: ${STAGE}"
 
           STACK_NAME="truss-image-processing-${STAGE}"
           FUNCTION_NAME="truss-image-processing-${STAGE}"
+          SOURCE_BUCKET="truss-annotation-image-source-${STAGE}"
+          PROCESSED_BUCKET="truss-annotation-image-processed-${STAGE}"
 
           aws cloudformation deploy \
             --stack-name "${STACK_NAME}" \
@@ -104,37 +106,21 @@ jobs:
               FunctionName=${FUNCTION_NAME} \
               CodeS3Bucket=${S3_BUCKET} \
               CodeS3Key=${S3_KEY} \
+              SourceBucketName=${SOURCE_BUCKET} \
+              ProcessedBucketName=${PROCESSED_BUCKET} \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
 
-          echo "✅ Image processing infrastructure deployed successfully"
+          echo "✅ Image processing Lambda deployed successfully"
 
-      - name: Get Infrastructure Outputs
+      - name: Get Lambda Outputs
         id: get-outputs
         run: |
-          echo "🔍 Getting infrastructure outputs..."
+          echo "🔍 Getting Lambda outputs..."
 
           STACK_NAME="truss-image-processing-${STAGE}"
-
-          SOURCE_BUCKET=$(aws cloudformation describe-stacks \
-            --stack-name "${STACK_NAME}" \
-            --query "Stacks[0].Outputs[?OutputKey=='SourceBucketName'].OutputValue" \
-            --output text)
-
-          PROCESSED_BUCKET=$(aws cloudformation describe-stacks \
-            --stack-name "${STACK_NAME}" \
-            --query "Stacks[0].Outputs[?OutputKey=='ProcessedBucketName'].OutputValue" \
-            --output text)
-
-          PROCESSED_BUCKET_URL=$(aws cloudformation describe-stacks \
-            --stack-name "${STACK_NAME}" \
-            --query "Stacks[0].Outputs[?OutputKey=='ProcessedBucketUrl'].OutputValue" \
-            --output text)
-
-          CLOUDFRONT_URL=$(aws cloudformation describe-stacks \
-            --stack-name "${STACK_NAME}" \
-            --query "Stacks[0].Outputs[?OutputKey=='CloudFrontUrl'].OutputValue" \
-            --output text)
+          SOURCE_BUCKET="truss-annotation-image-source-${STAGE}"
+          PROCESSED_BUCKET="truss-annotation-image-processed-${STAGE}"
 
           PROCESSING_TABLE=$(aws cloudformation describe-stacks \
             --stack-name "${STACK_NAME}" \
@@ -148,16 +134,14 @@ jobs:
 
           echo "source_bucket=${SOURCE_BUCKET}" >> $GITHUB_OUTPUT
           echo "processed_bucket=${PROCESSED_BUCKET}" >> $GITHUB_OUTPUT
-          echo "processed_bucket_url=${PROCESSED_BUCKET_URL}" >> $GITHUB_OUTPUT
-          echo "cloudfront_url=${CLOUDFRONT_URL}" >> $GITHUB_OUTPUT
           echo "processing_table=${PROCESSING_TABLE}" >> $GITHUB_OUTPUT
           echo "lambda_function_arn=${LAMBDA_FUNCTION_ARN}" >> $GITHUB_OUTPUT
 
-          echo "✅ Infrastructure outputs retrieved:"
+          echo "✅ Lambda outputs retrieved:"
           echo "   Source Bucket: ${SOURCE_BUCKET}"
           echo "   Processed Bucket: ${PROCESSED_BUCKET}"
-          echo "   CloudFront URL: ${CLOUDFRONT_URL}"
           echo "   Processing Table: ${PROCESSING_TABLE}"
+          echo "   Lambda Function ARN: ${LAMBDA_FUNCTION_ARN}"
 
   configure-s3-notifications:
     needs: [set-environment, deploy-image-processing-infrastructure]
@@ -231,27 +215,26 @@ jobs:
     steps:
       - name: Deployment Summary
         run: |
-          echo "🎉 Image Processing Infrastructure Deployment Complete!"
+          echo "🎉 Image Processing Lambda Deployment Complete!"
           echo "════════════════════════════════════════════════════════════════"
           echo "📍 Stage: ${{ needs.set-environment.outputs.stage }}"
           echo ""
-          echo "📊 Infrastructure Summary:"
+          echo "📊 Deployment Summary:"
           echo "   - Source S3 Bucket: ${{ needs.deploy-image-processing-infrastructure.outputs.source_bucket }}"
           echo "   - Processed S3 Bucket: ${{ needs.deploy-image-processing-infrastructure.outputs.processed_bucket }}"
-          echo "   - CloudFront URL: ${{ needs.deploy-image-processing-infrastructure.outputs.cloudfront_url }}"
           echo "   - Processing Table: ${{ needs.deploy-image-processing-infrastructure.outputs.processing_table }}"
+          echo "   - Lambda Function: truss-image-processing-${{ needs.set-environment.outputs.stage }}"
           echo ""
           echo "🚀 Image Processing Workflow:"
           echo "   1. Upload image to S3 source bucket"
           echo "   2. S3 event triggers image processing Lambda"
           echo "   3. Processed images stored in processed bucket"
-          echo "   4. Access processed images via CloudFront URL"
           echo ""
           echo "📝 Next Steps:"
           echo "   - Deploy image service using: Deploy Services workflow"
           echo "   - Update API Gateway using: Deploy API Gateway workflow"
           echo ""
-          echo "✅ Infrastructure components deployed successfully!"
+          echo "✅ Lambda and DynamoDB deployed successfully!"
 
   notify-deployment:
     needs:
