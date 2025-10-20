@@ -148,8 +148,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       STAGE: ${{ needs.set-environment.outputs.stage }}
-      SOURCE_BUCKET: ${{ needs.deploy-image-processing-infrastructure.outputs.source_bucket }}
-      PROCESSING_LAMBDA: ${{ needs.deploy-image-processing-infrastructure.outputs.lambda_function_arn }}
     steps:
       - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v2
@@ -162,14 +160,17 @@ jobs:
         run: |
           echo "🔧 Configuring S3 bucket notifications for image processing..."
 
+          # Get Lambda function ARN
+          LAMBDA_ARN=$(aws lambda get-function --function-name "truss-image-processing-${STAGE}" --query 'Configuration.FunctionArn' --output text)
+
           # Configure S3 bucket notification to trigger Lambda on image upload
           aws s3api put-bucket-notification-configuration \
-            --bucket "${SOURCE_BUCKET}" \
+            --bucket "truss-annotation-image-source-${STAGE}" \
             --notification-configuration '{
               "LambdaConfigurations": [
                 {
                   "Id": "ImageProcessingTrigger",
-                  "LambdaFunctionArn": "'${PROCESSING_LAMBDA}'",
+                  "LambdaFunctionArn": "'${LAMBDA_ARN}'",
                   "Events": ["s3:ObjectCreated:*"],
                   "Filter": {
                     "Key": {
