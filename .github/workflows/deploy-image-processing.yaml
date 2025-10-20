@@ -167,7 +167,7 @@ jobs:
           aws s3api put-bucket-notification-configuration \
             --bucket "truss-annotation-image-source-${STAGE}" \
             --notification-configuration '{
-              "LambdaConfigurations": [
+              "LambdaFunctionConfigurations": [
                 {
                   "Id": "ImageProcessingTrigger",
                   "LambdaFunctionArn": "'${LAMBDA_ARN}'",
