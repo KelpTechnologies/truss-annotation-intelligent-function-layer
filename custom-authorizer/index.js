@@ -14,6 +14,11 @@ const SUPPORTED_USER_POOLS = [
     region: "eu-west-2",
     arn: "arn:aws:cognito-idp:eu-west-2:193757560043:userpool/eu-west-2_kTdl3FlEo",
   },
+  {
+    userPoolId: "eu-west-2_uwZ2LBjRY",
+    region: "eu-west-2",
+    arn: "arn:aws:cognito-idp:eu-west-2:193757560043:userpool/eu-west-2_uwZ2LBjRY",
+  },
 ];
 
 // Cache for JWKS clients

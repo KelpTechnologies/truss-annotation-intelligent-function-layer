@@ -72,6 +72,7 @@ Resources:
           LOG_LEVEL: !If [IsProd, "ERROR", "INFO"]
           USER_POOL_1: "eu-west-2_JyaPgaRFW"
           USER_POOL_2: "eu-west-2_kTdl3FlEo"
+          USER_POOL_3: "eu-west-2_uwZ2LBjRY"
           REGION: !Ref AWS::Region
 
   # Permission for API Gateway to invoke the authorizer
