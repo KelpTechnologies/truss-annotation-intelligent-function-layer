@@ -26,6 +26,14 @@ exports.handler = async (event) => {
       event;
     const pathInfo = parsePath(path);
 
+    console.log("Request details:", {
+      httpMethod,
+      path,
+      pathInfo,
+      queryStringParameters,
+      body: body ? JSON.parse(body) : null
+    });
+
     // Route requests based on HTTP method and path
     switch (httpMethod) {
       case "GET":
@@ -52,11 +60,11 @@ exports.handler = async (event) => {
 function parsePath(path) {
   const segments = path.split("/").filter((segment) => segment);
 
-  if (segments.length >= 3 && segments[0] === "images") {
+  if (segments.length >= 2 && segments[0] === "images") {
     return {
       endpoint: segments[1],
-      id: segments[2],
-      subEndpoint: segments[3],
+      id: segments[2] || null,
+      subEndpoint: segments[3] || null,
     };
   }
 
@@ -67,6 +75,8 @@ function parsePath(path) {
  * Handle GET requests
  */
 async function handleGetRequest(pathInfo, queryParams) {
+  console.log("GET request handler:", { pathInfo, queryParams });
+  
   switch (pathInfo.endpoint) {
     case "upload-url":
       return await generateUploadUrl(queryParams);
@@ -84,6 +94,7 @@ async function handleGetRequest(pathInfo, queryParams) {
         timestamp: new Date().toISOString(),
       });
     default:
+      console.log("Unknown endpoint:", pathInfo.endpoint);
       return createResponse(404, { error: "Endpoint not found" });
   }
 }
