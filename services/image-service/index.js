@@ -6,11 +6,19 @@ const s3 = new AWS.S3();
 const dynamodb = new AWS.DynamoDB.DocumentClient();
 
 // Configuration from environment variables
-const SOURCE_BUCKET = process.env.SOURCE_BUCKET;
-const PROCESSED_BUCKET = process.env.PROCESSED_BUCKET;
-const PROCESSING_TABLE = process.env.PROCESSING_TABLE;
-const CLOUDFRONT_URL = process.env.CLOUDFRONT_URL;
-const STAGE = process.env.STAGE;
+const STAGE = process.env.STAGE || "prod";
+const SOURCE_BUCKET = `truss-annotation-image-source-${STAGE}`;
+const PROCESSED_BUCKET = `truss-annotation-image-processed-${STAGE}`;
+const PROCESSING_TABLE = `truss-image-processing-${STAGE}`;
+const CLOUDFRONT_URL = `https://truss-annotation-image-processed-${STAGE}.s3.eu-west-2.amazonaws.com`;
+
+console.log("Configuration:", {
+  STAGE,
+  SOURCE_BUCKET,
+  PROCESSED_BUCKET,
+  PROCESSING_TABLE,
+  CLOUDFRONT_URL,
+});
 
 /**
  * Main Lambda handler for image service API endpoints
@@ -31,7 +39,7 @@ exports.handler = async (event) => {
       path,
       pathInfo,
       queryStringParameters,
-      body: body ? JSON.parse(body) : null
+      body: body ? JSON.parse(body) : null,
     });
 
     // Route requests based on HTTP method and path
@@ -76,7 +84,7 @@ function parsePath(path) {
  */
 async function handleGetRequest(pathInfo, queryParams) {
   console.log("GET request handler:", { pathInfo, queryParams });
-  
+
   switch (pathInfo.endpoint) {
     case "upload-url":
       return await generateUploadUrl(queryParams);

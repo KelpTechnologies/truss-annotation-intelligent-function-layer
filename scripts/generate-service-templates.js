@@ -55,6 +55,7 @@ function generateCloudFormationTemplate(
   const supportsServiceRole = authConfig.service_role;
   const requiresDatabase = config.database.required;
   const requiresVPC = config.deployment.vpc_config?.required || false;
+  const requiresImageProcessing = config.image_processing !== undefined;
 
   // Build security modes list for environment variables
   const securityModes = [];
@@ -216,6 +217,33 @@ Resources:`;
                 Resource: "*"`;
   }
 
+  // Add S3 and DynamoDB permissions for image processing
+  if (requiresImageProcessing) {
+    template += `
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                  - s3:GetObjectVersion
+                Resource:
+                  - !Sub "arn:aws:s3:::truss-annotation-image-source-\${StageName}"
+                  - !Sub "arn:aws:s3:::truss-annotation-image-source-\${StageName}/*"
+                  - !Sub "arn:aws:s3:::truss-annotation-image-processed-\${StageName}"
+                  - !Sub "arn:aws:s3:::truss-annotation-image-processed-\${StageName}/*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !Sub "arn:aws:dynamodb:\${AWS::Region}:\${AWS::AccountId}:table/truss-image-processing-\${StageName}"`;
+  }
+
   // Lambda Function
   template += `
 
@@ -290,6 +318,15 @@ ${config.deployment.layers.map((layer) => `        - "${layer}"`).join("\n")}`;
 
     template += `
           COGNITO_USER_POOL_ARNS: "${cognitoArns.join(",")}"`;
+  }
+
+  // Image processing environment variables
+  if (requiresImageProcessing) {
+    template += `
+          SOURCE_BUCKET: !Sub "truss-annotation-image-source-\${StageName}"
+          PROCESSED_BUCKET: !Sub "truss-annotation-image-processed-\${StageName}"
+          PROCESSING_TABLE: !Sub "truss-image-processing-\${StageName}"
+          CLOUDFRONT_URL: !Sub "https://truss-annotation-image-processed-\${StageName}.s3.${config.aws.region}.amazonaws.com"`;
   }
 
   // Lambda Permissions - Allow any API Gateway to invoke

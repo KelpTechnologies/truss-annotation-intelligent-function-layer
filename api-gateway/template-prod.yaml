@@ -14,7 +14,7 @@ Resources:
     Properties:
       Name: !Sub "truss-annotation-intelligent-function-api-${StageName}"
       StageName: !Ref StageName
-      DefinitionUri: s3://truss-api-automated-deployments/api-specs/ce1f3a613633/deployment-ready-prod.yaml
+      DefinitionUri: s3://truss-api-automated-deployments/api-specs/3a9ac11ae1c7/deployment-ready-prod.yaml
       EndpointConfiguration:
         Type: REGIONAL
       TracingEnabled: true
