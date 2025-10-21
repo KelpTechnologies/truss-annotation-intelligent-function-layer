@@ -219,7 +219,7 @@ async function getProcessingStatus(processingId) {
       originalKey: result.Item.originalKey,
       status: result.Item.status,
       timestamp: result.Item.timestamp,
-      processedImages: result.Item.processedImages,
+      processedImage: result.Item.processedImage,
       error: result.Item.error,
     });
   } catch (error) {
@@ -268,33 +268,42 @@ async function listImages(queryParams) {
 /**
  * Get processed images for a specific upload
  */
-async function getProcessedImages(uniqueId) {
+async function getProcessedImages(processingId) {
   try {
-    if (!uniqueId) {
-      return createResponse(400, { error: "Unique ID is required" });
+    if (!processingId) {
+      return createResponse(400, { error: "Processing ID is required" });
     }
 
-    // List objects in processed bucket with the unique ID prefix
+    // Get the processing record from DynamoDB
     const params = {
-      Bucket: PROCESSED_BUCKET,
-      Prefix: `processed/${uniqueId}`,
-      MaxKeys: 10,
+      TableName: PROCESSING_TABLE,
+      Key: {
+        processingId: processingId,
+      },
     };
 
-    const result = await s3.listObjectsV2(params).promise();
+    const result = await dynamodb.get(params).promise();
 
-    const processedImages = result.Contents.map((obj) => ({
-      key: obj.Key,
-      url: `${CLOUDFRONT_URL}/${obj.Key}`,
-      size: obj.Size,
-      lastModified: obj.LastModified,
-      sizeType: extractSizeType(obj.Key),
-    }));
+    if (!result.Item) {
+      return createResponse(404, { error: "Processing record not found" });
+    }
+
+    // Return the single processed image
+    const processedImage = result.Item.processedImage;
+
+    if (!processedImage) {
+      return createResponse(404, { error: "No processed image found" });
+    }
 
     return createResponse(200, {
-      uniqueId: uniqueId,
-      processedImages: processedImages,
-      count: processedImages.length,
+      processingId: processingId,
+      processedImage: {
+        key: processedImage.key,
+        url: processedImage.url,
+        size: processedImage.size,
+      },
+      status: result.Item.status,
+      timestamp: result.Item.timestamp,
     });
   } catch (error) {
     console.error("Error getting processed images:", error);

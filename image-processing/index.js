@@ -50,8 +50,12 @@ async function processImageRecord(record) {
   console.log(`Processing image: ${bucket}/${key}`);
 
   try {
-    // Generate processing ID
-    const processingId = generateProcessingId();
+    // Extract processing ID from the S3 key (uploads/{processingId}.{ext})
+    const keyParts = key.split("/");
+    const filename = keyParts[keyParts.length - 1];
+    const processingId = filename.split(".")[0]; // Remove file extension
+
+    console.log(`Using processing ID from key: ${processingId}`);
 
     // Update processing status
     await updateProcessingStatus(processingId, key, "processing");
@@ -60,25 +64,32 @@ async function processImageRecord(record) {
     const imageData = await downloadImage(bucket, key);
 
     // Process the image
-    const processedImages = await processImage(imageData, key);
+    const { processedImage, metadata, baseName } = await processImage(
+      imageData,
+      key
+    );
 
-    // Upload processed images to destination bucket
-    const uploadResults = await uploadProcessedImages(processedImages, key);
+    // Upload processed image to destination bucket
+    const uploadResult = await uploadProcessedImage(processedImage, key);
 
     // Update processing status to completed
-    await updateProcessingStatus(processingId, key, "completed", uploadResults);
+    await updateProcessingStatus(processingId, key, "completed", uploadResult);
 
     return {
       processingId,
       originalKey: key,
       status: "completed",
-      processedImages: uploadResults,
+      processedImage: uploadResult,
     };
   } catch (error) {
     console.error(`Error processing ${key}:`, error);
 
+    // Extract processing ID from the S3 key for error case too
+    const keyParts = key.split("/");
+    const filename = keyParts[keyParts.length - 1];
+    const processingId = filename.split(".")[0]; // Remove file extension
+
     // Update processing status to failed
-    const processingId = generateProcessingId();
     await updateProcessingStatus(
       processingId,
       key,
@@ -108,49 +119,30 @@ async function downloadImage(bucket, key) {
  * Process image using Sharp
  */
 async function processImage(imageBuffer, originalKey) {
-  const processedImages = {};
-
   try {
     // Get image metadata
     const metadata = await sharp(imageBuffer).metadata();
     console.log("Image metadata:", metadata);
 
-    // Generate different sizes and formats
+    // Generate single optimized 768x768 WebP image for Gemini
     const baseName = originalKey.replace(/\.[^/.]+$/, "");
 
-    // Original size, WebP format
-    processedImages.webp = await sharp(imageBuffer)
-      .webp({ quality: 85 })
-      .toBuffer();
-
-    // Thumbnail (300x300)
-    processedImages.thumbnail = await sharp(imageBuffer)
-      .resize(300, 300, {
-        fit: "inside",
-        withoutEnlargement: true,
+    const processedImage = await sharp(imageBuffer)
+      .resize(768, 768, {
+        fit: "cover", // Crop to fill exact dimensions
+        position: "center", // Center the crop
       })
-      .webp({ quality: 80 })
-      .toBuffer();
-
-    // Medium size (800x600)
-    processedImages.medium = await sharp(imageBuffer)
-      .resize(800, 600, {
-        fit: "inside",
-        withoutEnlargement: true,
+      .webp({
+        quality: 90, // High quality for Gemini
+        effort: 6, // Maximum compression effort
       })
-      .webp({ quality: 85 })
       .toBuffer();
 
-    // Large size (1920x1080)
-    processedImages.large = await sharp(imageBuffer)
-      .resize(1920, 1080, {
-        fit: "inside",
-        withoutEnlargement: true,
-      })
-      .webp({ quality: 90 })
-      .toBuffer();
-
-    return processedImages;
+    return {
+      processedImage,
+      metadata,
+      baseName,
+    };
   } catch (error) {
     console.error("Error processing image:", error);
     throw new Error(`Image processing failed: ${error.message}`);
@@ -160,42 +152,32 @@ async function processImage(imageBuffer, originalKey) {
 /**
  * Upload processed images to S3
  */
-async function uploadProcessedImages(processedImages, originalKey) {
+async function uploadProcessedImage(processedImage, originalKey) {
   const baseName = originalKey.replace(/\.[^/.]+$/, "");
-  const uploadResults = {};
+  const key = `${baseName}_768x768.webp`;
 
   try {
-    const uploadPromises = Object.entries(processedImages).map(
-      async ([size, buffer]) => {
-        const key = `${baseName}_${size}.webp`;
+    const params = {
+      Bucket: PROCESSED_BUCKET,
+      Key: key,
+      Body: processedImage,
+      ContentType: "image/webp",
+      Metadata: {
+        "original-key": originalKey,
+        "processed-size": "768x768",
+        "processed-at": new Date().toISOString(),
+      },
+    };
 
-        const params = {
-          Bucket: PROCESSED_BUCKET,
-          Key: key,
-          Body: buffer,
-          ContentType: "image/webp",
-          Metadata: {
-            "original-key": originalKey,
-            "processed-size": size,
-            "processed-at": new Date().toISOString(),
-          },
-        };
+    const result = await s3.upload(params).promise();
 
-        const result = await s3.upload(params).promise();
-        return { size, key, url: result.Location };
-      }
-    );
-
-    const results = await Promise.all(uploadPromises);
-
-    // Store results in uploadResults object
-    results.forEach(({ size, key, url }) => {
-      uploadResults[size] = { key, url };
-    });
-
-    return uploadResults;
+    return {
+      key,
+      url: result.Location,
+      size: "768x768",
+    };
   } catch (error) {
-    console.error("Error uploading processed images:", error);
+    console.error("Error uploading processed image:", error);
     throw new Error(`Upload failed: ${error.message}`);
   }
 }
@@ -207,7 +189,7 @@ async function updateProcessingStatus(
   processingId,
   originalKey,
   status,
-  processedImages = null,
+  processedImage = null,
   error = null
 ) {
   const params = {
@@ -221,8 +203,8 @@ async function updateProcessingStatus(
     },
   };
 
-  if (processedImages) {
-    params.Item.processedImages = processedImages;
+  if (processedImage) {
+    params.Item.processedImage = processedImage;
   }
 
   if (error) {
