@@ -242,5 +242,5 @@ async function updateProcessingStatus(
  * Generate a unique processing ID
  */
 function generateProcessingId() {
-  return `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  return uuidv4();
 }

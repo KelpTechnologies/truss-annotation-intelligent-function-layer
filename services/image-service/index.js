@@ -101,6 +101,8 @@ async function handleGetRequest(pathInfo, queryParams) {
         stage: STAGE,
         timestamp: new Date().toISOString(),
       });
+    case "debug":
+      return await debugTable();
     default:
       console.log("Unknown endpoint:", pathInfo.endpoint);
       return createResponse(404, { error: "Endpoint not found" });
@@ -169,6 +171,7 @@ async function generateUploadUrl(params) {
       uploadUrl: presignedUrl,
       key: key,
       uniqueId: uniqueId,
+      processingId: uniqueId,
       expiresIn: expiresIn,
       processedImageUrl: `${CLOUDFRONT_URL}/${key.replace(
         "uploads/",
@@ -190,6 +193,9 @@ async function getProcessingStatus(processingId) {
       return createResponse(400, { error: "Processing ID is required" });
     }
 
+    console.log("Getting processing status for ID:", processingId);
+    console.log("Using table:", PROCESSING_TABLE);
+
     const params = {
       TableName: PROCESSING_TABLE,
       Key: {
@@ -197,9 +203,14 @@ async function getProcessingStatus(processingId) {
       },
     };
 
+    console.log("DynamoDB query params:", JSON.stringify(params, null, 2));
+
     const result = await dynamodb.get(params).promise();
 
+    console.log("DynamoDB result:", JSON.stringify(result, null, 2));
+
     if (!result.Item) {
+      console.log("No item found for processingId:", processingId);
       return createResponse(404, { error: "Processing record not found" });
     }
 
@@ -395,7 +406,7 @@ async function storeUploadRecord(uniqueId, key, filename, contentType) {
   const params = {
     TableName: PROCESSING_TABLE,
     Item: {
-      processingId: `upload_${uniqueId}`,
+      processingId: uniqueId,
       uniqueId: uniqueId,
       key: key,
       filename: filename,
@@ -456,6 +467,38 @@ async function deleteProcessingRecords(uniqueId) {
 function extractSizeType(key) {
   const match = key.match(/_(\w+)\.webp$/);
   return match ? match[1] : "unknown";
+}
+
+/**
+ * Debug function to list all records in the table
+ */
+async function debugTable() {
+  try {
+    console.log("Debug: Listing all records in table:", PROCESSING_TABLE);
+
+    const params = {
+      TableName: PROCESSING_TABLE,
+      Limit: 10,
+    };
+
+    const result = await dynamodb.scan(params).promise();
+
+    console.log("Debug: Found", result.Count, "records");
+    console.log("Debug: Records:", JSON.stringify(result.Items, null, 2));
+
+    return createResponse(200, {
+      tableName: PROCESSING_TABLE,
+      count: result.Count,
+      records: result.Items,
+      lastEvaluatedKey: result.LastEvaluatedKey,
+    });
+  } catch (error) {
+    console.error("Debug error:", error);
+    return createResponse(500, {
+      error: "Debug failed",
+      details: error.message,
+    });
+  }
 }
 
 /**
