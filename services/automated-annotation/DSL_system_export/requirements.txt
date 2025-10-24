@@ -1,0 +1,28 @@
+# REQUIREMENTS FOR LEAN ORCHESTRATION - DSL API MODE
+# ====================================================
+#
+# PRODUCTION DEPLOYMENT (Lambda/Cloud):
+# - Install only the dependencies marked as REQUIRED
+# - Remove python-dotenv from this file for production
+#
+# LOCAL DEVELOPMENT:
+# - Install all dependencies for .env file support
+
+# REQUIRED: Core LLM dependencies (production)
+langchain>=0.3.0,<0.4.0
+langchain-core>=0.3.0,<0.4.0
+langchain-google-vertexai>=2.0.0,<3.0.0
+pydantic>=2.0.0,<3.0.0
+
+# REQUIRED: Data processing (production)
+pandas>=1.5.0
+
+# REQUIRED: HTTP requests for DSL API (production)
+requests>=2.31.0
+
+# OPTIONAL: Environment variables - ONLY for local development
+# REMOVE THIS LINE for Lambda deployment - use Lambda environment variables instead
+python-dotenv>=1.0.0
+
+# REQUIRED: Image processing for base64 encoding (production)
+Pillow>=9.0.0

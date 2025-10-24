@@ -284,6 +284,11 @@ async function getProcessedImages(processingId) {
 
     const result = await dynamodb.get(params).promise();
 
+    console.log(
+      "DynamoDB record for processed images:",
+      JSON.stringify(result.Item, null, 2)
+    );
+
     if (!result.Item) {
       return createResponse(404, { error: "Processing record not found" });
     }
@@ -291,15 +296,27 @@ async function getProcessedImages(processingId) {
     // Return the single processed image
     const processedImage = result.Item.processedImage;
 
+    console.log(
+      "Processed image from record:",
+      JSON.stringify(processedImage, null, 2)
+    );
+
     if (!processedImage) {
       return createResponse(404, { error: "No processed image found" });
     }
+
+    // Generate presigned URL for the processed image
+    const downloadUrl = s3.getSignedUrl("getObject", {
+      Bucket: PROCESSED_BUCKET,
+      Key: processedImage.key,
+      Expires: 3600, // 1 hour default
+    });
 
     return createResponse(200, {
       processingId: processingId,
       processedImage: {
         key: processedImage.key,
-        url: processedImage.url,
+        downloadUrl: downloadUrl,
         size: processedImage.size,
       },
       status: result.Item.status,

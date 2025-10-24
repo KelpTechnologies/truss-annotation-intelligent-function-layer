@@ -5,13 +5,10 @@
     "version": "1.0.0"
   },
   "deployment": {
-    "runtime": "nodejs18.x",
+    "runtime": "python3.11",
     "timeout": 300,
     "memory": 1024,
-    "layers": [
-      "arn:aws:lambda:eu-west-2:193757560043:layer:truss-toolkit-nodejs-layer:194",
-      "arn:aws:lambda:eu-west-2:193757560043:layer:service-layer-utils:1"
-    ]
+    "layers": []
   },
   "database": {
     "required": false,
@@ -23,26 +20,20 @@
     "cors_enabled": true,
     "endpoints": [
       {
-        "path": "/extract-knowledge",
+        "path": "/classify",
         "method": "POST",
-        "description": "Extract knowledge from text using automated annotation",
+        "description": "Classify a single item property using the DSL orchestrator",
         "parameters": {
           "body": {
-            "text": "string (required) - Text to extract knowledge from",
-            "extraction_type": "string (optional) - Type of extraction (entities, relationships, attributes)",
-            "domain": "string (optional) - Domain context (fashion, luxury, etc.)"
-          }
-        }
-      },
-      {
-        "path": "/annotate",
-        "method": "POST",
-        "description": "Annotate text with structured data using automated annotation",
-        "parameters": {
-          "body": {
-            "text": "string (required) - Text to annotate",
-            "annotation_schema": "object (optional) - Schema for annotation structure",
-            "confidence_threshold": "number (optional) - Minimum confidence for annotations"
+            "property": "string (required) - Property to classify (e.g., material)",
+            "root_type_id": "number (required) - Root type ID",
+            "image_url": "string (optional) - Image URL",
+            "brand": "string (optional)",
+            "title": "string (optional)",
+            "description": "string (optional)",
+            "text_metadata": "string (optional) - Override composite metadata",
+            "input_mode": "string (optional) - auto|image-only|text-only|multimodal",
+            "resolve_names": "boolean (optional) - If true, include names for IDs"
           }
         }
       },
@@ -72,11 +63,5 @@
       }
     }
   },
-  "llm": {
-    "provider": "openai",
-    "model": "gpt-4",
-    "max_tokens": 2000,
-    "temperature": 0.1,
-    "api_key_secret": "openai-api-key"
-  }
+  "llm": {}
 }

@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: "Automated annotation service using LangChain for knowledge extraction and text annotation"
+Description: "Automated annotation service using DSL orchestrator for classification"
 
 Parameters:
   StageName:
@@ -55,27 +55,24 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Ref FunctionName
-      Handler: index.handler
-      Runtime: nodejs18.x
+      Handler: handler.lambda_handler
+      Runtime: python3.11
       Role: !GetAtt ServiceRole.Arn
       Code:
         S3Bucket: !Ref CodeS3Bucket
         S3Key: !Ref CodeS3Key
       Timeout: 300
       MemorySize: 1024
-      Layers:
-        - "arn:aws:lambda:eu-west-2:193757560043:layer:truss-toolkit-nodejs-layer:194"
-        - "arn:aws:lambda:eu-west-2:193757560043:layer:service-layer-utils:1"
       Environment:
         Variables:
           STAGE: !Ref StageName
           SERVICE_NAME: "automated-annotation"
           SUPPORTED_AUTH_MODES: "cognito,api_key"
           DEFAULT_AUTH_MODE: "cognito"
-          BIGQUERY_SECRET_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:bigquery-service-account-GipBFQ"
-          OPENAI_SECRET_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:openAI-FNAJfl"
           API_KEY_ID: !Ref ServiceApiKey
           COGNITO_USER_POOL_ARNS: "arn:aws:cognito-idp:eu-west-2:193757560043:userpool/eu-west-2_JyaPgaRFW"
+          DSL_API_BASE_URL: "https://quc8rco4za.execute-api.eu-west-2.amazonaws.com/prod"
+          DSL_API_KEY: "REPLACE_ME"
 
   ServiceLambdaPermission:
     Type: AWS::Lambda::Permission
