@@ -2,11 +2,9 @@ import json
 import os
 import traceback
 
-# Import DSL components (module path relative to this folder)
-from DSL_system_export.dsl_api_client import DSLAPIClient
-from DSL_system_export.config_loader import ConfigLoader
-from DSL_system_export.llm_annotation_system import LLMAnnotationAgent
-from DSL_system_export.output_parser import load_property_id_mapping_api
+# Import DSL components from simplified package
+from dsl import DSLAPIClient, ConfigLoader, LLMAnnotationAgent
+from dsl import load_property_id_mapping_api
 
 
 def _cors_headers(methods: str = "POST,GET,OPTIONS"):
@@ -35,10 +33,8 @@ def _parse_body(event):
 
 
 def _build_text_metadata(payload: dict):
-    # If caller provided text_metadata directly, prefer it
     if payload.get("text_metadata"):
         return payload["text_metadata"]
-
     parts = []
     for key in ["brand", "title", "description"]:
         value = payload.get(key)
@@ -65,24 +61,19 @@ def _classify_item(payload: dict):
     brand = payload.get("brand")
     text_metadata = _build_text_metadata(payload)
 
-    # Initialize API client and config loader
     api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key)
     config_loader = ConfigLoader(mode='api', api_client=api_client)
 
-    # Load classifier configuration from API
     api_response = config_loader.load_classifier_config(property_name, int(root_type_id))
     config = api_response.get('data', api_response)
 
-    # Load prompt template from API
     template_id = config.get('prompt_template')
     if not template_id:
         raise ValueError("No prompt_template specified in configuration")
     template = config_loader.load_prompt_template(template_id)
 
-    # Load context data (with fallback logic in loader)
     context_data = config_loader.load_context_data(property_name, int(root_type_id))
 
-    # Initialize classifier
     classifier = LLMAnnotationAgent(
         model_name=config.get('model', 'gemini-2.5-flash-lite'),
         project_id=config.get('project_id', 'truss-data-science'),
@@ -96,10 +87,8 @@ def _classify_item(payload: dict):
         },
     )
 
-    # Bind the API-loaded template
     classifier.prompt_template = template
 
-    # Perform classification
     result = classifier.classify(
         image_url=image_url,
         text_metadata=text_metadata,
@@ -111,7 +100,6 @@ def _classify_item(payload: dict):
         context_data=context_data,
     )
 
-    # Optionally resolve names from IDs if requested
     resolve_names = bool(payload.get("resolve_names", False))
     primary = result.primary
     alternatives = result.alternatives
@@ -153,7 +141,6 @@ def lambda_handler(event, context):
         method = event.get("httpMethod", "GET")
         path = (event.get("path") or "").rstrip("/")
 
-        # CORS preflight
         if method == "OPTIONS":
             return _response(200, {"ok": True})
 
@@ -175,7 +162,6 @@ def lambda_handler(event, context):
 
             return _response(200, {"component_type": "health_check", "data": [status], "metadata": {}}, methods="GET,OPTIONS")
 
-        # Not found
         return _response(404, {"error": "Endpoint not found"})
 
     except Exception as e:
