@@ -247,6 +247,22 @@ async function packageService(
       }
     }
 
+    // Python: include handler.py and dsl/ package
+    if (runtime.startsWith("python")) {
+      const handlerPath = path.join(servicePath, "handler.py");
+      if (fs.existsSync(handlerPath)) {
+        const destHandler = path.join(tempDir, "handler.py");
+        fs.copyFileSync(handlerPath, destHandler);
+        console.log(`     📄 Copied handler.py`);
+      }
+      const dslDir = path.join(servicePath, "dsl");
+      if (fs.existsSync(dslDir)) {
+        const destDsl = path.join(tempDir, "dsl");
+        copyDirectory(dslDir, destDsl);
+        console.log(`     📁 Copied dsl/ package`);
+      }
+    }
+
     // Copy shared utils folder (always needed for Node.js services)
     if (runtime.startsWith("nodejs")) {
       const sharedUtilsPath = path.join("services", "utils");
@@ -327,7 +343,8 @@ function getSourceFiles(servicePath, runtime) {
 
     return files;
   } else if (runtime.startsWith("python")) {
-    return [...commonFiles, "index.py"];
+    // Minimal set; handler.py and dsl/ are copied separately in packageService
+    return [...commonFiles, "index.py", "template.yaml", "openapi.yaml", "openapi.internal.yaml", "openapi.external.yaml"]; 
   }
 
   return commonFiles;
