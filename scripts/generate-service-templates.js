@@ -66,6 +66,11 @@ function generateCloudFormationTemplate(
   if (authConfig.public) securityModes.push("public");
   const defaultSecurity = securityModes[0] || "public";
 
+  const runtime = config.deployment.runtime;
+  const handler = runtime.startsWith("python")
+    ? "handler.lambda_handler"
+    : "index.handler";
+
   let template = `AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: "${config.service.description}"
@@ -159,7 +164,7 @@ Resources:`;
   // Add service role principals if supported
   if (
     supportsServiceRole &&
-    config.auth_config.service_role?.allowed_principals
+    config.auth_config?.service_role?.allowed_principals
   ) {
     config.auth_config.service_role.allowed_principals.forEach((principal) => {
       template += `
@@ -180,7 +185,7 @@ Resources:`;
   // Add policies - always include BigQuery secrets access
   template += `
       Policies:
-        - PolicyName: !Sub "\${FunctionName}-Policy"
+        - PolicyName: !Sub "${FunctionName}-Policy"
           PolicyDocument:
             Version: "2012-10-17"
             Statement:`;
@@ -251,16 +256,24 @@ Resources:`;
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Ref FunctionName
-      Handler: index.handler
-      Runtime: ${config.deployment.runtime}
+      Handler: ${handler}
+      Runtime: ${runtime}
       Role: !GetAtt ServiceRole.Arn
       Code:
         S3Bucket: !Ref CodeS3Bucket
         S3Key: !Ref CodeS3Key
       Timeout: ${config.deployment.timeout}
-      MemorySize: ${config.deployment.memory}
+      MemorySize: ${config.deployment.memory}`;
+
+  // Layers only if non-empty
+  const layers = (config.deployment.layers || [])
+    .map((layer) => `        - "${layer}"`)
+    .join("\n");
+  if (layers && layers.trim().length > 0) {
+    template += `
       Layers:
-${config.deployment.layers.map((layer) => `        - "${layer}"`).join("\n")}`;
+${layers}`;
+  }
 
   // VPC Config only if required
   if (requiresVPC) {
@@ -284,6 +297,17 @@ ${config.deployment.layers.map((layer) => `        - "${layer}"`).join("\n")}`;
           OPENAI_SECRET_ARN: "arn:aws:secretsmanager:${config.aws.region}:${
     config.aws.account_id
   }:secret:openAI-FNAJfl"`;
+
+  // Merge extra env variables if provided
+  if (
+    config.deployment.extra_env &&
+    typeof config.deployment.extra_env === "object"
+  ) {
+    Object.entries(config.deployment.extra_env).forEach(([k, v]) => {
+      template += `
+          ${k}: "${String(v)}"`;
+    });
+  }
 
   // Database environment variables only if needed
   if (requiresDatabase) {

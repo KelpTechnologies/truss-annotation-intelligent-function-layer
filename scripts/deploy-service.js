@@ -344,7 +344,14 @@ function getSourceFiles(servicePath, runtime) {
     return files;
   } else if (runtime.startsWith("python")) {
     // Minimal set; handler.py and dsl/ are copied separately in packageService
-    return [...commonFiles, "index.py", "template.yaml", "openapi.yaml", "openapi.internal.yaml", "openapi.external.yaml"]; 
+    return [
+      ...commonFiles,
+      "index.py",
+      "template.yaml",
+      "openapi.yaml",
+      "openapi.internal.yaml",
+      "openapi.external.yaml",
+    ];
   }
 
   return commonFiles;
