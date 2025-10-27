@@ -1,12 +1,12 @@
 # Generated from config.json - DO NOT EDIT DIRECTLY
 # Service: automated-annotation
-# Generated: 2025-10-06T15:17:30.190Z
+# Generated: 2025-10-27T09:14:22.105Z
 # CORS Support: Enhanced with error response handling
 openapi: 3.0.1
 info:
   title: automated-annotation
   version: 1.0.0
-  description: Automated annotation service using DSL orchestrator for classification
+  description: Automated annotation service using LangChain for knowledge extraction and text annotation
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -156,7 +156,7 @@ paths:
       x-amazon-apigateway-integration:
         type: mock
         requestTemplates:
-          application/json: '{"statusCode": 200}'
+          application/json: "{\"statusCode\": 200}"
         responses:
           default:
             statusCode: "200"
@@ -307,7 +307,7 @@ paths:
       x-amazon-apigateway-integration:
         type: mock
         requestTemplates:
-          application/json: '{"statusCode": 200}'
+          application/json: "{\"statusCode\": 200}"
         responses:
           default:
             statusCode: "200"

@@ -1,6 +1,6 @@
 # Generated from config.json - DO NOT EDIT DIRECTLY
 # Service: image-service
-# Generated: 2025-10-21T09:00:28.423Z
+# Generated: 2025-10-27T09:14:21.271Z
 # CORS Support: Enhanced with error response handling
 openapi: 3.0.1
 info:

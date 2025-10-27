@@ -185,7 +185,7 @@ Resources:`;
   // Add policies - always include BigQuery secrets access
   template += `
       Policies:
-        - PolicyName: !Sub "${FunctionName}-Policy"
+        - PolicyName: !Sub "\${FunctionName}-Policy"
           PolicyDocument:
             Version: "2012-10-17"
             Statement:`;
