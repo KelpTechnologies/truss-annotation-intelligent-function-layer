@@ -22,6 +22,14 @@ Parameters:
   ProcessedBucketName:
     Type: String
     Description: Name of the existing processed S3 bucket
+  VectorizationApiUrl:
+    Type: String
+    Default: "https://image-vectorization-api-gpu-94434742359.us-central1.run.app/vectorize"
+    Description: URL of the image vectorization API endpoint
+  VectorizationApiKey:
+    Type: String
+    Default: ""
+    Description: Optional API key for vectorization API authentication (leave empty if not required)
 
 Resources:
   # DynamoDB table for processing status
@@ -113,6 +121,8 @@ Resources:
           SOURCE_BUCKET: !Ref SourceBucketName
           PROCESSED_BUCKET: !Ref ProcessedBucketName
           PROCESSING_TABLE: !Ref ProcessingStatusTable
+          VECTORIZATION_API_URL: !Ref VectorizationApiUrl
+          VECTORIZATION_API_KEY: !Ref VectorizationApiKey
       Layers:
         - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:layer:truss-toolkit-nodejs-layer:194"
 

@@ -1,6 +1,7 @@
 import json
 import os
 import traceback
+import base64
 
 # Import DSL components from simplified package
 from dsl import DSLAPIClient, ConfigLoader, LLMAnnotationAgent
@@ -44,6 +45,46 @@ def _build_text_metadata(payload: dict):
     return "\n".join(parts) if parts else None
 
 
+def _ensure_gcp_adc():
+    """Ensure Application Default Credentials are available from env.
+
+    Expects env:
+      - GCP_SERVICE_ACCOUNT_JSON: JSON (or base64 of JSON) for a service_account
+      - GOOGLE_APPLICATION_CREDENTIALS: path (defaults to /tmp/gcp_sa.json)
+      - VERTEXAI_PROJECT, VERTEXAI_LOCATION (optional)
+    """
+    creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "/tmp/gcp_sa.json")
+    sa_json = os.getenv("GCP_SERVICE_ACCOUNT_JSON")
+
+    if not sa_json:
+        # Nothing to write; user may have mounted credentials another way
+        return
+
+    try:
+        if sa_json.strip().startswith("{"):
+            content = sa_json
+        else:
+            try:
+                content = base64.b64decode(sa_json).decode("utf-8")
+            except Exception:
+                content = sa_json
+
+        # Write to creds_path
+        os.makedirs(os.path.dirname(creds_path), exist_ok=True)
+        with open(creds_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        # Ensure ADC picks it up
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
+
+        # Mirror project to GOOGLE_CLOUD_PROJECT if provided
+        if os.getenv("VERTEXAI_PROJECT") and not os.getenv("GOOGLE_CLOUD_PROJECT"):
+            os.environ["GOOGLE_CLOUD_PROJECT"] = os.getenv("VERTEXAI_PROJECT")
+    except Exception:
+        # Do not fail classification if credentials write fails; VertexAI will error later
+        pass
+
+
 def _classify_item(payload: dict):
     api_base_url = os.getenv("DSL_API_BASE_URL")
     api_key = os.getenv("DSL_API_KEY")
@@ -61,6 +102,9 @@ def _classify_item(payload: dict):
     brand = payload.get("brand")
     text_metadata = _build_text_metadata(payload)
 
+    # Ensure Google ADC is available before initializing VertexAI client
+    _ensure_gcp_adc()
+
     api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key)
     config_loader = ConfigLoader(mode='api', api_client=api_client)
 
@@ -76,8 +120,8 @@ def _classify_item(payload: dict):
 
     classifier = LLMAnnotationAgent(
         model_name=config.get('model', 'gemini-2.5-flash-lite'),
-        project_id=config.get('project_id', 'truss-data-science'),
-        location=config.get('location', 'us-central1'),
+        project_id=os.getenv('VERTEXAI_PROJECT', config.get('project_id', 'truss-data-science')),
+        location=os.getenv('VERTEXAI_LOCATION', config.get('location', 'us-central1')),
         prompt_template_path=None,
         context_mode=config.get('default_context_mode', 'full-context'),
         log_IO=False,

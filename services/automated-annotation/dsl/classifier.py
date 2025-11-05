@@ -287,3 +287,100 @@ class LLMAnnotationAgent:
         "gemini-2.5-flash": "simple",
         "gemini-2.5-pro": "simple",
     }
+    
+    def _robust_parse_response(self, llm_response, property_type: str, valid_ids: set, prompt_used: str = "", retry_count: int = 0) -> Optional[ClassificationResponse]:
+        """Robustly parse LLM response into ClassificationResponse, handling various formats."""
+        try:
+            # Extract content from LangChain message
+            if hasattr(llm_response, 'content'):
+                content = llm_response.content
+            elif isinstance(llm_response, str):
+                content = llm_response
+            else:
+                content = str(llm_response)
+            
+            # Try to parse JSON from the response
+            json_str = self._extract_json_from_text(content)
+            
+            if not json_str:
+                logger.warning(f"Could not extract JSON from response: {content[:200]}")
+                return None
+            
+            parsed = json.loads(json_str)
+            
+            # Validate required fields
+            if 'prediction_id' not in parsed:
+                logger.error("Response missing 'prediction_id'")
+                return None
+            
+            prediction_id = int(parsed['prediction_id'])
+            
+            # Check if prediction_id is in valid_ids
+            if prediction_id not in valid_ids:
+                logger.warning(f"Prediction ID {prediction_id} not in valid IDs. Using fallback.")
+                # Fallback to first valid ID
+                prediction_id = list(valid_ids)[0] if valid_ids else 0
+            
+            # Parse scores
+            scores = parsed.get('scores', [])
+            if not scores:
+                scores = [{'id': prediction_id, 'score': 0.9}]
+            
+            scores_list = []
+            for score_data in scores:
+                if isinstance(score_data, dict):
+                    score_id = int(score_data.get('id', prediction_id))
+                    score_val = float(score_data.get('score', 0.5))
+                    if score_id in valid_ids or len(valid_ids) == 0:
+                        scores_list.append(PredictionScore(id=score_id, score=score_val))
+            
+            if not scores_list:
+                scores_list = [PredictionScore(id=prediction_id, score=0.9)]
+            
+            reasoning = parsed.get('reasoning')
+            
+            return ClassificationResponse(
+                prediction_id=prediction_id,
+                scores=scores_list,
+                reasoning=reasoning
+            )
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON: {e}")
+            return None
+        except (ValueError, TypeError) as e:
+            logger.error(f"Invalid response format: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error in _robust_parse_response: {e}")
+            return None
+    
+    def _extract_json_from_text(self, text: str) -> Optional[str]:
+        """Extract JSON from text that might contain markdown or other formatting."""
+        # Try to find JSON in the text
+        # First, try to find JSON-like content
+        json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+        matches = re.findall(json_pattern, text, re.DOTALL)
+        
+        if matches:
+            # Try to parse the largest match (likely the main JSON)
+            for match in sorted(matches, key=len, reverse=True):
+                # Clean up markdown code blocks
+                cleaned = match.strip()
+                if cleaned.startswith('```json'):
+                    cleaned = cleaned[7:]
+                elif cleaned.startswith('```'):
+                    cleaned = cleaned[3:]
+                if cleaned.endswith('```'):
+                    cleaned = cleaned[:-3]
+                cleaned = cleaned.strip()
+                
+                try:
+                    # Validate it's valid JSON
+                    json.loads(cleaned)
+                    return cleaned
+                except json.JSONDecodeError:
+                    continue
+        
+        # If no valid JSON found, return None
+        return None
