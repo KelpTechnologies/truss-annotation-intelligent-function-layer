@@ -22,25 +22,26 @@
       {
         "path": "/classify",
         "method": "POST",
-        "description": "Classify a single item property using the DSL orchestrator",
+        "description": "Classify endpoint - routes to property classification or model classification based on request payload. For property classification: requires 'property' and 'root_type_id'. For model classification: requires 'image_url' and 'brand' (no property/root_type_id).",
         "parameters": {
           "body": {
-            "property": "string (required) - Property to classify (e.g., material)",
-            "root_type_id": "number (required) - Root type ID",
-            "image_url": "string (optional) - Image URL",
-            "brand": "string (optional)",
+            "property": "string (optional) - Property to classify (e.g., material) - required for property classification",
+            "root_type_id": "number (optional) - Root type ID - required for property classification",
+            "image_url": "string (optional) - Image URL - required for model classification",
+            "brand": "string (optional) - Brand name - required for model classification",
             "title": "string (optional)",
             "description": "string (optional)",
             "text_metadata": "string (optional) - Override composite metadata",
             "input_mode": "string (optional) - auto|image-only|text-only|multimodal",
-            "resolve_names": "boolean (optional) - If true, include names for IDs"
+            "resolve_names": "boolean (optional) - If true, include names for IDs",
+            "k": "number (optional) - Number of nearest neighbors for voting (model classification only, default: 7)"
           }
         }
       },
       {
         "path": "/classify-model",
         "method": "POST",
-        "description": "Classify product model using vector-based similarity search (no LLM context required)",
+        "description": "Classify product model using vector-based similarity search (no LLM context required) - DEPRECATED: Use /classify with image_url and brand instead",
         "parameters": {
           "body": {
             "image_url": "string (required) - Image URL to classify",

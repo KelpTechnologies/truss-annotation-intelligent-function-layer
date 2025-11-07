@@ -310,9 +310,26 @@ def lambda_handler(event, context):
 
         if path.endswith("/classify") and method == "POST":
             payload = _parse_body(event)
-            result = _classify_item(payload)
-            return _response(200, {"component_type": "classification_result", "data": [result], "metadata": {}})
+            
+            # Route to model classification if it's a model classification request
+            # Model classification requires: image_url and brand, but no property/root_type_id
+            is_model_classification = (
+                payload.get("image_url") and 
+                payload.get("brand") and 
+                not payload.get("property") and 
+                payload.get("root_type_id") is None
+            )
+            
+            if is_model_classification:
+                # Route to model classification
+                result = _classify_model(payload)
+                return _response(200, {"component_type": "model_classification_result", "data": [result], "metadata": {}})
+            else:
+                # Route to property classification (existing behavior)
+                result = _classify_item(payload)
+                return _response(200, {"component_type": "classification_result", "data": [result], "metadata": {}})
 
+        # Keep /classify-model for backward compatibility
         if path.endswith("/classify-model") and method == "POST":
             payload = _parse_body(event)
             result = _classify_model(payload)
