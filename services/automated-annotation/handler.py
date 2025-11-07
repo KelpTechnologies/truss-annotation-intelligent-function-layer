@@ -21,6 +21,10 @@ try:
     )
     
     if os.path.exists(pipeline_path):
+        package_dir = os.path.dirname(pipeline_path)
+        if package_dir not in sys.path:
+            sys.path.insert(0, package_dir)
+
         spec = importlib.util.spec_from_file_location("model_classifier_pipeline", pipeline_path)
         pipeline_module = importlib.util.module_from_spec(spec)
         sys.modules["model_classifier_pipeline"] = pipeline_module

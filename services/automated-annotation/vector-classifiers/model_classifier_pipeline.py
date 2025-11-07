@@ -20,7 +20,10 @@ from typing import Any, Dict, Optional
 
 import boto3
 
-from . import pinecone_utils
+try:
+    from . import pinecone_utils  # type: ignore
+except ImportError:  #pragma: no cover - fallback when relative import unavailable
+    import pinecone_utils  # type: ignore
 
 
 def _decimal_to_float(value: Any) -> Any:
