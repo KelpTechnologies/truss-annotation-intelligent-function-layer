@@ -26,7 +26,7 @@ arn:aws:dynamodb:eu-west-2:193757560043:table/model_visual_classifier_nodes/inde
 **Resource ARN:**
 
 ```
-arn:aws:secretsmanager:eu-west-2:193757560043:secret:pinecone*
+arn:aws:secretsmanager:eu-west-2:193757560043:secret:PineconeAPI-*
 ```
 
 ## Environment Variables
@@ -38,7 +38,7 @@ The following environment variables are configured in the CloudFormation templat
 | Variable                | Description                                               | Default/Example                                                                 |
 | ----------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | `DYNAMODB_MODEL_TABLE`  | DynamoDB table name for model metadata                    | `model_visual_classifier_nodes`                                                 |
-| `PINECONE_SECRET_ARN`   | ARN of Secrets Manager secret containing Pinecone API key | `arn:aws:secretsmanager:eu-west-2:193757560043:secret:pinecone-api-key`         |
+| `PINECONE_SECRET_ARN`   | ARN of Secrets Manager secret containing Pinecone API key | `arn:aws:secretsmanager:eu-west-2:193757560043:secret:PineconeAPI-qcy3De`       |
 | `VECTORIZATION_API_URL` | URL of the image vectorization API                        | `https://image-vectorization-api-gpu-94434742359.us-central1.run.app/vectorize` |
 
 ### Optional Variables
@@ -49,45 +49,22 @@ The following environment variables are configured in the CloudFormation templat
 
 ## AWS Secrets Manager Setup
 
-### 1. Create Pinecone API Key Secret
+### 1. Pinecone API Key Secret
 
-You need to create a secret in AWS Secrets Manager containing the Pinecone API key.
+The Pinecone API key is stored in AWS Secrets Manager.
 
-**Secret Name:** `pinecone-api-key` (or update `PINECONE_SECRET_ARN` to match your secret name)
+**Secret Name:** `PineconeAPI-qcy3De`
+
+**Secret ARN:** `arn:aws:secretsmanager:eu-west-2:193757560043:secret:PineconeAPI-qcy3De`
 
 **Secret Format:**
 
-```json
-{
-  "api_key": "your-pinecone-api-key-here"
-}
-```
+The secret should contain the Pinecone API key. It can be stored as:
 
-**Or as plain text:**
+- Plain text: The API key string directly
+- JSON: `{"api_key": "your-pinecone-api-key-here"}`
 
-```
-your-pinecone-api-key-here
-```
-
-**Steps to Create:**
-
-1. Go to AWS Secrets Manager console
-2. Click "Store a new secret"
-3. Select "Other type of secret"
-4. Choose "Plaintext" or "JSON"
-5. Enter your Pinecone API key
-6. Name the secret: `pinecone-api-key`
-7. Note the ARN and update `PINECONE_SECRET_ARN` in template.yaml if different
-
-### 2. Verify Secret ARN
-
-The secret ARN should match the pattern:
-
-```
-arn:aws:secretsmanager:eu-west-2:193757560043:secret:pinecone-api-key-<random-suffix>
-```
-
-Update the `PINECONE_SECRET_ARN` environment variable in `template.yaml` to match your actual secret ARN.
+**Note:** The secret is already created and configured. The ARN is set in the template.yaml file.
 
 ## Pinecone Configuration
 
@@ -130,10 +107,10 @@ The `tds` package (which provides `pinecone_utils`) should be configured to read
 - [ ] DynamoDB table `model_visual_classifier_nodes` exists
 - [ ] DynamoDB GSI `namespace-index` exists
 - [ ] IAM role has DynamoDB permissions (GetItem, Query, Scan)
-- [ ] Secrets Manager secret `pinecone-api-key` created
+- [x] Secrets Manager secret `PineconeAPI-qcy3De` exists
 - [ ] IAM role has Secrets Manager permissions for Pinecone secret
 - [ ] Environment variables set in CloudFormation template
-- [ ] `tds` package installed and configured
+- [x] `tds` package available via Lambda layer `truss-data-service-layer-nodejs:4`
 - [ ] Vectorization API accessible from Lambda
 
 ## Testing

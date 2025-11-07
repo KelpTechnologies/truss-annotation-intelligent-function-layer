@@ -50,7 +50,7 @@ Resources:
                 Resource:
                   - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:bigquery-service-account*"
                   - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:openAI*"
-                  - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:pinecone*"
+                  - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:PineconeAPI-*"
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
@@ -72,6 +72,8 @@ Resources:
         S3Key: !Ref CodeS3Key
       Timeout: 300
       MemorySize: 1024
+      Layers:
+        - "arn:aws:lambda:eu-west-2:193757560043:layer:truss-data-service-layer-nodejs:4"
       Environment:
         Variables:
           STAGE: !Ref StageName
@@ -84,7 +86,7 @@ Resources:
           COGNITO_USER_POOL_ARNS: "arn:aws:cognito-idp:eu-west-2:193757560043:userpool/eu-west-2_JyaPgaRFW"
           # Vector Classification Configuration
           DYNAMODB_MODEL_TABLE: "model_visual_classifier_nodes"
-          PINECONE_SECRET_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:pinecone-api-key"
+          PINECONE_SECRET_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:PineconeAPI-qcy3De"
           VECTORIZATION_API_URL: "https://image-vectorization-api-gpu-94434742359.us-central1.run.app/vectorize"
           VECTORIZATION_API_KEY: ""
 
