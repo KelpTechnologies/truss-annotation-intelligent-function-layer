@@ -27,7 +27,8 @@
           "body": {
             "property": "string (optional) - Property to classify (e.g., material) - required for property classification",
             "root_type_id": "number (optional) - Root type ID - required for property classification",
-            "image_url": "string (optional) - Image URL - required for model classification",
+            "processing_id": "string (optional) - Processing ID (or 'processingId') referencing the image-processing DynamoDB record - required for model classification",
+            "image_url": "string (optional) - Image URL for property classification",
             "brand": "string (optional) - Brand name - required for model classification",
             "title": "string (optional)",
             "description": "string (optional)",
@@ -41,10 +42,10 @@
       {
         "path": "/classify-model",
         "method": "POST",
-        "description": "Classify product model using vector-based similarity search (no LLM context required) - DEPRECATED: Use /classify with image_url and brand instead",
+        "description": "Classify product model using vector-based similarity search (no LLM context required) - DEPRECATED: Use /classify with processing_id and brand instead",
         "parameters": {
           "body": {
-            "image_url": "string (required) - Image URL to classify",
+            "processing_id": "string (required) - Processing ID (or 'processingId') referencing the image-processing DynamoDB record",
             "brand": "string (required) - Brand name (e.g., 'jacquemus', 'gucci', 'prada') - used as Pinecone namespace",
             "k": "number (optional) - Number of nearest neighbors for voting (default: 7, recommended: 7)"
           }

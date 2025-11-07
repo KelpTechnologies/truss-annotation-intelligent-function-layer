@@ -2,6 +2,8 @@
 
 This document outlines the required AWS permissions, environment variables, and secrets needed for the `/classify-model` endpoint.
 
+> The model classification flow now uses the pre-computed vectors stored by the image processing pipeline. The Lambda no longer uploads the image or calls the vectorization API during classification.
+
 ## AWS IAM Permissions
 
 The Lambda function requires the following permissions:
@@ -17,7 +19,11 @@ The Lambda function requires the following permissions:
 ```
 arn:aws:dynamodb:eu-west-2:193757560043:table/model_visual_classifier_nodes
 arn:aws:dynamodb:eu-west-2:193757560043:table/model_visual_classifier_nodes/index/*
+arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-<stage>
+arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-<stage>/index/*
 ```
+
+> Replace `<stage>` with the deployment stage (e.g., `dev`, `prod`).
 
 ### Secrets Manager Permissions
 
@@ -35,17 +41,18 @@ The following environment variables are configured in the CloudFormation templat
 
 ### Required Variables
 
-| Variable                | Description                                               | Default/Example                                                                 |
-| ----------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `DYNAMODB_MODEL_TABLE`  | DynamoDB table name for model metadata                    | `model_visual_classifier_nodes`                                                 |
-| `PINECONE_SECRET_ARN`   | ARN of Secrets Manager secret containing Pinecone API key | `arn:aws:secretsmanager:eu-west-2:193757560043:secret:PineconeAPI-qcy3De`       |
-| `VECTORIZATION_API_URL` | URL of the image vectorization API                        | `https://image-vectorization-api-gpu-94434742359.us-central1.run.app/vectorize` |
+| Variable                 | Description                                               | Default/Example                                                           |
+| ------------------------ | --------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `DYNAMODB_MODEL_TABLE`   | DynamoDB table name for model metadata                    | `model_visual_classifier_nodes`                                           |
+| `IMAGE_PROCESSING_TABLE` | DynamoDB table containing processed images + vectors      | `truss-image-processing-<stage>`                                          |
+| `PINECONE_SECRET_ARN`    | ARN of Secrets Manager secret containing Pinecone API key | `arn:aws:secretsmanager:eu-west-2:193757560043:secret:PineconeAPI-qcy3De` |
 
 ### Optional Variables
 
-| Variable                | Description                                 | Default             |
-| ----------------------- | ------------------------------------------- | ------------------- |
-| `VECTORIZATION_API_KEY` | API key for vectorization API (if required) | `""` (empty string) |
+| Variable                | Description                                                                                | Default                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| `VECTORIZATION_API_URL` | Legacy fallback for direct vectorization API calls (not used when vectors are precomputed) | `https://image-vectorization-api-gpu-94434742359.us-central1.run.app/vectorize` |
+| `VECTORIZATION_API_KEY` | API key for vectorization API (if required for legacy usage)                               | `""` (empty string)                                                             |
 
 ## AWS Secrets Manager Setup
 
@@ -78,6 +85,27 @@ The `tds` package (which provides `pinecone_utils`) should be configured to read
 
 **Note:** The `tds.pinecone_utils` package should handle reading from Secrets Manager. If it doesn't, you may need to add code in the handler to retrieve the secret and set `PINECONE_API_KEY` environment variable.
 
+## Image Processing Table
+
+Pre-computed image vectors are stored in the image processing DynamoDB table.
+
+**Table Name Pattern:** `truss-image-processing-<stage>`
+
+**Primary Key:**
+
+- `processingId` (String)
+
+**Relevant Attributes:**
+
+- `imageVector` (List[Number]) – Pre-computed embedding used for classification
+- `vectorDimension` (Number) – Dimension of the stored vector
+- `processedImage` (Map) – Metadata about the processed image (S3 location, size, etc.)
+- `vectorizationTimings` (Map) – Timing information recorded during vectorization (optional)
+- `timestamp` (String) – When the record was last updated
+- `stage` (String) – Deployment stage associated with the record
+
+> The classification pipeline reads the vector directly from this table. No re-vectorization is performed at request time.
+
 ## DynamoDB Table Structure
 
 **Table Name:** `model_visual_classifier_nodes`
@@ -105,13 +133,14 @@ The `tds` package (which provides `pinecone_utils`) should be configured to read
 ## Verification Checklist
 
 - [ ] DynamoDB table `model_visual_classifier_nodes` exists
+- [ ] DynamoDB table `truss-image-processing-<stage>` exists
 - [ ] DynamoDB GSI `namespace-index` exists
 - [ ] IAM role has DynamoDB permissions (GetItem, Query, Scan)
 - [x] Secrets Manager secret `PineconeAPI-qcy3De` exists
 - [ ] IAM role has Secrets Manager permissions for Pinecone secret
-- [ ] Environment variables set in CloudFormation template
+- [ ] Environment variables configured (`DYNAMODB_MODEL_TABLE`, `IMAGE_PROCESSING_TABLE`, `PINECONE_SECRET_ARN`)
 - [x] `tds` package available via Lambda layer `truss-data-service-layer-nodejs:4`
-- [ ] Vectorization API accessible from Lambda
+- [ ] Pinecone index accessible from Lambda
 
 ## Testing
 
@@ -122,7 +151,7 @@ curl -X POST https://your-api-gateway-url/automations/annotation/classify-model 
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
-    "image_url": "https://example.com/image.jpg",
+    "processing_id": "img_1234567890",
     "brand": "jacquemus",
     "k": 7
   }'
@@ -135,6 +164,13 @@ curl -X POST https://your-api-gateway-url/automations/annotation/classify-model 
 - Check that `vector-classifiers/model_classifier_pipeline.py` exists
 - Verify Python imports are working
 - Check CloudWatch logs for import errors
+
+### "Processing record does not contain an image vector"
+
+- Confirm the image processing Lambda completed successfully for the given `processing_id`
+- Verify the DynamoDB item contains the `imageVector` attribute
+- Check `vectorizationError` in the processing record for failure details
+- Re-run image processing if the vector is missing
 
 ### "No matches found in Pinecone"
 

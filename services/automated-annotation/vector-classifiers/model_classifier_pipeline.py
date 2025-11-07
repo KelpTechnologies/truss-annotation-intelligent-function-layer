@@ -1,24 +1,24 @@
 """
-Visual Classification Pipeline
+Vector Classification Pipeline
 
 This script:
-1. Vectorizes an input image
-2. Queries Pinecone for similar images
+1. Reads pre-computed image vectors from the image processing DynamoDB table
+2. Queries Pinecone for visually similar images
 3. Queries DynamoDB for model metadata
 4. Performs majority voting on model/root_model
 5. Returns classification result with confidence
 
 Dependencies:
-    pip install boto3 pandas pillow requests
+    pip install boto3
 """
 
-import requests
-from typing import Dict, Any, Optional
-from PIL import Image
-from io import BytesIO
-import boto3
-from collections import Counter
+import os
 import sys
+from collections import Counter
+from decimal import Decimal
+from typing import Any, Dict, Optional
+
+import boto3
 
 # Import from tds package
 try:
@@ -29,62 +29,84 @@ except ImportError:
     sys.exit(1)
 
 
-def vectorize_image(image_path: str) -> Dict[str, Any]:
-    """
-    Vectorize a local image using the GPU Image Vectorization API.
-    
-    Args:
-        image_path: Path to local image file
-        
-    Returns:
-        Dictionary with vector and metadata
-    """
-    import os
-    
-    print(f"\n[STEP 1] Vectorizing image: {image_path}")
-    
-    # GPU API endpoint
-    api_url = "https://image-vectorization-api-gpu-94434742359.us-central1.run.app/vectorize"
-    
-    # Get filename
-    filename = os.path.basename(image_path)
-    
-    # Load image using PIL
-    print(f"  Loading image with PIL...")
-    img = Image.open(image_path)
-    
-    # Convert RGBA to RGB if necessary
-    if img.mode == 'RGBA':
-        print(f"  Converting from RGBA to RGB...")
-        img = img.convert('RGB')
-    
-    # Always use JPEG format
-    img_format = 'JPEG'
-    content_type = 'image/jpeg'
-    
-    # Save to buffer and extract bytes
-    print(f"  Preparing image for upload...")
-    img_buffer = BytesIO()
-    img.save(img_buffer, format=img_format)
-    img_buffer.seek(0)
-    image_bytes = img_buffer.getvalue()
-    
-    # Upload to API
-    print(f"  Calling vectorization API...")
-    files = {
-        'file': (filename, image_bytes, content_type)
+def _decimal_to_float(value: Any) -> Any:
+    """Recursively convert Decimal objects (from DynamoDB) into floats."""
+
+    if isinstance(value, list):
+        return [_decimal_to_float(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _decimal_to_float(v) for k, v in value.items()}
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
+
+
+def _get_image_processing_table_name(table_name: Optional[str] = None) -> str:
+    """Resolve the DynamoDB table name that stores image processing results."""
+
+    if table_name:
+        return table_name
+
+    env_table = os.getenv("IMAGE_PROCESSING_TABLE")
+    if env_table:
+        return env_table
+
+    # Fallback to default naming convention if env not provided
+    stage = os.getenv("STAGE", "dev")
+    return f"truss-image-processing-{stage}"
+
+
+def fetch_processing_record(processing_id: str, table_name: Optional[str] = None) -> Dict[str, Any]:
+    """Fetch a processed image record (including vector) from DynamoDB."""
+
+    if not processing_id:
+        raise ValueError("processing_id is required")
+
+    resolved_table = _get_image_processing_table_name(table_name)
+
+    print(f"\n[STEP 1] Fetching vector from DynamoDB")
+    print(f"  Table: {resolved_table}")
+    print(f"  processing_id: {processing_id}")
+
+    dynamodb = boto3.resource("dynamodb")
+    table = dynamodb.Table(resolved_table)
+
+    response = table.get_item(Key={"processingId": processing_id})
+    item = response.get("Item")
+
+    if not item:
+        raise ValueError(f"No processing record found for processingId '{processing_id}'")
+
+    if "imageVector" not in item or not item["imageVector"]:
+        raise ValueError(
+            "Processing record does not contain an image vector. "
+            "Ensure the image was vectorized successfully before classification."
+        )
+
+    vector = _decimal_to_float(item["imageVector"])
+    dimension = int(item.get("vectorDimension", len(vector)))
+
+    vectorization_error = item.get("vectorizationError")
+    if vectorization_error:
+        raise ValueError(
+            f"Processing record contains vectorization error: {vectorization_error}"
+        )
+
+    metadata = {
+        "processedImage": item.get("processedImage"),
+        "vectorizationTimings": _decimal_to_float(item.get("vectorizationTimings")),
+        "timestamp": item.get("timestamp"),
+        "stage": item.get("stage"),
     }
-    
-    response = requests.post(api_url, files=files, timeout=30)
-    response.raise_for_status()
-    
-    result = response.json()
-    
-    print(f"  ✓ Image vectorized successfully")
-    print(f"    - Vector dimension: {result['dimension']}")
-    print(f"    - Processing time: {result['timings']['total_ms']:.2f}ms")
-    
-    return result
+
+    print(f"  ✓ Retrieved vector with dimension {dimension}")
+
+    return {
+        "vector": vector,
+        "dimension": dimension,
+        "metadata": metadata,
+        "raw_item": item,
+    }
 
 
 def query_pinecone(vector: list, k: int, namespace: str, index_name: str = "mfc-classifier-bags-models") -> list:
@@ -278,100 +300,133 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
     }
 
 
-def classify_image(image_path: str, brand: str = "jacquemus", k: int = 5) -> Dict[str, Any]:
+def classify_image(processing_id: str, brand: str, k: int = 7) -> Dict[str, Any]:
     """
-    Complete classification pipeline for an image.
-    
+    Complete classification pipeline for a pre-processed image vector.
+
     Args:
-        image_path: Path to image file
+        processing_id: ID of the processed image (from image processing pipeline)
         brand: Brand name (used as Pinecone namespace, lowercase)
         k: Number of nearest neighbors to retrieve
-        
+
     Returns:
-        Classification result dictionary
+        Classification result dictionary with additional metadata
     """
-    print("="*70)
-    print("VISUAL CLASSIFICATION PIPELINE")
-    print("="*70)
-    print(f"Image: {image_path}")
+
+    print("=" * 70)
+    print("VISUAL CLASSIFICATION PIPELINE (Pre-computed vectors)")
+    print("=" * 70)
+    print(f"Processing ID: {processing_id}")
     print(f"Brand (namespace): {brand}")
     print(f"K (neighbors): {k}")
-    
+
+    if not brand:
+        raise ValueError("'brand' is required for model classification")
+
     try:
-        # Step 1: Vectorize image
-        vectorization_result = vectorize_image(image_path)
-        vector = vectorization_result['vector']
-        
+        # Step 1: Fetch vector from DynamoDB
+        processing_record = fetch_processing_record(processing_id)
+        vector = processing_record["vector"]
+        vector_dimension = processing_record["dimension"]
+
         # Step 2: Query Pinecone
         namespace = brand.lower().strip()
         matches = query_pinecone(vector, k, namespace)
-        
+
         if not matches:
             return {
+                "processing_id": processing_id,
+                "brand": brand,
+                "k": k,
                 "predicted_model": None,
                 "predicted_root_model": None,
                 "confidence": 0.0,
                 "method": "no_matches",
-                "message": "No matches found in Pinecone"
+                "message": "No matches found in Pinecone",
+                "vector_dimension": vector_dimension,
+                "vector_source": "image-processing-table",
+                "matches": [],
+                "metadata": processing_record["metadata"],
             }
-        
+
         # Step 3: Query DynamoDB for metadata
-        ids = [match['id'] for match in matches]
+        ids = [match["id"] for match in matches]
         metadata = query_dynamodb(ids)
-        
+
         # Step 4: Perform voting
-        result = perform_voting(matches, metadata, k)
-        
+        classification_result = perform_voting(matches, metadata, k)
+
         # Print final result
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print("CLASSIFICATION RESULT")
-        print(f"{'='*70}")
-        
-        if result['predicted_model']:
-            print(f"✓ Predicted Model: {result['predicted_model']}")
-            print(f"  Confidence: {result['confidence']:.1f}%")
-            print(f"  Method: {result['method']}")
-        elif result['predicted_root_model']:
-            print(f"✓ Predicted Root Model: {result['predicted_root_model']}")
-            print(f"  Confidence: {result['confidence']:.1f}%")
-            print(f"  Method: {result['method']}")
+        print(f"{'=' * 70}")
+
+        if classification_result["predicted_model"]:
+            print(f"✓ Predicted Model: {classification_result['predicted_model']}")
+            print(f"  Confidence: {classification_result['confidence']:.1f}%")
+            print(f"  Method: {classification_result['method']}")
+        elif classification_result["predicted_root_model"]:
+            print(f"✓ Predicted Root Model: {classification_result['predicted_root_model']}")
+            print(f"  Confidence: {classification_result['confidence']:.1f}%")
+            print(f"  Method: {classification_result['method']}")
         else:
-            print(f"✗ {result['message']}")
-        
-        print(f"{'='*70}\n")
-        
-        return result
-        
+            print(f"✗ {classification_result['message']}")
+
+        print(f"{'=' * 70}\n")
+
+        return {
+            **classification_result,
+            "processing_id": processing_id,
+            "brand": brand,
+            "k": k,
+            "vector_dimension": vector_dimension,
+            "vector_source": "image-processing-table",
+            "matches": matches,
+            "metadata": {
+                "vector": processing_record["metadata"],
+                "pinecone": {
+                    "namespace": namespace,
+                    "index_name": "mfc-classifier-bags-models",
+                },
+                "model_metadata_count": len(metadata),
+            },
+        }
+
     except Exception as e:
         print(f"\n✗ ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return {
+            "processing_id": processing_id,
+            "brand": brand,
+            "k": k,
             "predicted_model": None,
             "predicted_root_model": None,
             "confidence": 0.0,
             "method": "error",
-            "message": str(e)
+            "message": str(e),
+            "vector_source": "image-processing-table",
         }
 
 
 if __name__ == "__main__":
-    # Configuration
-    IMAGE_PATH = "le_baneto_1.jpg"  # Change this to your image path
-    BRAND = "jacquemus"            # Brand name (used as namespace)
-    K = 5                          # Number of neighbors for voting
-    
-    # You can override these from command line
-    import sys
-    if len(sys.argv) > 1:
-        IMAGE_PATH = sys.argv[1]
-    if len(sys.argv) > 2:
-        K = int(sys.argv[2])
-    
-    # Run classification
-    result = classify_image(IMAGE_PATH, BRAND, K)
-    
-    # Print result as JSON for easy parsing
+    # Example usage:
+    # python model_classifier_pipeline.py <processing_id> <brand> [k]
+
+    if len(sys.argv) < 3:
+        print(
+            "Usage: python model_classifier_pipeline.py <processing_id> <brand> [k]"
+        )
+        sys.exit(1)
+
+    processing_id_arg = sys.argv[1]
+    brand_arg = sys.argv[2]
+    k_arg = int(sys.argv[3]) if len(sys.argv) > 3 else 7
+
+    classification = classify_image(processing_id_arg, brand_arg, k_arg)
+
     import json
+
     print("\nJSON Result:")
-    print(json.dumps(result, indent=2))
+    print(json.dumps(classification, indent=2))

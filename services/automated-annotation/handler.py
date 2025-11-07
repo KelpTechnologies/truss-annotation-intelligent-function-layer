@@ -2,10 +2,6 @@ import json
 import os
 import traceback
 import base64
-import tempfile
-import requests
-from io import BytesIO
-from PIL import Image
 
 # Import DSL components from simplified package
 from dsl import DSLAPIClient, ConfigLoader, LLMAnnotationAgent
@@ -117,92 +113,58 @@ def _ensure_gcp_adc():
         pass
 
 
-def _download_image_to_temp(image_url: str) -> str:
-    """
-    Download image from URL and save to temporary file.
-    
-    Args:
-        image_url: URL of the image to download
-        
-    Returns:
-        Path to temporary file containing the image
-    """
-    response = requests.get(image_url, timeout=30)
-    response.raise_for_status()
-    
-    # Validate it's an image
-    img = Image.open(BytesIO(response.content))
-    img.verify()
-    img = Image.open(BytesIO(response.content))
-    
-    # Create temporary file
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-    temp_file.close()
-    
-    # Save image to temp file
-    if img.mode != 'RGB':
-        img = img.convert('RGB')
-    img.save(temp_file.name, format='JPEG')
-    
-    return temp_file.name
-
-
 def _classify_model(payload: dict):
     """
-    Classify model using vector-based similarity search.
-    
+    Classify model using a pre-computed image vector from the image-processing table.
+
     Args:
         payload: Request payload containing:
-            - image_url: URL of the image to classify (required)
+            - processing_id / processingId: Processing identifier (required)
             - brand: Brand name for namespace (required, e.g., "jacquemus")
             - k: Number of neighbors for voting (optional, default: 7)
-            
+
     Returns:
         Classification result dictionary
     """
+
     if not classify_image:
         raise ValueError("Vector classifier pipeline not available")
-    
-    image_url = payload.get("image_url")
-    if not image_url:
-        raise ValueError("'image_url' is required for model classification")
-    
+
+    processing_id = payload.get("processing_id") or payload.get("processingId")
+    if not processing_id:
+        raise ValueError("'processing_id' is required for model classification")
+
     brand = payload.get("brand")
     if not brand:
         raise ValueError("'brand' is required for model classification")
-    
-    k = payload.get("k", 7)  # Default to 7 as recommended in docs
-    
-    # Download image to temporary file
-    temp_image_path = None
+
+    k_value = payload.get("k", 7)
     try:
-        temp_image_path = _download_image_to_temp(image_url)
-        
-        # Run classification
-        result = classify_image(
-            image_path=temp_image_path,
-            brand=brand,
-            k=k
-        )
-        
-        return {
-            "image_url": image_url,
-            "brand": brand,
-            "k": k,
-            "predicted_model": result.get("predicted_model"),
-            "predicted_root_model": result.get("predicted_root_model"),
-            "confidence": result.get("confidence", 0.0),
-            "method": result.get("method", "unknown"),
-            "message": result.get("message", ""),
-            "success": True,
-        }
-    finally:
-        # Clean up temporary file
-        if temp_image_path and os.path.exists(temp_image_path):
-            try:
-                os.unlink(temp_image_path)
-            except Exception:
-                pass  # Ignore cleanup errors
+        k_int = int(k_value)
+    except (TypeError, ValueError):
+        raise ValueError("'k' must be an integer")
+
+    result = classify_image(
+        processing_id=processing_id,
+        brand=brand,
+        k=k_int,
+    )
+
+    return {
+        "processing_id": processing_id,
+        "brand": brand,
+        "k": k_int,
+        "predicted_model": result.get("predicted_model"),
+        "predicted_root_model": result.get("predicted_root_model"),
+        "confidence": result.get("confidence", 0.0),
+        "method": result.get("method", "unknown"),
+        "message": result.get("message", ""),
+        "vector_dimension": result.get("vector_dimension"),
+        "vector_source": result.get("vector_source"),
+        "matches": result.get("matches"),
+        "metadata": result.get("metadata"),
+        "success": result.get("method") != "error",
+    }
 
 
 def _classify_item(payload: dict):
@@ -310,24 +272,22 @@ def lambda_handler(event, context):
 
         if path.endswith("/classify") and method == "POST":
             payload = _parse_body(event)
-            
-            # Route to model classification if it's a model classification request
-            # Model classification requires: image_url and brand, but no property/root_type_id
+
+            processing_id = payload.get("processing_id") or payload.get("processingId")
+            has_property_inputs = payload.get("property") is not None or payload.get("root_type_id") is not None or payload.get("rootTypeId") is not None
+
             is_model_classification = (
-                payload.get("image_url") and 
-                payload.get("brand") and 
-                not payload.get("property") and 
-                payload.get("root_type_id") is None
+                processing_id
+                and payload.get("brand")
+                and not has_property_inputs
             )
-            
+
             if is_model_classification:
-                # Route to model classification
                 result = _classify_model(payload)
                 return _response(200, {"component_type": "model_classification_result", "data": [result], "metadata": {}})
-            else:
-                # Route to property classification (existing behavior)
-                result = _classify_item(payload)
-                return _response(200, {"component_type": "classification_result", "data": [result], "metadata": {}})
+
+            result = _classify_item(payload)
+            return _response(200, {"component_type": "classification_result", "data": [result], "metadata": {}})
 
         # Keep /classify-model for backward compatibility
         if path.endswith("/classify-model") and method == "POST":
