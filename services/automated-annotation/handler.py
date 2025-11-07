@@ -173,13 +173,16 @@ def _classify_model(payload: dict):
         k=k_int,
     )
 
-    return {
+    primary = result.get("predicted_root_model")
+
+    response_payload = {
         "processing_id": processing_id,
         "image_id": processing_id,
         "brand": brand,
         "k": k_int,
         "image_url": payload.get("image_url"),
         "predicted_root_model": result.get("predicted_root_model"),
+        "root_model": primary,
         "confidence": result.get("confidence", 0.0),
         "method": result.get("method", "unknown"),
         "message": result.get("message", ""),
@@ -188,6 +191,12 @@ def _classify_model(payload: dict):
         "metadata": result.get("metadata"),
         "success": result.get("method") != "error",
     }
+
+    if primary is not None:
+        response_payload["property"] = "model"
+        response_payload["model"] = primary
+
+    return response_payload
 
 
 def _classify_property(category: str, target: str, request_payload: dict):
@@ -226,13 +235,38 @@ def _classify_property(category: str, target: str, request_payload: dict):
     if garment_id:
         classification_payload["garment_id"] = garment_id
 
-    result = _classify_item(classification_payload)
-    result["image_id"] = request_payload.get("image_id")
-    result["image_url"] = image_url
-    result["category"] = category
-    result["requested_property"] = target
-    result["success"] = True
-    return result
+    raw_result = _classify_item(classification_payload)
+
+    primary_value = raw_result.get("primary")
+    if isinstance(primary_value, str) and primary_value.startswith("ID "):
+        try:
+            primary_value = primary_value.split(":", 1)[1].strip()
+        except Exception:
+            pass
+
+    response_payload = {
+        "image_id": request_payload.get("image_id"),
+        "image_url": image_url,
+        "category": category,
+        "target": target,
+        "property": target,
+        target: primary_value,
+        "confidence": raw_result.get("confidence"),
+        "alternatives": raw_result.get("alternatives", []),
+        "metadata": {
+            "prediction_id": raw_result.get("prediction_id"),
+            "root_type_id": raw_result.get("root_type_id"),
+            "input_mode_used": raw_result.get("input_mode_used"),
+            "has_text_metadata": raw_result.get("has_text_metadata"),
+            "reasoning": raw_result.get("reasoning"),
+        },
+        "success": True,
+    }
+
+    if raw_result.get("property"):
+        response_payload["raw_property_name"] = raw_result["property"]
+
+    return response_payload
 
 
 def _classify_item(payload: dict):
