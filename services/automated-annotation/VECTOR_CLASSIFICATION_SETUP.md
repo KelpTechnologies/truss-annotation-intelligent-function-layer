@@ -154,10 +154,11 @@ curl -X POST https://your-api-gateway-url/automations/annotation/bags/classify/m
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
     "image_id": "img_1234567890",
-    "brand": "jacquemus",
-    "k": 7
+    "brand": "jacquemus"
   }'
 ```
+
+The service automatically queries 7 nearest neighbors for majority voting.
 
 ## Troubleshooting
 

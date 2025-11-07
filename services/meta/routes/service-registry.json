@@ -15,8 +15,7 @@
           "parameters": {
             "body": {
               "image_id": "string (required) - Processing/Image ID stored in the image-processing DynamoDB table",
-              "brand": "string (required) - Brand namespace for Pinecone (e.g., 'jacquemus')",
-              "k": "number (optional) - Number of nearest neighbors for voting (default: 7)",
+              "brand": "string (required) - Brand namespace for Pinecone (e.g., 'jacquemus'). Uses 7 nearest neighbors by default",
               "image_url": "string (optional) - Reference image URL included for client context"
             }
           }

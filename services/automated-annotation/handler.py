@@ -16,6 +16,7 @@ CATEGORY_CONFIG = {
             "type": "type",
             "material": "material",
             "color": "color",
+            "colour": "color",
             "condition": "condition",
             "hardware": "hardware",
             "style": "style",
@@ -144,7 +145,6 @@ def _classify_model(payload: dict):
         payload: Request payload containing:
             - processing_id / processingId: Processing identifier (required)
             - brand: Brand name for namespace (required, e.g., "jacquemus")
-            - k: Number of neighbors for voting (optional, default: 7)
 
     Returns:
         Classification result dictionary
@@ -161,11 +161,7 @@ def _classify_model(payload: dict):
     if not brand:
         raise ValueError("'brand' is required for model classification")
 
-    k_value = payload.get("k", 7)
-    try:
-        k_int = int(k_value)
-    except (TypeError, ValueError):
-        raise ValueError("'k' must be an integer")
+    k_int = 7
 
     result = classify_image(
         processing_id=processing_id,
@@ -249,8 +245,8 @@ def _classify_property(category: str, target: str, request_payload: dict):
         "image_url": image_url,
         "category": category,
         "target": target,
-        "property": target,
-        target: primary_value,
+        "property": property_name,
+        property_name: primary_value,
         "confidence": raw_result.get("confidence"),
         "alternatives": raw_result.get("alternatives", []),
         "metadata": {
@@ -262,6 +258,9 @@ def _classify_property(category: str, target: str, request_payload: dict):
         },
         "success": True,
     }
+
+    if target != property_name:
+        response_payload[target] = primary_value
 
     if raw_result.get("property"):
         response_payload["raw_property_name"] = raw_result["property"]
@@ -401,7 +400,6 @@ def lambda_handler(event, context):
                         "processingId": processing_id,
                         "brand": payload.get("brand")
                         or CATEGORY_CONFIG[category].get("default_brand"),
-                        "k": payload.get("k"),
                         "image_url": payload.get("image_url"),
                     }
 
