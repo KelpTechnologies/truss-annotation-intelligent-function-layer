@@ -4,6 +4,8 @@ This document outlines the required AWS permissions, environment variables, and 
 
 > The model classification flow now uses the pre-computed vectors stored by the image processing pipeline. The Lambda no longer uploads the image or calls the vectorization API during classification.
 
+> The Python Lambda requires the `pinecone-client` dependency (available in a Lambda layer or vendored into the package).
+
 ## AWS IAM Permissions
 
 The Lambda function requires the following permissions:

@@ -9,7 +9,7 @@ This script:
 5. Returns classification result with confidence
 
 Dependencies:
-    pip install boto3
+    pip install boto3 pinecone-client
 """
 
 import os
@@ -20,13 +20,7 @@ from typing import Any, Dict, Optional
 
 import boto3
 
-# Import from tds package
-try:
-    from tds import pinecone_utils
-except ImportError:
-    print("ERROR: Could not import pinecone_utils from tds package")
-    print("Make sure the tds package is installed and available")
-    sys.exit(1)
+from . import pinecone_utils
 
 
 def _decimal_to_float(value: Any) -> Any:
@@ -109,7 +103,7 @@ def fetch_processing_record(processing_id: str, table_name: Optional[str] = None
     }
 
 
-def query_pinecone(vector: list, k: int, namespace: str, index_name: str = "mfc-classifier-bags-models") -> list:
+def query_pinecone(vector: list, k: int, namespace: str, index_name: str = pinecone_utils.DEFAULT_INDEX_NAME) -> list:
     """
     Query Pinecone for K nearest neighbors.
     
@@ -126,15 +120,14 @@ def query_pinecone(vector: list, k: int, namespace: str, index_name: str = "mfc-
     print(f"  Index: {index_name}")
     print(f"  Namespace: {namespace}")
     
-    # Query using pinecone_utils
-    query_response = pinecone_utils.query_nearest_neighbors(
-        query_input=vector,
-        k=k,
+    matches = pinecone_utils.query_similar_vectors(
+        vector=vector,
+        top_k=k,
         namespace=namespace,
-        index_name=index_name
+        index_name=index_name,
+        include_metadata=True,
+        include_values=False,
     )
-    
-    matches = query_response.get('matches', [])
     
     print(f"  ✓ Found {len(matches)} matches")
     
