@@ -1,5 +1,5 @@
 {
-  "generated_at": "2025-10-27T09:14:22.119Z",
+  "generated_at": "2025-11-07T10:25:26.560Z",
   "generator_version": "3.1.0",
   "total_services": 2,
   "services": [
@@ -23,6 +23,18 @@
               "text_metadata": "string (optional) - Override composite metadata",
               "input_mode": "string (optional) - auto|image-only|text-only|multimodal",
               "resolve_names": "boolean (optional) - If true, include names for IDs"
+            }
+          }
+        },
+        {
+          "path": "/classify-model",
+          "method": "POST",
+          "description": "Classify product model using vector-based similarity search (no LLM context required)",
+          "parameters": {
+            "body": {
+              "processing_id": "string (required) - Processing ID (or 'processingId') referencing the image-processing DynamoDB record",
+              "brand": "string (required) - Brand name (e.g., 'jacquemus', 'gucci', 'prada') - used as Pinecone namespace",
+              "k": "number (optional) - Number of nearest neighbors for voting (default: 7, recommended: 7)"
             }
           }
         },
@@ -125,6 +137,6 @@
     }
   ],
   "summary": {
-    "total_endpoints": 10
+    "total_endpoints": 11
   }
 }
