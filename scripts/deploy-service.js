@@ -247,7 +247,7 @@ async function packageService(
       }
     }
 
-    // Python: include handler.py and dsl/ package
+    // Python: include handler.py, dsl/ package, and vector-classifiers/ package
     if (runtime.startsWith("python")) {
       const handlerPath = path.join(servicePath, "handler.py");
       if (fs.existsSync(handlerPath)) {
@@ -260,6 +260,12 @@ async function packageService(
         const destDsl = path.join(tempDir, "dsl");
         copyDirectory(dslDir, destDsl);
         console.log(`     📁 Copied dsl/ package`);
+      }
+      const vectorClassifiersDir = path.join(servicePath, "vector-classifiers");
+      if (fs.existsSync(vectorClassifiersDir)) {
+        const destVectorClassifiers = path.join(tempDir, "vector-classifiers");
+        copyDirectory(vectorClassifiersDir, destVectorClassifiers);
+        console.log(`     📁 Copied vector-classifiers/ package`);
       }
     }
 

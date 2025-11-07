@@ -72,8 +72,6 @@ Resources:
         S3Key: !Ref CodeS3Key
       Timeout: 300
       MemorySize: 1024
-      Layers:
-        - "arn:aws:lambda:eu-west-2:193757560043:layer:truss-data-service-layer-nodejs:4"
       Environment:
         Variables:
           STAGE: !Ref StageName
