@@ -38,6 +38,18 @@
         }
       },
       {
+        "path": "/classify-model",
+        "method": "POST",
+        "description": "Classify product model using vector-based similarity search (no LLM context required)",
+        "parameters": {
+          "body": {
+            "image_url": "string (required) - Image URL to classify",
+            "brand": "string (required) - Brand name (e.g., 'jacquemus', 'gucci', 'prada') - used as Pinecone namespace",
+            "k": "number (optional) - Number of nearest neighbors for voting (default: 7, recommended: 7)"
+          }
+        }
+      },
+      {
         "path": "/health",
         "method": "GET",
         "description": "Health check endpoint for the automated annotation service",

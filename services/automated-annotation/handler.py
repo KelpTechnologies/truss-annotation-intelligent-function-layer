@@ -2,10 +2,42 @@ import json
 import os
 import traceback
 import base64
+import tempfile
+import requests
+from io import BytesIO
+from PIL import Image
 
 # Import DSL components from simplified package
 from dsl import DSLAPIClient, ConfigLoader, LLMAnnotationAgent
 from dsl import load_property_id_mapping_api
+
+# Import vector classifier pipeline
+# Using importlib to handle hyphenated directory name (vector-classifiers)
+try:
+    import importlib.util
+    import sys
+    
+    # Handle hyphenated directory name by using importlib
+    pipeline_path = os.path.join(
+        os.path.dirname(__file__), 
+        "vector-classifiers", 
+        "model_classifier_pipeline.py"
+    )
+    
+    if os.path.exists(pipeline_path):
+        spec = importlib.util.spec_from_file_location("model_classifier_pipeline", pipeline_path)
+        pipeline_module = importlib.util.module_from_spec(spec)
+        sys.modules["model_classifier_pipeline"] = pipeline_module
+        spec.loader.exec_module(pipeline_module)
+        classify_image = pipeline_module.classify_image
+    else:
+        print(f"Warning: Vector classifier pipeline not found at {pipeline_path}")
+        classify_image = None
+except Exception as e:
+    print(f"Warning: Could not load vector classifier pipeline: {e}")
+    import traceback
+    traceback.print_exc()
+    classify_image = None
 
 
 def _cors_headers(methods: str = "POST,GET,OPTIONS"):
@@ -83,6 +115,94 @@ def _ensure_gcp_adc():
     except Exception:
         # Do not fail classification if credentials write fails; VertexAI will error later
         pass
+
+
+def _download_image_to_temp(image_url: str) -> str:
+    """
+    Download image from URL and save to temporary file.
+    
+    Args:
+        image_url: URL of the image to download
+        
+    Returns:
+        Path to temporary file containing the image
+    """
+    response = requests.get(image_url, timeout=30)
+    response.raise_for_status()
+    
+    # Validate it's an image
+    img = Image.open(BytesIO(response.content))
+    img.verify()
+    img = Image.open(BytesIO(response.content))
+    
+    # Create temporary file
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+    temp_file.close()
+    
+    # Save image to temp file
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+    img.save(temp_file.name, format='JPEG')
+    
+    return temp_file.name
+
+
+def _classify_model(payload: dict):
+    """
+    Classify model using vector-based similarity search.
+    
+    Args:
+        payload: Request payload containing:
+            - image_url: URL of the image to classify (required)
+            - brand: Brand name for namespace (required, e.g., "jacquemus")
+            - k: Number of neighbors for voting (optional, default: 7)
+            
+    Returns:
+        Classification result dictionary
+    """
+    if not classify_image:
+        raise ValueError("Vector classifier pipeline not available")
+    
+    image_url = payload.get("image_url")
+    if not image_url:
+        raise ValueError("'image_url' is required for model classification")
+    
+    brand = payload.get("brand")
+    if not brand:
+        raise ValueError("'brand' is required for model classification")
+    
+    k = payload.get("k", 7)  # Default to 7 as recommended in docs
+    
+    # Download image to temporary file
+    temp_image_path = None
+    try:
+        temp_image_path = _download_image_to_temp(image_url)
+        
+        # Run classification
+        result = classify_image(
+            image_path=temp_image_path,
+            brand=brand,
+            k=k
+        )
+        
+        return {
+            "image_url": image_url,
+            "brand": brand,
+            "k": k,
+            "predicted_model": result.get("predicted_model"),
+            "predicted_root_model": result.get("predicted_root_model"),
+            "confidence": result.get("confidence", 0.0),
+            "method": result.get("method", "unknown"),
+            "message": result.get("message", ""),
+            "success": True,
+        }
+    finally:
+        # Clean up temporary file
+        if temp_image_path and os.path.exists(temp_image_path):
+            try:
+                os.unlink(temp_image_path)
+            except Exception:
+                pass  # Ignore cleanup errors
 
 
 def _classify_item(payload: dict):
@@ -192,6 +312,11 @@ def lambda_handler(event, context):
             payload = _parse_body(event)
             result = _classify_item(payload)
             return _response(200, {"component_type": "classification_result", "data": [result], "metadata": {}})
+
+        if path.endswith("/classify-model") and method == "POST":
+            payload = _parse_body(event)
+            result = _classify_model(payload)
+            return _response(200, {"component_type": "model_classification_result", "data": [result], "metadata": {}})
 
         if path.endswith("/health"):
             api_base_url = os.getenv("DSL_API_BASE_URL")
