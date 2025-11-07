@@ -34,7 +34,7 @@
       {
         "path": "/bags/classify/{property}",
         "method": "POST",
-        "description": "Classify a bag property (type, material, color, etc.) using the DSL orchestrator",
+        "description": "Classify a bag property (type, material, colour, etc.) using the DSL orchestrator",
         "parameters": {
           "body": {
             "image_id": "string (optional) - Processing/Image ID for traceability",

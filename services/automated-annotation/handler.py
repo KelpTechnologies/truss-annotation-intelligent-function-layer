@@ -15,8 +15,7 @@ CATEGORY_CONFIG = {
         "properties": {
             "type": "type",
             "material": "material",
-            "color": "color",
-            "colour": "color",
+            "colour": "colour",
             "condition": "condition",
             "hardware": "hardware",
             "style": "style",
@@ -201,8 +200,8 @@ def _classify_property(category: str, target: str, request_payload: dict):
         raise ValueError(f"Unsupported category '{category}'")
 
     property_map = category_config.get("properties", {})
-    property_name = property_map.get(target)
-    if not property_name:
+    internal_property_name = property_map.get(target)
+    if not internal_property_name:
         raise ValueError(
             f"Unsupported classification target '{target}' for category '{category}'"
         )
@@ -216,7 +215,7 @@ def _classify_property(category: str, target: str, request_payload: dict):
         raise ValueError("'text_dump' is required for property classification")
 
     classification_payload = {
-        "property": property_name,
+        "property": internal_property_name,
         "root_type_id": category_config["root_type_id"],
         "image_url": image_url,
         "text_metadata": text_dump,
@@ -245,8 +244,8 @@ def _classify_property(category: str, target: str, request_payload: dict):
         "image_url": image_url,
         "category": category,
         "target": target,
-        "property": property_name,
-        property_name: primary_value,
+        "property": target,
+        target: primary_value,
         "confidence": raw_result.get("confidence"),
         "alternatives": raw_result.get("alternatives", []),
         "metadata": {
@@ -259,11 +258,10 @@ def _classify_property(category: str, target: str, request_payload: dict):
         "success": True,
     }
 
-    if target != property_name:
-        response_payload[target] = primary_value
-
     if raw_result.get("property"):
         response_payload["raw_property_name"] = raw_result["property"]
+    elif internal_property_name != target:
+        response_payload["raw_property_name"] = internal_property_name
 
     return response_payload
 

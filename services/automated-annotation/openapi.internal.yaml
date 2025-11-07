@@ -163,7 +163,7 @@ paths:
       x-amazon-apigateway-integration:
         type: mock
         requestTemplates:
-          application/json: "{\"statusCode\": 200}"
+          application/json: '{"statusCode": 200}'
         responses:
           default:
             statusCode: "200"
@@ -174,8 +174,8 @@ paths:
               method.response.header.Access-Control-Max-Age: "'86400'"
   /automations/annotation/bags/classify/{property}:
     post:
-      summary: Classify a bag property (type, material, color, etc.) using the DSL orchestrator
-      description: "Classify a bag property (type, material, color, etc.) using the DSL orchestrator - Auth: cognito"
+      summary: Classify a bag property (type, material, colour, etc.) using the DSL orchestrator
+      description: "Classify a bag property (type, material, colour, etc.) using the DSL orchestrator - Auth: cognito"
       security:
         - CognitoAuth: []
       responses:
@@ -314,7 +314,7 @@ paths:
       x-amazon-apigateway-integration:
         type: mock
         requestTemplates:
-          application/json: "{\"statusCode\": 200}"
+          application/json: '{"statusCode": 200}'
         responses:
           default:
             statusCode: "200"
@@ -465,7 +465,7 @@ paths:
       x-amazon-apigateway-integration:
         type: mock
         requestTemplates:
-          application/json: "{\"statusCode\": 200}"
+          application/json: '{"statusCode": 200}'
         responses:
           default:
             statusCode: "200"
