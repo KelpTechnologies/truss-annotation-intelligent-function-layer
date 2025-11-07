@@ -22,27 +22,25 @@
       {
         "path": "/classify",
         "method": "POST",
-        "description": "Classify endpoint - routes to property classification or model classification based on request payload. For property classification: requires 'property' and 'root_type_id'. For model classification: requires 'image_url' and 'brand' (no property/root_type_id).",
+        "description": "Classify a single item property using the DSL orchestrator",
         "parameters": {
           "body": {
-            "property": "string (optional) - Property to classify (e.g., material) - required for property classification",
-            "root_type_id": "number (optional) - Root type ID - required for property classification",
-            "processing_id": "string (optional) - Processing ID (or 'processingId') referencing the image-processing DynamoDB record - required for model classification",
-            "image_url": "string (optional) - Image URL for property classification",
-            "brand": "string (optional) - Brand name - required for model classification",
+            "property": "string (required) - Property to classify (e.g., material)",
+            "root_type_id": "number (required) - Root type ID",
+            "image_url": "string (optional) - Image URL",
+            "brand": "string (optional)",
             "title": "string (optional)",
             "description": "string (optional)",
             "text_metadata": "string (optional) - Override composite metadata",
             "input_mode": "string (optional) - auto|image-only|text-only|multimodal",
-            "resolve_names": "boolean (optional) - If true, include names for IDs",
-            "k": "number (optional) - Number of nearest neighbors for voting (model classification only, default: 7)"
+            "resolve_names": "boolean (optional) - If true, include names for IDs"
           }
         }
       },
       {
         "path": "/classify-model",
         "method": "POST",
-        "description": "Classify product model using vector-based similarity search (no LLM context required) - DEPRECATED: Use /classify with processing_id and brand instead",
+        "description": "Classify product model using vector-based similarity search (no LLM context required)",
         "parameters": {
           "body": {
             "processing_id": "string (required) - Processing ID (or 'processingId') referencing the image-processing DynamoDB record",
