@@ -149,11 +149,11 @@ Pre-computed image vectors are stored in the image processing DynamoDB table.
 After deployment, test the endpoint:
 
 ```bash
-curl -X POST https://your-api-gateway-url/automations/annotation/classify-model \
+curl -X POST https://your-api-gateway-url/automations/annotation/bags/classify/model \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{
-    "processing_id": "img_1234567890",
+    "image_id": "img_1234567890",
     "brand": "jacquemus",
     "k": 7
   }'

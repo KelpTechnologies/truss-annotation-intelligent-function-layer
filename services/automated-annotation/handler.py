@@ -7,6 +7,25 @@ import base64
 from dsl import DSLAPIClient, ConfigLoader, LLMAnnotationAgent
 from dsl import load_property_id_mapping_api
 
+
+CATEGORY_CONFIG = {
+    "bags": {
+        "root_type_id": 30,
+        "default_brand": None,
+        "properties": {
+            "type": "type",
+            "material": "material",
+            "color": "color",
+            "condition": "condition",
+            "hardware": "hardware",
+            "style": "style",
+            "size": "size",
+            "silhouette": "silhouette",
+            "lining": "lining",
+        },
+    }
+}
+
 # Import vector classifier pipeline
 # Using importlib to handle hyphenated directory name (vector-classifiers)
 try:
@@ -156,19 +175,64 @@ def _classify_model(payload: dict):
 
     return {
         "processing_id": processing_id,
+        "image_id": processing_id,
         "brand": brand,
         "k": k_int,
-        "predicted_model": result.get("predicted_model"),
+        "image_url": payload.get("image_url"),
         "predicted_root_model": result.get("predicted_root_model"),
         "confidence": result.get("confidence", 0.0),
         "method": result.get("method", "unknown"),
         "message": result.get("message", ""),
         "vector_dimension": result.get("vector_dimension"),
         "vector_source": result.get("vector_source"),
-        "matches": result.get("matches"),
         "metadata": result.get("metadata"),
         "success": result.get("method") != "error",
     }
+
+
+def _classify_property(category: str, target: str, request_payload: dict):
+    category_config = CATEGORY_CONFIG.get(category)
+    if not category_config:
+        raise ValueError(f"Unsupported category '{category}'")
+
+    property_map = category_config.get("properties", {})
+    property_name = property_map.get(target)
+    if not property_name:
+        raise ValueError(
+            f"Unsupported classification target '{target}' for category '{category}'"
+        )
+
+    image_url = request_payload.get("image_url")
+    if not image_url:
+        raise ValueError("'image_url' is required for property classification")
+
+    text_dump = request_payload.get("text_dump")
+    if text_dump is None:
+        raise ValueError("'text_dump' is required for property classification")
+
+    classification_payload = {
+        "property": property_name,
+        "root_type_id": category_config["root_type_id"],
+        "image_url": image_url,
+        "text_metadata": text_dump,
+        "description": request_payload.get("description") or text_dump,
+        "title": request_payload.get("title"),
+        "brand": request_payload.get("brand"),
+        "input_mode": request_payload.get("input_mode", "auto"),
+        "resolve_names": request_payload.get("resolve_names", False),
+    }
+
+    garment_id = request_payload.get("garment_id") or request_payload.get("image_id")
+    if garment_id:
+        classification_payload["garment_id"] = garment_id
+
+    result = _classify_item(classification_payload)
+    result["image_id"] = request_payload.get("image_id")
+    result["image_url"] = image_url
+    result["category"] = category
+    result["requested_property"] = target
+    result["success"] = True
+    return result
 
 
 def _classify_item(payload: dict):
@@ -274,15 +338,67 @@ def lambda_handler(event, context):
         if method == "OPTIONS":
             return _response(200, {"ok": True})
 
-        if path.endswith("/classify") and method == "POST":
-            payload = _parse_body(event)
-            result = _classify_item(payload)
-            return _response(200, {"component_type": "classification_result", "data": [result], "metadata": {}})
+        segments = [segment for segment in path.strip("/").split("/") if segment]
 
-        if path.endswith("/classify-model") and method == "POST":
+        if (
+            len(segments) >= 5
+            and segments[0] == "automations"
+            and segments[1] == "annotation"
+            and segments[3] == "classify"
+            and method == "POST"
+        ):
+            category = segments[2]
+            target = segments[4]
+
             payload = _parse_body(event)
-            result = _classify_model(payload)
-            return _response(200, {"component_type": "model_classification_result", "data": [result], "metadata": {}})
+
+            if category not in CATEGORY_CONFIG:
+                return _response(404, {"error": f"Unsupported category '{category}'"})
+
+            try:
+                if target == "model":
+                    processing_id = (
+                        payload.get("processing_id")
+                        or payload.get("processingId")
+                        or payload.get("image_id")
+                    )
+                    model_payload = {
+                        "processing_id": processing_id,
+                        "processingId": processing_id,
+                        "brand": payload.get("brand")
+                        or CATEGORY_CONFIG[category].get("default_brand"),
+                        "k": payload.get("k"),
+                        "image_url": payload.get("image_url"),
+                    }
+
+                    if not model_payload["processing_id"]:
+                        raise ValueError("'image_id' is required for model classification")
+
+                    if not model_payload["brand"]:
+                        raise ValueError("'brand' is required for model classification")
+
+                    result = _classify_model(model_payload)
+                    result["category"] = category
+                    return _response(
+                        200,
+                        {
+                            "component_type": "model_classification_result",
+                            "data": [result],
+                            "metadata": {"category": category, "target": target},
+                        },
+                    )
+
+                result = _classify_property(category, target, payload)
+                return _response(
+                    200,
+                    {
+                        "component_type": "classification_result",
+                        "data": [result],
+                        "metadata": {"category": category, "target": target},
+                    },
+                )
+            except ValueError as exc:
+                return _response(400, {"error": str(exc)})
 
         if path.endswith("/health"):
             api_base_url = os.getenv("DSL_API_BASE_URL")

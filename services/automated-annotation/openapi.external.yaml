@@ -1,6 +1,6 @@
 # Generated from config.json - DO NOT EDIT DIRECTLY
 # Service: automated-annotation
-# Generated: 2025-11-07T10:29:11.558Z
+# Generated: 2025-11-07T11:48:05.640Z
 # CORS Support: Enhanced with error response handling
 openapi: 3.0.1
 info:
@@ -14,10 +14,10 @@ components:
       in: header
       name: X-API-Key
 paths:
-  /automations/annotation/classify:
+  /automations/annotation/bags/classify/model:
     post:
-      summary: Classify a single item property using the DSL orchestrator
-      description: "Classify a single item property using the DSL orchestrator - Auth: api_key"
+      summary: Classify bag model using vector-based similarity search (image vector from image_id)
+      description: "Classify bag model using vector-based similarity search (image vector from image_id) - Auth: api_key"
       security:
         - ApiKeyAuth: []
       responses:
@@ -165,10 +165,10 @@ paths:
               method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
               method.response.header.Access-Control-Allow-Origin: "'*'"
               method.response.header.Access-Control-Max-Age: "'86400'"
-  /automations/annotation/classify-model:
+  /automations/annotation/bags/classify/{property}:
     post:
-      summary: Classify product model using vector-based similarity search (no LLM context required)
-      description: "Classify product model using vector-based similarity search (no LLM context required) - Auth: api_key"
+      summary: Classify a bag property (type, material, color, etc.) using the DSL orchestrator
+      description: "Classify a bag property (type, material, color, etc.) using the DSL orchestrator - Auth: api_key"
       security:
         - ApiKeyAuth: []
       responses:

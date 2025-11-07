@@ -20,32 +20,30 @@
     "cors_enabled": true,
     "endpoints": [
       {
-        "path": "/classify",
+        "path": "/bags/classify/model",
         "method": "POST",
-        "description": "Classify a single item property using the DSL orchestrator",
+        "description": "Classify bag model using vector-based similarity search (image vector from image_id)",
         "parameters": {
           "body": {
-            "property": "string (required) - Property to classify (e.g., material)",
-            "root_type_id": "number (required) - Root type ID",
-            "image_url": "string (optional) - Image URL",
-            "brand": "string (optional)",
-            "title": "string (optional)",
-            "description": "string (optional)",
-            "text_metadata": "string (optional) - Override composite metadata",
-            "input_mode": "string (optional) - auto|image-only|text-only|multimodal",
-            "resolve_names": "boolean (optional) - If true, include names for IDs"
+            "image_id": "string (required) - Processing/Image ID stored in the image-processing DynamoDB table",
+            "brand": "string (required) - Brand namespace for Pinecone (e.g., 'jacquemus')",
+            "k": "number (optional) - Number of nearest neighbors for voting (default: 7)",
+            "image_url": "string (optional) - Reference image URL included for client context"
           }
         }
       },
       {
-        "path": "/classify-model",
+        "path": "/bags/classify/{property}",
         "method": "POST",
-        "description": "Classify product model using vector-based similarity search (no LLM context required)",
+        "description": "Classify a bag property (type, material, color, etc.) using the DSL orchestrator",
         "parameters": {
           "body": {
-            "processing_id": "string (required) - Processing ID (or 'processingId') referencing the image-processing DynamoDB record",
-            "brand": "string (required) - Brand name (e.g., 'jacquemus', 'gucci', 'prada') - used as Pinecone namespace",
-            "k": "number (optional) - Number of nearest neighbors for voting (default: 7, recommended: 7)"
+            "image_id": "string (optional) - Processing/Image ID for traceability",
+            "image_url": "string (required) - Image URL used by the classifier",
+            "text_dump": "string (required) - Textual description/context used for classification",
+            "brand": "string (optional) - Brand context passed to the classifier",
+            "input_mode": "string (optional) - Input mode (default: auto)",
+            "resolve_names": "boolean (optional) - Include resolved names in response"
           }
         }
       },

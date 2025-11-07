@@ -111,12 +111,11 @@ def fetch_vectors(
         return {}
 
     index = get_index(index_name)
-    target = index
-    ns = namespace or DEFAULT_NAMESPACE
-    if ns:
-        target = target.namespace(ns)
+    ns = namespace or DEFAULT_NAMESPACE or None
 
-    response = execute_with_retry(lambda: target.fetch(ids=id_list))
+    response = execute_with_retry(
+        lambda: index.fetch(ids=id_list, namespace=ns)
+    )
     return response.get("records", {}) if isinstance(response, dict) else response.records
 
 
@@ -137,10 +136,7 @@ def query_similar_vectors(
         raise ValueError("Either 'vector' or 'vector_id' must be provided for a Pinecone query")
 
     index = get_index(index_name)
-    target = index
-    ns = namespace or DEFAULT_NAMESPACE
-    if ns:
-        target = target.namespace(ns)
+    ns = namespace or DEFAULT_NAMESPACE or None
 
     payload: Dict[str, Any] = {
         "top_k": top_k or DEFAULT_TOP_K,
@@ -156,7 +152,10 @@ def query_similar_vectors(
     else:
         payload["vector"] = vector
 
-    response = execute_with_retry(lambda: target.query(**payload))
+    if ns:
+        payload["namespace"] = ns
+
+    response = execute_with_retry(lambda: index.query(**payload))
 
     # The Python client returns an object with a ``matches`` attribute. Support both dict/object.
     if isinstance(response, dict):

@@ -17,6 +17,31 @@ import sys
 from collections import Counter
 from decimal import Decimal
 from typing import Any, Dict, Optional
+def _normalize_matches(matches: list) -> list:
+    """Convert Pinecone matches into plain dicts for downstream processing/JSON."""
+
+    normalized = []
+    for match in matches or []:
+        if isinstance(match, dict):
+            normalized.append(match)
+            continue
+
+        if hasattr(match, "to_dict"):
+            normalized.append(match.to_dict())
+            continue
+
+        # Fall back to constructing a dict manually
+        normalized.append(
+            {
+                "id": getattr(match, "id", None),
+                "score": getattr(match, "score", None),
+                "metadata": getattr(match, "metadata", None),
+                "values": list(getattr(match, "values", []) or []),
+            }
+        )
+
+    return normalized
+
 
 import boto3
 
@@ -231,69 +256,61 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
         else:
             print(f"    {i}. ID: {image_id}, Score: {score:.4f}, Model: MISSING")
     
+    # Filter out empty root models for voting
+    root_models = [rm for rm in root_models if rm]
+
     # Check if we have any valid data
-    if not models:
+    if not root_models:
         return {
             "predicted_model": None,
             "predicted_root_model": None,
             "confidence": 0.0,
             "method": "no_data",
-            "message": "No valid metadata found for top K results"
+            "message": "No valid root model metadata found for top K results"
         }
     
-    # Count votes for models
-    model_counts = Counter(models)
-    most_common_model, model_vote_count = model_counts.most_common(1)[0]
-    model_confidence = (model_vote_count / k) * 100
-    
-    print(f"\n  Model voting results:")
-    for model, count in model_counts.most_common():
-        print(f"    {model}: {count}/{k} ({(count/k)*100:.1f}%)")
-    
-    # Check if model has >=60% (>=3/5 for K=5)
-    threshold_count = (k * 0.6)  # 60% threshold
-    
-    if model_vote_count >= threshold_count:
-        print(f"\n  ✓ Model consensus found: {most_common_model} ({model_confidence:.1f}%)")
-        return {
-            "predicted_model": most_common_model,
-            "predicted_root_model": None,
-            "confidence": model_confidence,
-            "method": "model_voting",
-            "message": f"Model '{most_common_model}' has {model_vote_count}/{k} votes"
-        }
-    
-    print(f"\n  ✗ No model consensus (best: {most_common_model} with {model_vote_count}/{k})")
-    
-    # Try root_model voting
+    # Count votes for models (may be empty if metadata missing)
+    model_counts = Counter([m for m in models if m])
+    if model_counts:
+        most_common_model, model_vote_count = model_counts.most_common(1)[0]
+        model_confidence = (model_vote_count / len(models)) * 100 if models else 0.0
+        print(f"\n  Model voting results:")
+        for model, count in model_counts.most_common():
+            print(f"    {model}: {count}/{len(models)} ({(count/len(models))*100:.1f}%)")
+    else:
+        most_common_model = None
+        model_confidence = 0.0
+        print(f"\n  Model voting results: none available")
+
+    # Root model voting (primary output)
     root_model_counts = Counter(root_models)
     most_common_root, root_vote_count = root_model_counts.most_common(1)[0]
-    root_confidence = (root_vote_count / k) * 100
-    
+    root_vote_total = sum(root_model_counts.values()) or 1
+    root_confidence = (root_vote_count / root_vote_total) * 100
+
     print(f"\n  Root model voting results:")
     for root_model, count in root_model_counts.most_common():
-        print(f"    {root_model}: {count}/{k} ({(count/k)*100:.1f}%)")
-    
-    if root_vote_count >= threshold_count:
-        print(f"\n  ✓ Root model consensus found: {most_common_root} ({root_confidence:.1f}%)")
-        return {
-            "predicted_model": None,
-            "predicted_root_model": most_common_root,
-            "confidence": root_confidence,
-            "method": "root_model_voting",
-            "message": f"Root model '{most_common_root}' has {root_vote_count}/{k} votes"
-        }
-    
-    print(f"\n  ✗ No root model consensus (best: {most_common_root} with {root_vote_count}/{k})")
-    print(f"\n  ✗ No consensus found at 60% threshold")
-    
-    return {
-        "predicted_model": None,
-        "predicted_root_model": None,
-        "confidence": 0.0,
-        "method": "no_consensus",
-        "message": "No consensus found - no model or root_model achieved 60% threshold"
+        print(
+            f"    {root_model}: {count}/{root_vote_total} ({(count/root_vote_total)*100:.1f}%)"
+        )
+
+    message = (
+        f"Root model '{most_common_root}' has {root_vote_count}/{root_vote_total} votes"
+    )
+
+    result = {
+        "predicted_model": most_common_model,
+        "predicted_model_confidence": model_confidence,
+        "predicted_root_model": most_common_root,
+        "confidence": root_confidence,
+        "method": "root_model_voting",
+        "message": message,
     }
+
+    if not model_counts:
+        result.pop("predicted_model_confidence", None)
+
+    return result
 
 
 def classify_image(processing_id: str, brand: str, k: int = 7) -> Dict[str, Any]:
@@ -327,7 +344,8 @@ def classify_image(processing_id: str, brand: str, k: int = 7) -> Dict[str, Any]
 
         # Step 2: Query Pinecone
         namespace = brand.lower().strip()
-        matches = query_pinecone(vector, k, namespace)
+        raw_matches = query_pinecone(vector, k, namespace)
+        matches = _normalize_matches(raw_matches)
 
         if not matches:
             return {
