@@ -176,6 +176,8 @@ def _classify_model(payload: dict):
         "brand": brand,
         "k": k_int,
         "image_url": payload.get("image_url"),
+        "predicted_model": result.get("predicted_model"),
+        "predicted_model_confidence": result.get("predicted_model_confidence"),
         "predicted_root_model": result.get("predicted_root_model"),
         "root_model": primary,
         "confidence": result.get("confidence", 0.0),
