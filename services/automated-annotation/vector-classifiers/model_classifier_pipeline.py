@@ -138,20 +138,24 @@ def query_pinecone(vector: list, k: int, namespace: str, index_name: str = pinec
     Args:
         vector: Query vector
         k: Number of neighbors to retrieve
-        namespace: Pinecone namespace (brand name)
+        namespace: Pinecone namespace (brand name, lowercase) - required, never uses default
         index_name: Pinecone index name
         
     Returns:
         List of match dictionaries with id and score
     """
+    if not namespace:
+        raise ValueError("'namespace' is required and cannot be empty")
+    
     print(f"\n[STEP 2] Querying Pinecone for {k} nearest neighbors")
     print(f"  Index: {index_name}")
     print(f"  Namespace: {namespace}")
     
+    # Explicitly pass namespace - never fall back to default
     matches = pinecone_utils.query_similar_vectors(
         vector=vector,
         top_k=k,
-        namespace=namespace,
+        namespace=namespace,  # Explicitly set from brand parameter
         index_name=index_name,
         include_metadata=True,
         include_values=False,
@@ -336,14 +340,18 @@ def classify_image(processing_id: str, brand: str, k: int = 7) -> Dict[str, Any]
     if not brand:
         raise ValueError("'brand' is required for model classification")
 
+    # Normalize brand to namespace (lowercase, stripped)
+    namespace = brand.lower().strip()
+    if not namespace:
+        raise ValueError("'brand' cannot be empty or whitespace-only")
+
     try:
         # Step 1: Fetch vector from DynamoDB
         processing_record = fetch_processing_record(processing_id)
         vector = processing_record["vector"]
         vector_dimension = processing_record["dimension"]
 
-        # Step 2: Query Pinecone
-        namespace = brand.lower().strip()
+        # Step 2: Query Pinecone (namespace is always explicitly set from brand)
         raw_matches = query_pinecone(vector, k, namespace)
         matches = _normalize_matches(raw_matches)
 
