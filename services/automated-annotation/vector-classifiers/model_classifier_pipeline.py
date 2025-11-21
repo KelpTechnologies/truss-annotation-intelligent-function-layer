@@ -14,6 +14,8 @@ Dependencies:
 
 import os
 import sys
+import re
+import unicodedata
 from collections import Counter
 from decimal import Decimal
 from typing import Any, Dict, Optional
@@ -78,6 +80,73 @@ def _get_image_processing_table_name(table_name: Optional[str] = None) -> str:
     return f"truss-image-processing-{stage}"
 
 
+def normalize_brand_to_namespace(brand: str) -> str:
+    """
+    Normalize brand name to Pinecone-compatible namespace format.
+
+    Rules:
+    - Lowercase
+    - Only UTF-8 lowercase alphanumeric Latin characters and dashes
+    - Map accented chars to non-accented ASCII (é -> e)
+    - Replace spaces with "-"
+    - Remove apostrophes
+
+    Examples:
+    - "Céline" -> "celine"
+    - "Le Chiquito" -> "le-chiquito"
+    - "Saint Laurent" -> "saint-laurent"
+    - "D'ior" -> "dior"
+
+    Args:
+        brand: Brand name (may contain special characters)
+        
+    Returns:
+        Normalized brand name suitable for Pinecone namespace
+        
+    Raises:
+        ValueError: If brand name is empty or results in empty namespace after normalization
+    """
+    if not brand or not str(brand).strip():
+        raise ValueError("Brand name cannot be empty")
+    
+    # Convert to string and strip whitespace
+    brand_str = str(brand).strip()
+    
+    # Normalize Unicode characters (decompose accented chars)
+    # NFKD = Normalization Form Compatibility Decomposition
+    normalized = unicodedata.normalize('NFKD', brand_str)
+    
+    # Remove diacritics (accents) and convert to ASCII
+    # This converts é -> e, ñ -> n, etc.
+    ascii_brand = normalized.encode('ascii', 'ignore').decode('ascii')
+    
+    # Convert to lowercase
+    ascii_brand = ascii_brand.lower()
+    
+    # Replace spaces with dashes
+    ascii_brand = ascii_brand.replace(' ', '-')
+    
+    # Remove apostrophes (all types: straight, curly, etc.)
+    apostrophes = ["'", "'", "'", '"', '"', '"']
+    for apostrophe in apostrophes:
+        ascii_brand = ascii_brand.replace(apostrophe, '')
+    
+    # Remove any characters that aren't lowercase alphanumeric or dashes
+    # Keep only: a-z, 0-9, and -
+    ascii_brand = re.sub(r'[^a-z0-9-]', '', ascii_brand)
+    
+    # Remove multiple consecutive dashes
+    ascii_brand = re.sub(r'-+', '-', ascii_brand)
+    
+    # Remove leading/trailing dashes
+    ascii_brand = ascii_brand.strip('-')
+    
+    if not ascii_brand:
+        raise ValueError(f"Brand name '{brand}' resulted in empty namespace after normalization")
+    
+    return ascii_brand
+
+
 def fetch_processing_record(processing_id: str, table_name: Optional[str] = None) -> Dict[str, Any]:
     """Fetch a processed image record (including vector) from DynamoDB."""
 
@@ -138,24 +207,20 @@ def query_pinecone(vector: list, k: int, namespace: str, index_name: str = pinec
     Args:
         vector: Query vector
         k: Number of neighbors to retrieve
-        namespace: Pinecone namespace (brand name, lowercase) - required, never uses default
+        namespace: Pinecone namespace (brand name)
         index_name: Pinecone index name
         
     Returns:
         List of match dictionaries with id and score
     """
-    if not namespace:
-        raise ValueError("'namespace' is required and cannot be empty")
-    
     print(f"\n[STEP 2] Querying Pinecone for {k} nearest neighbors")
     print(f"  Index: {index_name}")
     print(f"  Namespace: {namespace}")
     
-    # Explicitly pass namespace - never fall back to default
     matches = pinecone_utils.query_similar_vectors(
         vector=vector,
         top_k=k,
-        namespace=namespace,  # Explicitly set from brand parameter
+        namespace=namespace,
         index_name=index_name,
         include_metadata=True,
         include_values=False,
@@ -340,18 +405,14 @@ def classify_image(processing_id: str, brand: str, k: int = 7) -> Dict[str, Any]
     if not brand:
         raise ValueError("'brand' is required for model classification")
 
-    # Normalize brand to namespace (lowercase, stripped)
-    namespace = brand.lower().strip()
-    if not namespace:
-        raise ValueError("'brand' cannot be empty or whitespace-only")
-
     try:
         # Step 1: Fetch vector from DynamoDB
         processing_record = fetch_processing_record(processing_id)
         vector = processing_record["vector"]
         vector_dimension = processing_record["dimension"]
 
-        # Step 2: Query Pinecone (namespace is always explicitly set from brand)
+        # Step 2: Query Pinecone
+        namespace = normalize_brand_to_namespace(brand)
         raw_matches = query_pinecone(vector, k, namespace)
         matches = _normalize_matches(raw_matches)
 

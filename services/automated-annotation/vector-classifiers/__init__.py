@@ -8,7 +8,7 @@ This module provides visual classification using:
 4. Majority voting algorithm
 """
 
-from .model_classifier_pipeline import classify_image, vectorize_image, query_pinecone, query_dynamodb, perform_voting
+from .model_classifier_pipeline import classify_image, vectorize_image, query_pinecone, query_dynamodb, perform_voting, normalize_brand_to_namespace
 
-__all__ = ['classify_image', 'vectorize_image', 'query_pinecone', 'query_dynamodb', 'perform_voting']
+__all__ = ['classify_image', 'vectorize_image', 'query_pinecone', 'query_dynamodb', 'perform_voting', 'normalize_brand_to_namespace']
 
