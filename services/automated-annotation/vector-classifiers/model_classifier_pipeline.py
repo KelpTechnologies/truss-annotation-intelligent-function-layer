@@ -238,14 +238,14 @@ def query_pinecone(vector: list, k: int, namespace: str, index_name: str = pinec
 
 def query_dynamodb(ids: list, table_name: str = None) -> Dict[str, Dict]:
     """
-    Query DynamoDB for model and root_model for given IDs.
+    Query DynamoDB for model and root_model metadata for given IDs.
     
     Args:
         ids: List of image IDs
         table_name: DynamoDB table name (defaults to DYNAMODB_MODEL_TABLE env var or "model_visual_classifier_nodes")
         
     Returns:
-        Dictionary mapping id -> {model, root_model}
+        Dictionary mapping id -> {model, root_model} (root_model may be None)
     """
     import os
     
@@ -272,10 +272,6 @@ def query_dynamodb(ids: list, table_name: str = None) -> Dict[str, Dict]:
                 model = item.get('model') or item.get('Model') or ''
                 root_model = item.get('root_model') or item.get('rootModel') or item.get('RootModel') or None
                 
-                # If root_model is undefined/null/empty, use model as root_model
-                if not root_model:
-                    root_model = model
-                
                 results[image_id] = {
                     'model': model,
                     'root_model': root_model
@@ -300,7 +296,7 @@ def query_dynamodb(ids: list, table_name: str = None) -> Dict[str, Dict]:
 
 def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict[str, Any]:
     """
-    Perform majority voting on model and root_model.
+    Perform majority voting on model. root_model is included in output if available.
     
     Args:
         matches: List of Pinecone matches (ordered by similarity)
@@ -326,67 +322,60 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
         
         if image_id in metadata and metadata[image_id]['model']:
             model = metadata[image_id]['model']
-            root_model = metadata[image_id]['root_model']
+            root_model = metadata[image_id].get('root_model')
             models.append(model)
-            root_models.append(root_model)
-            print(f"    {i}. ID: {image_id}, Score: {score:.4f}, Model: {model}, Root: {root_model}")
+            if root_model:
+                root_models.append(root_model)
+            print(f"    {i}. ID: {image_id}, Score: {score:.4f}, Model: {model}, Root: {root_model or 'N/A'}")
         else:
             print(f"    {i}. ID: {image_id}, Score: {score:.4f}, Model: MISSING")
     
-    # Filter out empty root models for voting (shouldn't happen now since we use model as fallback)
-    root_models = [rm for rm in root_models if rm]
-
-    # Check if we have any valid root_model data
-    if not root_models:
+    # Check if we have any valid model data
+    if not models:
         return {
             "predicted_model": None,
             "predicted_root_model": None,
             "confidence": 0.0,
             "method": "no_data",
-            "message": "No valid root model metadata found for top K results"
+            "message": "No valid model metadata found for top K results"
         }
     
-    # Count votes for models (may be empty if metadata missing)
+    # Always vote on model
     model_counts = Counter([m for m in models if m])
-    if model_counts:
-        most_common_model, model_vote_count = model_counts.most_common(1)[0]
-        model_confidence = (model_vote_count / len(models)) * 100 if models else 0.0
-        print(f"\n  Model voting results:")
-        for model, count in model_counts.most_common():
-            print(f"    {model}: {count}/{len(models)} ({(count/len(models))*100:.1f}%)")
-    else:
-        most_common_model = None
-        model_confidence = 0.0
-        print(f"\n  Model voting results: none available")
-
-    # Root model voting (primary output)
-    root_model_counts = Counter(root_models)
-    most_common_root, root_vote_count = root_model_counts.most_common(1)[0]
-    root_vote_total = sum(root_model_counts.values()) or 1
-    root_confidence = (root_vote_count / root_vote_total) * 100
-
-    print(f"\n  Root model voting results:")
-    for root_model, count in root_model_counts.most_common():
-        print(
-            f"    {root_model}: {count}/{root_vote_total} ({(count/root_vote_total)*100:.1f}%)"
-        )
-
-    message = (
-        f"Root model '{most_common_root}' has {root_vote_count}/{root_vote_total} votes"
-    )
-
+    if not model_counts:
+        return {
+            "predicted_model": None,
+            "predicted_root_model": None,
+            "confidence": 0.0,
+            "method": "no_data",
+            "message": "No valid model metadata found for top K results"
+        }
+    
+    most_common_model, model_vote_count = model_counts.most_common(1)[0]
+    model_confidence = (model_vote_count / len(models)) * 100 if models else 0.0
+    
+    print(f"\n  Model voting results:")
+    for model, count in model_counts.most_common():
+        print(f"    {model}: {count}/{len(models)} ({(count/len(models))*100:.1f}%)")
+    
+    # If root_model is available, include the most common root_model in output
+    predicted_root_model = None
+    if root_models:
+        root_model_counts = Counter(root_models)
+        predicted_root_model = root_model_counts.most_common(1)[0][0]
+        print(f"\n  Root model (for reference): {predicted_root_model}")
+    
+    message = f"Model '{most_common_model}' has {model_vote_count}/{len(models)} votes"
+    
     result = {
         "predicted_model": most_common_model,
         "predicted_model_confidence": model_confidence,
-        "predicted_root_model": most_common_root,
-        "confidence": root_confidence,
-        "method": "root_model_voting",
+        "predicted_root_model": predicted_root_model,
+        "confidence": model_confidence,
+        "method": "model_voting",
         "message": message,
     }
-
-    if not model_counts:
-        result.pop("predicted_model_confidence", None)
-
+    
     return result
 
 
@@ -452,13 +441,11 @@ def classify_image(processing_id: str, brand: str, k: int = 7) -> Dict[str, Any]
         print("CLASSIFICATION RESULT")
         print(f"{'=' * 70}")
 
-        if classification_result["predicted_model"]:
+        if classification_result.get("predicted_model"):
             print(f"✓ Predicted Model: {classification_result['predicted_model']}")
             print(f"  Confidence: {classification_result['confidence']:.1f}%")
-            print(f"  Method: {classification_result['method']}")
-        elif classification_result["predicted_root_model"]:
-            print(f"✓ Predicted Root Model: {classification_result['predicted_root_model']}")
-            print(f"  Confidence: {classification_result['confidence']:.1f}%")
+            if classification_result.get("predicted_root_model"):
+                print(f"  Root Model: {classification_result['predicted_root_model']}")
             print(f"  Method: {classification_result['method']}")
         else:
             print(f"✗ {classification_result['message']}")
