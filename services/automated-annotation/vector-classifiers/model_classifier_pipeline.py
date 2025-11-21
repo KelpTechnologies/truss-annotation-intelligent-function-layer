@@ -268,9 +268,17 @@ def query_dynamodb(ids: list, table_name: str = None) -> Dict[str, Dict]:
             
             if 'Item' in response:
                 item = response['Item']
+                # Try both snake_case and camelCase field names
+                model = item.get('model') or item.get('Model') or ''
+                root_model = item.get('root_model') or item.get('rootModel') or item.get('RootModel') or None
+                
+                # If root_model is undefined/null/empty, use model as root_model
+                if not root_model:
+                    root_model = model
+                
                 results[image_id] = {
-                    'model': item.get('model', ''),
-                    'root_model': item.get('root_model', '')
+                    'model': model,
+                    'root_model': root_model
                 }
             else:
                 print(f"  ⚠️  ID {image_id} not found in DynamoDB")
@@ -325,10 +333,10 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
         else:
             print(f"    {i}. ID: {image_id}, Score: {score:.4f}, Model: MISSING")
     
-    # Filter out empty root models for voting
+    # Filter out empty root models for voting (shouldn't happen now since we use model as fallback)
     root_models = [rm for rm in root_models if rm]
 
-    # Check if we have any valid data
+    # Check if we have any valid root_model data
     if not root_models:
         return {
             "predicted_model": None,
