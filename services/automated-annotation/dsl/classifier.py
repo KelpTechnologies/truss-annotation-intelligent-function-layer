@@ -13,9 +13,7 @@ from PIL import Image
 
 from langchain.output_parsers import PydanticOutputParser
 from langchain_google_vertexai import ChatVertexAI
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
-import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -98,37 +96,13 @@ class LLMAnnotationAgent:
         # Apply any model-specific overrides from template
         vertexai_kwargs.update(self.model_config_overrides)
 
-        # Try to use Google API key first (simpler, no IAM permissions needed)
-        google_api_key = os.getenv("GOOGLE_API_KEY")
-        if google_api_key:
-            logger.info(f"Using Google Generative AI API with API key (no IAM permissions required)")
-            # Map Vertex AI model names to Generative AI model names
-            model_mapping = {
-                "gemini-2.5-pro": "gemini-2.0-flash-exp",
-                "gemini-2.5-flash": "gemini-2.0-flash-exp",
-                "gemini-2.5-flash-lite": "gemini-2.0-flash-exp",
-            }
-            genai_model_name = model_mapping.get(self.model_name, self.model_name)
-            
-            genai_kwargs = {
-                "model": genai_model_name,
-                "google_api_key": google_api_key,
-                "temperature": self.config.get("temperature", 0.1),
-                "max_output_tokens": self.config.get("max_output_tokens", 1024),
-            }
-            if self.model_name in model_defaults:
-                genai_kwargs.update(model_defaults[self.model_name])
-            genai_kwargs.update(self.model_config_overrides)
-            
-            self.llm = ChatGoogleGenerativeAI(**genai_kwargs)
-            logger.info(f"Initialized ChatGoogleGenerativeAI with model {genai_model_name} (mapped from {self.model_name})")
-        else:
-            logger.info(f"Using Vertex AI with service account credentials")
-            self.llm = ChatVertexAI(**vertexai_kwargs)
-            logger.info(f"Initialized ChatVertexAI (multimodal) with model {self.model_name}")
+        # Initialize VertexAI model (uses Application Default Credentials)
+        self.llm = ChatVertexAI(**vertexai_kwargs)
 
         # Initialize output parser for structured responses
         self.output_parser = PydanticOutputParser(pydantic_object=ClassificationResponse)
+
+        logger.info(f"Initialized ChatVertexAI (multimodal) with model {self.model_name}")
 
     def load_prompt_template(self, template_path: str) -> None:
         with open(template_path, 'r', encoding='utf-8') as f:

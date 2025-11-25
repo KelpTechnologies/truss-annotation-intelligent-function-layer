@@ -635,14 +635,9 @@ def _classify_item(payload: dict):
     logger.info(f"Classification parameters - property: {property_name}, root_type_id: {root_type_id}, input_mode: {input_mode}, brand: {brand}")
     logger.debug(f"Text metadata length: {len(text_metadata) if text_metadata else 0} chars")
 
-    # Try to use Google API key first (simpler, no IAM permissions needed)
-    google_api_key = os.getenv("GOOGLE_API_KEY")
-    if google_api_key:
-        logger.info("Using Google API key for Generative AI API (no IAM permissions required)")
-    else:
-        logger.info("No GOOGLE_API_KEY found, falling back to Vertex AI with service account credentials")
-        logger.info("Ensuring GCP Application Default Credentials")
-        _ensure_gcp_adc()
+    # Ensure GCP Application Default Credentials are set up (required for Vertex AI)
+    logger.info("Ensuring GCP Application Default Credentials")
+    _ensure_gcp_adc()
     
     # Verify credentials are set up and readable
     creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
