@@ -48,7 +48,7 @@ class LLMAnnotationAgent:
         self,
         model_name: str = "gemini-2.5-flash-lite",
         project_id: str = "truss-data-science",
-        location: str = "us-central1",
+        location: str = "europe-west2",
         prompt_template_path: str = None,
         context_mode: str = "full-context",
         config: Optional[Dict[str, Any]] = None,
@@ -56,7 +56,8 @@ class LLMAnnotationAgent:
     ):
         if config:
             project_id = config.get('project_id', project_id)
-            location = config.get('location', location)
+            # Location is hardcoded to europe-west2, don't override from config
+            # location = config.get('location', location)  # Disabled - hardcoded to europe-west2
             model_name = config.get('model_name', model_name)
             context_mode = config.get('context_mode', context_mode)
 

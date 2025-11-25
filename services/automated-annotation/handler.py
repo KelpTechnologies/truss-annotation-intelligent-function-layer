@@ -6,6 +6,7 @@ import logging
 import requests
 import time
 from datetime import datetime
+import boto3
 
 # Import DSL components from simplified package
 from dsl import DSLAPIClient, ConfigLoader, LLMAnnotationAgent
@@ -102,42 +103,194 @@ def _build_text_metadata(payload: dict):
     return "\n".join(parts) if parts else None
 
 
-def _ensure_gcp_adc():
-    """Ensure Application Default Credentials are available from env."""
-    logger.debug("Checking GCP Application Default Credentials")
-    creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "/tmp/gcp_sa.json")
-    sa_json = os.getenv("GCP_SERVICE_ACCOUNT_JSON")
-
-    if not sa_json:
-        logger.debug("No GCP_SERVICE_ACCOUNT_JSON found, skipping ADC setup")
-        return
-
+def _load_gcp_credentials_from_secrets():
+    """Load GCP service account JSON from AWS Secrets Manager."""
+    secret_arn = os.getenv("BIGQUERY_SECRET_ARN")
+    if not secret_arn:
+        raise ValueError("BIGQUERY_SECRET_ARN environment variable is required")
+    
+    logger.info(f"Loading GCP credentials from Secrets Manager: {secret_arn}")
+    secrets_client = boto3.client('secretsmanager', region_name=os.getenv('AWS_REGION', 'eu-west-2'))
+    
+    response = secrets_client.get_secret_value(SecretId=secret_arn)
+    secret_string = response.get('SecretString')
+    
+    if not secret_string:
+        raise ValueError(f"Secret string is empty for secret {secret_arn}")
+    
+    # Parse as JSON to validate and extract
     try:
-        logger.debug(f"Setting up GCP credentials at {creds_path}")
-        if sa_json.strip().startswith("{"):
-            content = sa_json
-            logger.debug("GCP credentials are JSON format")
+        secret_data = json.loads(secret_string)
+        logger.debug(f"Secret parsed as JSON, keys: {list(secret_data.keys()) if isinstance(secret_data, dict) else 'not a dict'}")
+        
+        # If it's a dict, try to extract the service account JSON
+        if isinstance(secret_data, dict):
+            # Check if it's already a service account JSON (has 'type' and 'project_id')
+            if secret_data.get('type') == 'service_account' and 'project_id' in secret_data:
+                logger.info("Secret contains full service account JSON")
+                # Return as JSON string (the whole dict is the service account)
+                return json.dumps(secret_data)
+            
+            # Otherwise, try to find nested service account JSON
+            for key in ['service_account_json', 'credentials', 'value', 'gcp_service_account']:
+                if key in secret_data:
+                    logger.info(f"Found nested service account JSON under key: {key}")
+                    nested_value = secret_data[key]
+                    # If it's a string, return as-is; if it's a dict, convert to JSON string
+                    if isinstance(nested_value, str):
+                        return nested_value
+                    elif isinstance(nested_value, dict):
+                        return json.dumps(nested_value)
+                    break
+            
+            # If no nested key found and it's not a service account, use the whole dict
+            logger.info("Using entire secret as service account JSON")
+            return json.dumps(secret_data)
         else:
-            try:
-                content = base64.b64decode(sa_json).decode("utf-8")
-                logger.debug("GCP credentials decoded from base64")
-            except Exception as e:
-                logger.warning(f"Failed to decode base64 credentials, using as-is: {str(e)}")
-                content = sa_json
+            # Not a dict, return as-is (should be JSON string already)
+            logger.info("Secret is not a dict, returning as-is")
+            return secret_string
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Secret is not valid JSON: {str(e)}")
 
-        os.makedirs(os.path.dirname(creds_path), exist_ok=True)
-        with open(creds_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        logger.info(f"GCP credentials written to {creds_path}")
 
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
+def _ensure_gcp_adc():
+    """Ensure Application Default Credentials are available from env or Secrets Manager."""
+    logger.info("Setting up GCP Application Default Credentials")
+    creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "/tmp/gcp_sa.json")
+    
+    # Check if credentials file already exists and is valid
+    if os.path.exists(creds_path) and os.path.getsize(creds_path) > 0:
+        # Verify the existing file is actually valid JSON with required fields
+        try:
+            with open(creds_path, 'r') as f:
+                existing_creds = json.load(f)
+                required_fields = ['type', 'project_id', 'private_key', 'client_email']
+                if all(field in existing_creds for field in required_fields):
+                    logger.info(f"GCP credentials file already exists and is valid at {creds_path} (size: {os.path.getsize(creds_path)} bytes)")
+                    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
+                    return
+                else:
+                    logger.warning(f"Existing credentials file at {creds_path} is missing required fields, will recreate")
+        except Exception as e:
+            logger.warning(f"Existing credentials file at {creds_path} is invalid ({str(e)}), will recreate")
+        # If we get here, the file exists but is invalid, so we'll recreate it
+    
+    # Try to get from environment variable first
+    sa_json = os.getenv("GCP_SERVICE_ACCOUNT_JSON")
+    
+    # If not in env, load from Secrets Manager
+    if not sa_json:
+        logger.info("GCP_SERVICE_ACCOUNT_JSON not in environment, loading from Secrets Manager")
+        sa_json = _load_gcp_credentials_from_secrets()
+    
+    if not sa_json:
+        raise ValueError("GCP credentials not available - cannot proceed with LLM classification")
 
-        if os.getenv("VERTEXAI_PROJECT") and not os.getenv("GOOGLE_CLOUD_PROJECT"):
-            os.environ["GOOGLE_CLOUD_PROJECT"] = os.getenv("VERTEXAI_PROJECT")
-            logger.debug(f"Set GOOGLE_CLOUD_PROJECT to {os.getenv('VERTEXAI_PROJECT')}")
+    logger.info(f"Setting up GCP credentials at {creds_path}")
+    logger.debug(f"GCP credentials length: {len(sa_json)} chars")
+    
+    # Parse JSON content
+    if sa_json.strip().startswith("{"):
+        content = sa_json
+        logger.debug("GCP credentials are JSON format")
+    else:
+        try:
+            content = base64.b64decode(sa_json).decode("utf-8")
+            logger.debug("GCP credentials decoded from base64")
+        except Exception as e:
+            raise ValueError(f"Failed to decode base64 credentials: {str(e)}")
+
+    # Validate JSON content and ensure private key has proper newlines
+    try:
+        creds_dict = json.loads(content)
+        logger.debug("Credentials JSON is valid")
+        
+        # Ensure private key has actual newlines (not escaped \n)
+        if 'private_key' in creds_dict:
+            private_key = creds_dict['private_key']
+            # Replace escaped newlines with actual newlines if needed
+            if '\\n' in private_key and '\n' not in private_key:
+                logger.debug("Converting escaped newlines in private key to actual newlines")
+                creds_dict['private_key'] = private_key.replace('\\n', '\n')
+                content = json.dumps(creds_dict)
+                logger.debug("Private key newlines fixed")
+            elif '\n' in private_key:
+                logger.debug("Private key already has proper newlines")
+        
+        # Re-validate after potential modification
+        json.loads(content)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"GCP credentials are not valid JSON: {str(e)}")
+
+    # Ensure directory exists
+    creds_dir = os.path.dirname(creds_path)
+    os.makedirs(creds_dir, exist_ok=True)
+    logger.debug(f"Created credentials directory: {creds_dir}")
+
+    # Write credentials file with proper permissions (readable by owner only for security)
+    with open(creds_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    
+    # Set file permissions to 600 (read/write for owner only)
+    os.chmod(creds_path, 0o600)
+    
+    # Verify file was written
+    if not os.path.exists(creds_path):
+        raise IOError(f"Failed to create credentials file at {creds_path}")
+    
+    file_size = os.path.getsize(creds_path)
+    if file_size == 0:
+        raise IOError(f"Credentials file is empty at {creds_path}")
+    
+    logger.info(f"GCP credentials written successfully to {creds_path} (size: {file_size} bytes, permissions: {oct(os.stat(creds_path).st_mode)[-3:]})")
+
+    # Parse credentials to extract service account email and project
+    try:
+        creds_data = json.loads(content)
+        service_account_email = creds_data.get("client_email", "unknown")
+        logger.info(f"Using GCP service account: {service_account_email}")
     except Exception as e:
-        logger.error(f"Failed to set up GCP credentials: {str(e)}")
-        pass
+        logger.warning(f"Could not parse service account email from credentials: {str(e)}")
+        service_account_email = "unknown"
+
+    # Set environment variable
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
+    logger.info(f"Set GOOGLE_APPLICATION_CREDENTIALS={creds_path}")
+
+    # Set project - try to get from env, then from credentials JSON, then fail
+    vertexai_project = os.getenv("VERTEXAI_PROJECT")
+    
+    if not vertexai_project:
+        # Try to extract project_id from the credentials JSON
+        try:
+            if 'creds_data' not in locals():
+                creds_data = json.loads(content)
+            vertexai_project = creds_data.get("project_id")
+            if vertexai_project:
+                logger.info(f"Extracted project_id from GCP credentials: {vertexai_project}")
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning(f"Could not extract project_id from credentials: {str(e)}")
+    
+    if not vertexai_project:
+        raise ValueError("VERTEXAI_PROJECT environment variable is required (or project_id must be in GCP service account JSON)")
+    
+    if not os.getenv("GOOGLE_CLOUD_PROJECT"):
+        os.environ["GOOGLE_CLOUD_PROJECT"] = vertexai_project
+        logger.info(f"Set GOOGLE_CLOUD_PROJECT={vertexai_project}")
+    else:
+        logger.debug(f"GOOGLE_CLOUD_PROJECT already set to {os.getenv('GOOGLE_CLOUD_PROJECT')}")
+    
+    # Also set VERTEXAI_PROJECT if not already set
+    if not os.getenv("VERTEXAI_PROJECT"):
+        os.environ["VERTEXAI_PROJECT"] = vertexai_project
+        logger.info(f"Set VERTEXAI_PROJECT={vertexai_project}")
+    
+    # Log important info for debugging IAM issues
+    logger.info(f"GCP Configuration - Project: {vertexai_project}, Service Account: {service_account_email}")
+    logger.warning(f"IMPORTANT: Service account '{service_account_email}' needs 'Vertex AI User' role (roles/aiplatform.user) in project '{vertexai_project}' to use Gemini models")
+        
+    logger.info("GCP Application Default Credentials setup completed successfully")
 
 
 def _get_signed_image_url(image: str) -> str:
@@ -469,8 +622,51 @@ def _classify_item(payload: dict):
     logger.info(f"Classification parameters - property: {property_name}, root_type_id: {root_type_id}, input_mode: {input_mode}, brand: {brand}")
     logger.debug(f"Text metadata length: {len(text_metadata) if text_metadata else 0} chars")
 
-    logger.debug("Ensuring GCP Application Default Credentials")
+    logger.info("Ensuring GCP Application Default Credentials")
     _ensure_gcp_adc()
+    
+    # Verify credentials are set up and readable
+    creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if not creds_path:
+        raise ValueError("GOOGLE_APPLICATION_CREDENTIALS environment variable not set")
+    
+    if not os.path.exists(creds_path):
+        raise ValueError(f"GCP credentials file not found at {creds_path}")
+    
+    # Verify file is readable
+    if not os.access(creds_path, os.R_OK):
+        raise ValueError(f"GCP credentials file is not readable: {creds_path}")
+    
+    # Log credentials file details for debugging
+    file_stat = os.stat(creds_path)
+    logger.info(f"GCP credentials verified at {creds_path} (size: {file_stat.st_size} bytes, readable: {os.access(creds_path, os.R_OK)})")
+    
+    # Verify credentials file contains valid JSON with required fields
+    try:
+        with open(creds_path, 'r') as f:
+            creds_check = json.load(f)
+            required_fields = ['type', 'project_id', 'private_key', 'client_email']
+            missing_fields = [field for field in required_fields if field not in creds_check]
+            if missing_fields:
+                logger.error(f"Credentials file missing required fields: {missing_fields}")
+                raise ValueError(f"Credentials file missing required fields: {missing_fields}")
+            
+            # Verify private key format
+            private_key = creds_check.get('private_key', '')
+            if not private_key.startswith('-----BEGIN'):
+                logger.warning("Private key may not be properly formatted")
+            if '\\n' in private_key and '\n' not in private_key:
+                logger.warning("Private key contains escaped newlines - may need conversion")
+            
+            logger.info(f"Credentials file validated - contains all required fields")
+            logger.info(f"Service account: {creds_check.get('client_email')}, Project: {creds_check.get('project_id')}")
+            logger.debug(f"Private key length: {len(private_key)} chars, starts with BEGIN: {private_key.startswith('-----BEGIN')}")
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse credentials file as JSON: {str(e)}")
+        raise ValueError(f"Credentials file is not valid JSON: {str(e)}")
+    except Exception as e:
+        logger.error(f"Failed to validate credentials file: {str(e)}")
+        raise ValueError(f"Credentials file validation failed: {str(e)}")
 
     api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key)
     config_loader = ConfigLoader(mode='api', api_client=api_client)
@@ -504,9 +700,34 @@ def _classify_item(payload: dict):
     context_size = len(json.dumps(context_data, default=str)) if context_data else 0
     logger.debug(f"Context data size: {context_size} chars")
 
-    model_name = config.get('model', 'gemini-2.5-flash-lite')
-    project_id = os.getenv('VERTEXAI_PROJECT', config.get('project_id', 'truss-data-science'))
-    location = os.getenv('VERTEXAI_LOCATION', config.get('location', 'us-central1'))
+    model_name = config.get('model')
+    if not model_name:
+        raise ValueError("Model name not specified in classifier config")
+    
+    # Get project_id - try env var, then config, then extract from GCP credentials
+    project_id = os.getenv('VERTEXAI_PROJECT')
+    if not project_id:
+        project_id = config.get('project_id')
+    if not project_id:
+        # Try to extract from GCP credentials file
+        creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        if creds_path and os.path.exists(creds_path):
+            try:
+                with open(creds_path, 'r') as f:
+                    creds_data = json.load(f)
+                    project_id = creds_data.get('project_id')
+                    if project_id:
+                        logger.info(f"Extracted project_id from GCP credentials: {project_id}")
+            except Exception as e:
+                logger.warning(f"Could not read project_id from credentials file: {str(e)}")
+    
+    if not project_id:
+        raise ValueError("VERTEXAI_PROJECT environment variable, project_id in config, or project_id in GCP credentials is required")
+    
+    # Get location - hardcode to europe-west2 (matches AWS eu-west-2 region)
+    # Force europe-west2 regardless of config to match AWS region
+    location = 'europe-west2'
+    logger.info(f"Using VertexAI location: {location} (hardcoded to match AWS eu-west-2)")
     
     logger.info(f"Initializing LLM classifier - model: {model_name}, project: {project_id}, location: {location}")
     classifier = LLMAnnotationAgent(
@@ -586,7 +807,7 @@ def _classify_item(payload: dict):
 
 def lambda_handler(event, context):
     request_start_time = time.time()
-    request_id = context.request_id if context else "unknown"
+    request_id = context.aws_request_id if context else "unknown"
     
     logger.info("=" * 80)
     logger.info(f"Lambda invocation started - Request ID: {request_id}")
