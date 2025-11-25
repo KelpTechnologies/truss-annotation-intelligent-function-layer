@@ -11,7 +11,9 @@
     "layers": [],
     "extra_env": {
       "DSL_API_BASE_URL": "https://9tvhx1t3h2.execute-api.eu-west-2.amazonaws.com/external-dev",
-      "DSL_API_KEY": ""
+      "DSL_API_KEY": "",
+      "ANNOTATION_API_BASE_URL": "https://9tvhx1t3h2.execute-api.eu-west-2.amazonaws.com/external-dev",
+      "ANNOTATION_API_KEY": ""
     }
   },
   "database": {
