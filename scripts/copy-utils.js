@@ -55,13 +55,13 @@ function removeDirectory(dir) {
  */
 function detectServiceRuntime(servicePath) {
   const configPath = path.join(servicePath, "config.json");
-  
+
   // Try to read runtime from config.json first
   if (fs.existsSync(configPath)) {
     try {
       const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
       const runtime = config.deployment?.runtime || "";
-      
+
       if (runtime.startsWith("python") || runtime.includes("python")) {
         return "python";
       }
@@ -72,7 +72,7 @@ function detectServiceRuntime(servicePath) {
       // Fall through to file-based detection
     }
   }
-  
+
   // Fallback: detect by handler file
   if (fs.existsSync(path.join(servicePath, "index.py"))) {
     return "python";
@@ -80,7 +80,7 @@ function detectServiceRuntime(servicePath) {
   if (fs.existsSync(path.join(servicePath, "index.js"))) {
     return "nodejs";
   }
-  
+
   // Default to nodejs if we can't determine
   return "nodejs";
 }
@@ -146,10 +146,12 @@ function copyUtilsToServices() {
   for (const servicePath of serviceDirs) {
     const serviceName = path.relative(servicesDir, servicePath);
     const runtime = detectServiceRuntime(servicePath);
-    
+
     // Only copy JavaScript utils to Node.js services
     if (runtime === "python") {
-      console.log(`⏭️  Skipping ${serviceName} (Python service - no Python utils available)`);
+      console.log(
+        `⏭️  Skipping ${serviceName} (Python service - no Python utils available)`
+      );
       skippedCount++;
       continue;
     }
@@ -215,7 +217,9 @@ function copyUtilsToService(serviceName) {
   // Check runtime and skip Python services
   const runtime = detectServiceRuntime(serviceDir);
   if (runtime === "python") {
-    console.log(`⏭️  Skipping ${serviceName} (Python service - no Python utils available)`);
+    console.log(
+      `⏭️  Skipping ${serviceName} (Python service - no Python utils available)`
+    );
     process.exit(0);
   }
 
