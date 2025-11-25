@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "../.."
+		},
+		{
+			"path": "../../../truss-intelligent-function-layer"
+		},
+		{
+			"path": "../../../truss-annotation-data-service-layer"
+		},
+		{
+			"path": "../../../truss-data-service-layer"
+		}
+	]
+}

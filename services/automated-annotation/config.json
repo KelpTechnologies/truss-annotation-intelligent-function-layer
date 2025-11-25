@@ -8,7 +8,11 @@
     "runtime": "python3.11",
     "timeout": 300,
     "memory": 1024,
-    "layers": []
+    "layers": [],
+    "extra_env": {
+      "DSL_API_BASE_URL": "https://9tvhx1t3h2.execute-api.eu-west-2.amazonaws.com/external-dev",
+      "DSL_API_KEY": ""
+    }
   },
   "database": {
     "required": false,

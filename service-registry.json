@@ -1,5 +1,5 @@
 {
-  "generated_at": "2025-11-07T11:48:05.654Z",
+  "generated_at": "2025-11-25T12:41:47.550Z",
   "generator_version": "3.1.0",
   "total_services": 2,
   "services": [
@@ -11,24 +11,21 @@
         {
           "path": "/bags/classify/model",
           "method": "POST",
-          "description": "Classify bag model using vector-based similarity search (image vector from image_id)",
+          "description": "Classify bag model using vector-based similarity search (image vector from image). Returns model, model_id, root_model, root_model_id, and confidence.",
           "parameters": {
             "body": {
-              "image_id": "string (required) - Processing/Image ID stored in the image-processing DynamoDB table",
-              "brand": "string (required) - Brand namespace for Pinecone (e.g., 'jacquemus')",
-              "k": "number (optional) - Number of nearest neighbors for voting (default: 7)",
-              "image_url": "string (optional) - Reference image URL included for client context"
+              "image": "string (required) - Processing/Image ID stored in the image-processing DynamoDB table. Signed image URL will be looked up automatically.",
+              "brand": "string (required) - Brand namespace for Pinecone (e.g., 'jacquemus'). Uses 7 nearest neighbors by default"
             }
           }
         },
         {
           "path": "/bags/classify/{property}",
           "method": "POST",
-          "description": "Classify a bag property (type, material, color, etc.) using the DSL orchestrator",
+          "description": "Classify a bag property (type, material, colour, etc.) using the DSL orchestrator. For model/material, returns simplified response with only essential fields.",
           "parameters": {
             "body": {
-              "image_id": "string (optional) - Processing/Image ID for traceability",
-              "image_url": "string (required) - Image URL used by the classifier",
+              "image": "string (required) - Processing/Image ID. Signed image URL will be looked up automatically from annotation-data-service-layer.",
               "text_dump": "string (required) - Textual description/context used for classification",
               "brand": "string (optional) - Brand context passed to the classifier",
               "input_mode": "string (optional) - Input mode (default: auto)",

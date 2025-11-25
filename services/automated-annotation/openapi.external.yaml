@@ -1,6 +1,6 @@
 # Generated from config.json - DO NOT EDIT DIRECTLY
 # Service: automated-annotation
-# Generated: 2025-11-07T11:48:05.640Z
+# Generated: 2025-11-25T12:41:47.521Z
 # CORS Support: Enhanced with error response handling
 openapi: 3.0.1
 info:
@@ -16,8 +16,8 @@ components:
 paths:
   /automations/annotation/bags/classify/model:
     post:
-      summary: Classify bag model using vector-based similarity search (image vector from image_id)
-      description: "Classify bag model using vector-based similarity search (image vector from image_id) - Auth: api_key"
+      summary: Classify bag model using vector-based similarity search (image vector from image). Returns model, model_id, root_model, root_model_id, and confidence.
+      description: "Classify bag model using vector-based similarity search (image vector from image). Returns model, model_id, root_model, root_model_id, and confidence. - Auth: api_key"
       security:
         - ApiKeyAuth: []
       responses:
@@ -156,7 +156,7 @@ paths:
       x-amazon-apigateway-integration:
         type: mock
         requestTemplates:
-          application/json: '{"statusCode": 200}'
+          application/json: "{\"statusCode\": 200}"
         responses:
           default:
             statusCode: "200"
@@ -167,8 +167,8 @@ paths:
               method.response.header.Access-Control-Max-Age: "'86400'"
   /automations/annotation/bags/classify/{property}:
     post:
-      summary: Classify a bag property (type, material, colour, etc.) using the DSL orchestrator
-      description: "Classify a bag property (type, material, colour, etc.) using the DSL orchestrator - Auth: api_key"
+      summary: Classify a bag property (type, material, colour, etc.) using the DSL orchestrator. For model/material, returns simplified response with only essential fields.
+      description: "Classify a bag property (type, material, colour, etc.) using the DSL orchestrator. For model/material, returns simplified response with only essential fields. - Auth: api_key"
       security:
         - ApiKeyAuth: []
       responses:
@@ -307,7 +307,7 @@ paths:
       x-amazon-apigateway-integration:
         type: mock
         requestTemplates:
-          application/json: '{"statusCode": 200}'
+          application/json: "{\"statusCode\": 200}"
         responses:
           default:
             statusCode: "200"
@@ -458,7 +458,7 @@ paths:
       x-amazon-apigateway-integration:
         type: mock
         requestTemplates:
-          application/json: '{"statusCode": 200}'
+          application/json: "{\"statusCode\": 200}"
         responses:
           default:
             statusCode: "200"
