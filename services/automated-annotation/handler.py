@@ -289,6 +289,19 @@ def _ensure_gcp_adc():
     # Log important info for debugging IAM issues
     logger.info(f"GCP Configuration - Project: {vertexai_project}, Service Account: {service_account_email}")
     logger.warning(f"IMPORTANT: Service account '{service_account_email}' needs 'Vertex AI User' role (roles/aiplatform.user) in project '{vertexai_project}' to use Gemini models")
+    
+    # Verify credentials can be read by Google auth libraries
+    try:
+        from google.auth import default
+        from google.auth.transport.requests import Request
+        creds, project = default()
+        logger.info(f"Successfully loaded credentials via google.auth.default() - Project: {project}")
+        logger.info(f"Credentials type: {type(creds).__name__}")
+        if hasattr(creds, 'service_account_email'):
+            logger.info(f"Service account from credentials: {creds.service_account_email}")
+    except Exception as e:
+        logger.error(f"Failed to verify credentials with google.auth.default(): {str(e)}")
+        logger.warning("This may indicate a problem with credential setup")
         
     logger.info("GCP Application Default Credentials setup completed successfully")
 
@@ -622,8 +635,14 @@ def _classify_item(payload: dict):
     logger.info(f"Classification parameters - property: {property_name}, root_type_id: {root_type_id}, input_mode: {input_mode}, brand: {brand}")
     logger.debug(f"Text metadata length: {len(text_metadata) if text_metadata else 0} chars")
 
-    logger.info("Ensuring GCP Application Default Credentials")
-    _ensure_gcp_adc()
+    # Try to use Google API key first (simpler, no IAM permissions needed)
+    google_api_key = os.getenv("GOOGLE_API_KEY")
+    if google_api_key:
+        logger.info("Using Google API key for Generative AI API (no IAM permissions required)")
+    else:
+        logger.info("No GOOGLE_API_KEY found, falling back to Vertex AI with service account credentials")
+        logger.info("Ensuring GCP Application Default Credentials")
+        _ensure_gcp_adc()
     
     # Verify credentials are set up and readable
     creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
@@ -724,10 +743,15 @@ def _classify_item(payload: dict):
     if not project_id:
         raise ValueError("VERTEXAI_PROJECT environment variable, project_id in config, or project_id in GCP credentials is required")
     
-    # Get location - hardcode to europe-west2 (matches AWS eu-west-2 region)
-    # Force europe-west2 regardless of config to match AWS region
-    location = 'europe-west2'
-    logger.info(f"Using VertexAI location: {location} (hardcoded to match AWS eu-west-2)")
+    # Get location - prioritize config from API, then env var, then use default (like old system)
+    location = config.get('location')
+    if not location:
+        location = os.getenv('VERTEXAI_LOCATION')
+    if not location:
+        location = 'us-central1'  # Default VertexAI location (like old system)
+        logger.info(f"Using default VertexAI location: {location}")
+    else:
+        logger.info(f"Using VertexAI location: {location}")
     
     logger.info(f"Initializing LLM classifier - model: {model_name}, project: {project_id}, location: {location}")
     classifier = LLMAnnotationAgent(
