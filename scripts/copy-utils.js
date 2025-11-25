@@ -49,6 +49,43 @@ function removeDirectory(dir) {
 }
 
 /**
+ * Detects the runtime of a service
+ * @param {string} servicePath - Path to the service directory
+ * @returns {string} - 'nodejs' or 'python'
+ */
+function detectServiceRuntime(servicePath) {
+  const configPath = path.join(servicePath, "config.json");
+  
+  // Try to read runtime from config.json first
+  if (fs.existsSync(configPath)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      const runtime = config.deployment?.runtime || "";
+      
+      if (runtime.startsWith("python") || runtime.includes("python")) {
+        return "python";
+      }
+      if (runtime.startsWith("nodejs") || runtime.includes("node")) {
+        return "nodejs";
+      }
+    } catch (error) {
+      // Fall through to file-based detection
+    }
+  }
+  
+  // Fallback: detect by handler file
+  if (fs.existsSync(path.join(servicePath, "index.py"))) {
+    return "python";
+  }
+  if (fs.existsSync(path.join(servicePath, "index.js"))) {
+    return "nodejs";
+  }
+  
+  // Default to nodejs if we can't determine
+  return "nodejs";
+}
+
+/**
  * Main function to copy utils to all services
  */
 function copyUtilsToServices() {
@@ -103,9 +140,20 @@ function copyUtilsToServices() {
   );
 
   let successCount = 0;
+  let skippedCount = 0;
   let errorCount = 0;
 
   for (const servicePath of serviceDirs) {
+    const serviceName = path.relative(servicesDir, servicePath);
+    const runtime = detectServiceRuntime(servicePath);
+    
+    // Only copy JavaScript utils to Node.js services
+    if (runtime === "python") {
+      console.log(`⏭️  Skipping ${serviceName} (Python service - no Python utils available)`);
+      skippedCount++;
+      continue;
+    }
+
     const utilsDestDir = path.join(servicePath, "utils");
 
     try {
@@ -115,11 +163,9 @@ function copyUtilsToServices() {
       // Copy utils directory to service
       copyDirectory(utilsSourceDir, utilsDestDir);
 
-      const serviceName = path.relative(servicesDir, servicePath);
       console.log(`✅ Successfully copied utils to ${serviceName}`);
       successCount++;
     } catch (error) {
-      const serviceName = path.relative(servicesDir, servicePath);
       console.error(
         `❌ Failed to copy utils to ${serviceName}:`,
         error.message
@@ -130,6 +176,7 @@ function copyUtilsToServices() {
 
   console.log("\n📊 Copy Summary:");
   console.log(`✅ Successful: ${successCount}`);
+  console.log(`⏭️  Skipped (Python): ${skippedCount}`);
   console.log(`❌ Failed: ${errorCount}`);
   console.log(`📁 Total services: ${serviceDirs.length}`);
 
@@ -139,7 +186,7 @@ function copyUtilsToServices() {
     );
     process.exit(1);
   } else {
-    console.log("\n🎉 All services successfully received utils!");
+    console.log("\n🎉 All Node.js services successfully received utils!");
   }
 }
 
@@ -163,6 +210,13 @@ function copyUtilsToService(serviceName) {
   if (!fs.existsSync(serviceDir)) {
     console.error(`Error: Service directory '${serviceName}' not found`);
     process.exit(1);
+  }
+
+  // Check runtime and skip Python services
+  const runtime = detectServiceRuntime(serviceDir);
+  if (runtime === "python") {
+    console.log(`⏭️  Skipping ${serviceName} (Python service - no Python utils available)`);
+    process.exit(0);
   }
 
   try {
