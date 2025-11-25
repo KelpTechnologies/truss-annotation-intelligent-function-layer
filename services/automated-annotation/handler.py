@@ -2,37 +2,33 @@ import json
 import os
 import traceback
 import base64
+import logging
+import requests
 
 # Import DSL components from simplified package
 from dsl import DSLAPIClient, ConfigLoader, LLMAnnotationAgent
 from dsl import load_property_id_mapping_api
 
+logger = logging.getLogger(__name__)
 
 CATEGORY_CONFIG = {
     "bags": {
         "root_type_id": 30,
         "default_brand": None,
         "properties": {
-            "type": "type",
+            "model": "model",
             "material": "material",
             "colour": "colour",
-            "condition": "condition",
-            "hardware": "hardware",
-            "style": "style",
-            "size": "size",
-            "silhouette": "silhouette",
-            "lining": "lining",
+            "type": "type",
         },
     }
 }
 
 # Import vector classifier pipeline
-# Using importlib to handle hyphenated directory name (vector-classifiers)
 try:
     import importlib.util
     import sys
     
-    # Handle hyphenated directory name by using importlib
     pipeline_path = os.path.join(
         os.path.dirname(__file__), 
         "vector-classifiers", 
@@ -50,12 +46,9 @@ try:
         spec.loader.exec_module(pipeline_module)
         classify_image = pipeline_module.classify_image
     else:
-        print(f"Warning: Vector classifier pipeline not found at {pipeline_path}")
         classify_image = None
 except Exception as e:
-    print(f"Warning: Could not load vector classifier pipeline: {e}")
-    import traceback
-    traceback.print_exc()
+    logger.warning(f"Could not load vector classifier pipeline: {e}")
     classify_image = None
 
 
@@ -97,18 +90,11 @@ def _build_text_metadata(payload: dict):
 
 
 def _ensure_gcp_adc():
-    """Ensure Application Default Credentials are available from env.
-
-    Expects env:
-      - GCP_SERVICE_ACCOUNT_JSON: JSON (or base64 of JSON) for a service_account
-      - GOOGLE_APPLICATION_CREDENTIALS: path (defaults to /tmp/gcp_sa.json)
-      - VERTEXAI_PROJECT, VERTEXAI_LOCATION (optional)
-    """
+    """Ensure Application Default Credentials are available from env."""
     creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "/tmp/gcp_sa.json")
     sa_json = os.getenv("GCP_SERVICE_ACCOUNT_JSON")
 
     if not sa_json:
-        # Nothing to write; user may have mounted credentials another way
         return
 
     try:
@@ -120,35 +106,75 @@ def _ensure_gcp_adc():
             except Exception:
                 content = sa_json
 
-        # Write to creds_path
         os.makedirs(os.path.dirname(creds_path), exist_ok=True)
         with open(creds_path, "w", encoding="utf-8") as f:
             f.write(content)
 
-        # Ensure ADC picks it up
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
 
-        # Mirror project to GOOGLE_CLOUD_PROJECT if provided
         if os.getenv("VERTEXAI_PROJECT") and not os.getenv("GOOGLE_CLOUD_PROJECT"):
             os.environ["GOOGLE_CLOUD_PROJECT"] = os.getenv("VERTEXAI_PROJECT")
     except Exception:
-        # Do not fail classification if credentials write fails; VertexAI will error later
         pass
 
 
+def _get_signed_image_url(image: str) -> str:
+    """Get signed image URL from annotation-data-service-layer image-service."""
+    api_base_url = os.getenv("ANNOTATION_API_BASE_URL")
+    api_key = os.getenv("ANNOTATION_API_KEY")
+    
+    if not api_base_url:
+        raise ValueError("ANNOTATION_API_BASE_URL environment variable is required")
+    
+    url = f"{api_base_url.rstrip('/')}/images/processed/{image}"
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if api_key:
+        headers['x-api-key'] = api_key
+        
+    response = requests.get(url, headers=headers, timeout=10)
+    response.raise_for_status()
+    
+    result = response.json()
+    data = result.get('data', result)
+    processed_image = data.get('processedImage', {})
+    download_url = processed_image.get('downloadUrl')
+    
+    if not download_url:
+        raise ValueError(f"No downloadUrl found in image service response for image '{image}'")
+    
+    return download_url
+
+
+def _lookup_root_from_child(api_client: DSLAPIClient, property_type: str, value: str, brand: str = None, root_type: str = None, partition: str = "bags") -> dict:
+    """Lookup root taxonomy value from child value using the knowledge service API."""
+    lookup_result = api_client.lookup_root(
+        property_type=property_type,
+        value=value,
+        brand=brand,
+        root_type=root_type,
+        partition=partition
+    )
+    
+    data = lookup_result.get('data', lookup_result)
+    if isinstance(data, list) and len(data) > 0:
+        data = data[0]
+    elif not isinstance(data, dict):
+        data = lookup_result
+        
+    if not data.get('found'):
+        return None
+        
+    result = {
+        'root': data.get('root'),
+        'root_id': data.get('root_id'),
+        'child_id': data.get(f'{property_type}_id'),
+    }
+    
+    return result if result['root'] and result['root_id'] else None
+
+
 def _classify_model(payload: dict):
-    """
-    Classify model using a pre-computed image vector from the image-processing table.
-
-    Args:
-        payload: Request payload containing:
-            - processing_id / processingId: Processing identifier (required)
-            - brand: Brand name for namespace (required, e.g., "jacquemus")
-
-    Returns:
-        Classification result dictionary
-    """
-
+    """Classify model using a pre-computed image vector from the image-processing table."""
     if not classify_image:
         raise ValueError("Vector classifier pipeline not available")
 
@@ -160,43 +186,57 @@ def _classify_model(payload: dict):
     if not brand:
         raise ValueError("'brand' is required for model classification")
 
-    k_int = 7
-
     result = classify_image(
         processing_id=processing_id,
         brand=brand,
-        k=k_int,
+        k=7,
     )
 
-    primary = result.get("predicted_root_model")
+    predicted_model = result.get("predicted_model")
+    predicted_root_model = result.get("predicted_root_model")
 
-    response_payload = {
-        "processing_id": processing_id,
-        "image_id": processing_id,
-        "brand": brand,
-        "k": k_int,
-        "image_url": payload.get("image_url"),
-        "predicted_model": result.get("predicted_model"),
-        "predicted_model_confidence": result.get("predicted_model_confidence"),
-        "predicted_root_model": result.get("predicted_root_model"),
-        "root_model": primary,
+    # Always lookup root from knowledge service
+    root_lookup_result = None
+    if predicted_model:
+        api_base_url = os.getenv("DSL_API_BASE_URL")
+        api_key = os.getenv("DSL_API_KEY")
+        if not api_base_url or not api_key:
+            raise ValueError("DSL_API_BASE_URL and DSL_API_KEY environment variables are required")
+        
+        api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key)
+        category = payload.get("category", "bags")
+        partition = category
+        root_type = "Bags" if category == "bags" else None
+        
+        root_lookup_result = _lookup_root_from_child(
+            api_client=api_client,
+            property_type="model",
+            value=predicted_model,
+            brand=brand,
+            root_type=root_type,
+            partition=partition
+        )
+        
+        # Use lookup result if available, otherwise use predicted_root_model
+        root_model = root_lookup_result.get('root') if root_lookup_result else predicted_root_model
+        root_model_id = root_lookup_result.get('root_id') if root_lookup_result else None
+        model_id = root_lookup_result.get('child_id') if root_lookup_result else None
+    else:
+        root_model = None
+        root_model_id = None
+        model_id = None
+
+    return {
+        "model": predicted_model,
+        "model_id": model_id,
+        "root_model": root_model,
+        "root_model_id": root_model_id,
         "confidence": result.get("confidence", 0.0),
-        "method": result.get("method", "unknown"),
-        "message": result.get("message", ""),
-        "vector_dimension": result.get("vector_dimension"),
-        "vector_source": result.get("vector_source"),
-        "metadata": result.get("metadata"),
-        "success": result.get("method") != "error",
     }
-
-    if primary is not None:
-        response_payload["property"] = "model"
-        response_payload["model"] = primary
-
-    return response_payload
 
 
 def _classify_property(category: str, target: str, request_payload: dict):
+    """Classify a property using LLM."""
     category_config = CATEGORY_CONFIG.get(category)
     if not category_config:
         raise ValueError(f"Unsupported category '{category}'")
@@ -204,16 +244,17 @@ def _classify_property(category: str, target: str, request_payload: dict):
     property_map = category_config.get("properties", {})
     internal_property_name = property_map.get(target)
     if not internal_property_name:
-        raise ValueError(
-            f"Unsupported classification target '{target}' for category '{category}'"
-        )
+        raise ValueError(f"Unsupported classification target '{target}' for category '{category}'")
 
-    image_url = request_payload.get("image_url")
-    if not image_url:
-        raise ValueError("'image_url' is required for property classification")
+    # Get image and lookup signed URL
+    image = request_payload.get("image")
+    if not image:
+        raise ValueError("'image' is required for property classification")
+    
+    image_url = _get_signed_image_url(image)
 
     text_dump = request_payload.get("text_dump")
-    if text_dump is None:
+    if not text_dump:
         raise ValueError("'text_dump' is required for property classification")
 
     classification_payload = {
@@ -226,11 +267,8 @@ def _classify_property(category: str, target: str, request_payload: dict):
         "brand": request_payload.get("brand"),
         "input_mode": request_payload.get("input_mode", "auto"),
         "resolve_names": request_payload.get("resolve_names", False),
+        "garment_id": image,
     }
-
-    garment_id = request_payload.get("garment_id") or request_payload.get("image_id")
-    if garment_id:
-        classification_payload["garment_id"] = garment_id
 
     raw_result = _classify_item(classification_payload)
 
@@ -241,34 +279,54 @@ def _classify_property(category: str, target: str, request_payload: dict):
         except Exception:
             pass
 
-    response_payload = {
-        "image_id": request_payload.get("image_id"),
-        "image_url": image_url,
-        "category": category,
-        "target": target,
-        "property": target,
-        target: primary_value,
-        "confidence": raw_result.get("confidence"),
-        "alternatives": raw_result.get("alternatives", []),
-        "metadata": {
-            "prediction_id": raw_result.get("prediction_id"),
-            "root_type_id": raw_result.get("root_type_id"),
-            "input_mode_used": raw_result.get("input_mode_used"),
-            "has_text_metadata": raw_result.get("has_text_metadata"),
-            "reasoning": raw_result.get("reasoning"),
-        },
-        "success": True,
-    }
+    # Lookup root for model and material properties
+    root_lookup_result = None
+    if target in ["model", "material"] and primary_value:
+        api_base_url = os.getenv("DSL_API_BASE_URL")
+        api_key = os.getenv("DSL_API_KEY")
+        if not api_base_url or not api_key:
+            raise ValueError("DSL_API_BASE_URL and DSL_API_KEY environment variables are required")
+        
+        api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key)
+        partition = category
+        root_type = "Bags" if category == "bags" else None
+        brand = request_payload.get("brand") if target == "model" else None
+        
+        root_lookup_result = _lookup_root_from_child(
+            api_client=api_client,
+            property_type=target,
+            value=primary_value,
+            brand=brand,
+            root_type=root_type,
+            partition=partition
+        )
 
-    if raw_result.get("property"):
-        response_payload["raw_property_name"] = raw_result["property"]
-    elif internal_property_name != target:
-        response_payload["raw_property_name"] = internal_property_name
-
-    return response_payload
+    # Build simplified response
+    if target == "model":
+        return {
+            "model": primary_value,
+            "model_id": root_lookup_result.get('child_id') if root_lookup_result else None,
+            "root_model": root_lookup_result.get('root') if root_lookup_result else None,
+            "root_model_id": root_lookup_result.get('root_id') if root_lookup_result else None,
+            "confidence": raw_result.get("confidence", 0.0),
+        }
+    elif target == "material":
+        return {
+            "material": primary_value,
+            "material_id": root_lookup_result.get('child_id') if root_lookup_result else None,
+            "root_material": root_lookup_result.get('root') if root_lookup_result else None,
+            "root_material_id": root_lookup_result.get('root_id') if root_lookup_result else None,
+            "confidence": raw_result.get("confidence", 0.0),
+        }
+    else:
+        return {
+            target: primary_value,
+            "confidence": raw_result.get("confidence", 0.0),
+        }
 
 
 def _classify_item(payload: dict):
+    """Classify an item using LLM."""
     api_base_url = os.getenv("DSL_API_BASE_URL")
     api_key = os.getenv("DSL_API_KEY")
     if not api_base_url or not api_key:
@@ -285,7 +343,6 @@ def _classify_item(payload: dict):
     brand = payload.get("brand")
     text_metadata = _build_text_metadata(payload)
 
-    # Ensure Google ADC is available before initializing VertexAI client
     _ensure_gcp_adc()
 
     api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key)
@@ -390,27 +447,20 @@ def lambda_handler(event, context):
 
             try:
                 if target == "model":
-                    processing_id = (
-                        payload.get("processing_id")
-                        or payload.get("processingId")
-                        or payload.get("image_id")
-                    )
-                    model_payload = {
-                        "processing_id": processing_id,
-                        "processingId": processing_id,
-                        "brand": payload.get("brand")
-                        or CATEGORY_CONFIG[category].get("default_brand"),
-                        "image_url": payload.get("image_url"),
-                    }
+                    image = payload.get("image")
+                    if not image:
+                        raise ValueError("'image' is required for model classification")
 
-                    if not model_payload["processing_id"]:
-                        raise ValueError("'image_id' is required for model classification")
-
-                    if not model_payload["brand"]:
+                    brand = payload.get("brand") or CATEGORY_CONFIG[category].get("default_brand")
+                    if not brand:
                         raise ValueError("'brand' is required for model classification")
 
-                    result = _classify_model(model_payload)
-                    result["category"] = category
+                    result = _classify_model({
+                        "processing_id": image,
+                        "processingId": image,
+                        "brand": brand,
+                        "category": category,
+                    })
                     return _response(
                         200,
                         {
