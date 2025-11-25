@@ -327,10 +327,11 @@ def _classify_property(category: str, target: str, request_payload: dict):
 
 def _classify_item(payload: dict):
     """Classify an item using LLM."""
-    api_base_url = os.getenv("DSL_API_BASE_URL")
-    api_key = os.getenv("DSL_API_KEY")
-    if not api_base_url or not api_key:
-        raise ValueError("DSL_API_BASE_URL and DSL_API_KEY environment variables are required")
+    # Use ANNOTATION_API_BASE_URL for classifier configs, templates, and context data
+    api_base_url = os.getenv("ANNOTATION_API_BASE_URL")
+    api_key = os.getenv("ANNOTATION_API_KEY")
+    if not api_base_url:
+        raise ValueError("ANNOTATION_API_BASE_URL environment variable is required")
 
     property_name = payload.get("property")
     root_type_id = payload.get("root_type_id")

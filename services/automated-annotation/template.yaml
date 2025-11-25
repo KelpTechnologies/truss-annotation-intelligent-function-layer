@@ -73,7 +73,7 @@ Resources:
           OPENAI_SECRET_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:openAI-FNAJfl"
           DSL_API_BASE_URL: "https://9tvhx1t3h2.execute-api.eu-west-2.amazonaws.com/external-dev"
           DSL_API_KEY: ""
-          ANNOTATION_API_BASE_URL: "https://9tvhx1t3h2.execute-api.eu-west-2.amazonaws.com/external-dev"
+          ANNOTATION_API_BASE_URL: "https://p4v6cwjlm1.execute-api.eu-west-2.amazonaws.com/external-prod"
           ANNOTATION_API_KEY: ""
           API_KEY_ID: !Ref ServiceApiKey
           COGNITO_USER_POOL_ARNS: "arn:aws:cognito-idp:eu-west-2:193757560043:userpool/eu-west-2_JyaPgaRFW"
