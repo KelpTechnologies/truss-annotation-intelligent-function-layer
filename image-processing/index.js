@@ -166,12 +166,12 @@ async function processImageRecord(record) {
       uploadResult
     );
 
-    // Vectorize the processed image (WebP format)
-    console.log(`Starting image vectorization using processed WebP image`);
+    // Vectorize the image
+    console.log(`Starting image vectorization`);
     const vectorStartTime = Date.now();
     let vectorResult = null;
     try {
-      vectorResult = await vectorizeImage(processedImage, key, processingId);
+      vectorResult = await vectorizeImage(imageData, key, processingId);
       const vectorTime = Date.now() - vectorStartTime;
       if (vectorResult.success) {
         console.log(
@@ -299,32 +299,14 @@ async function downloadImage(bucket, key) {
 
 /**
  * Process image using Sharp
- * Handles all image formats including AVIF, JPEG, PNG, WebP, etc.
- * AVIF images are automatically detected and decoded by Sharp.
  */
 async function processImage(imageBuffer, originalKey) {
   try {
     console.log(`Sharp processing started for: ${originalKey}`);
     console.log("Input buffer size:", imageBuffer.length, "bytes");
 
-    // Detect format from file extension for logging
-    const keyParts = originalKey.split(".");
-    const extension =
-      keyParts.length > 1 ? keyParts[keyParts.length - 1].toLowerCase() : null;
-    const isAVIF = extension === "avif";
-
-    if (isAVIF) {
-      console.log("AVIF format detected from file extension");
-    }
-
-    // Create Sharp instance with failOn: "none" to handle edge cases gracefully
-    // This ensures AVIF and other formats are processed even if there are minor issues
-    const sharpInstance = sharp(imageBuffer, {
-      failOn: "none", // Don't fail on warnings, only on errors
-    });
-
     // Get image metadata
-    const metadata = await sharpInstance.metadata();
+    const metadata = await sharp(imageBuffer).metadata();
     console.log("Image metadata:", {
       format: metadata.format,
       width: metadata.width,
@@ -334,24 +316,7 @@ async function processImage(imageBuffer, originalKey) {
       space: metadata.space,
       size: metadata.size,
       density: metadata.density,
-      extensionHint: extension,
     });
-
-    // Validate that format was detected
-    if (!metadata.format) {
-      console.warn(
-        `Format not detected for ${originalKey}. Extension hint: ${extension}`
-      );
-    }
-
-    // Log if AVIF was detected
-    if (metadata.format === "avif" || isAVIF) {
-      console.log("Processing AVIF image:", {
-        detectedFormat: metadata.format,
-        extension: extension,
-        dimensions: `${metadata.width}x${metadata.height}`,
-      });
-    }
 
     // Generate single optimized 768x768 WebP image for Gemini
     const baseName = originalKey.replace(/\.[^/.]+$/, "");
@@ -362,12 +327,9 @@ async function processImage(imageBuffer, originalKey) {
       format: "webp",
       quality: 90,
       effort: 6,
-      inputFormat: metadata.format || extension || "unknown",
     });
 
-    // Process image: resize and convert to WebP
-    // Sharp automatically handles AVIF decoding when format is detected
-    const processedImage = await sharpInstance
+    const processedImage = await sharp(imageBuffer)
       .resize(768, 768, {
         fit: "cover", // Crop to fill exact dimensions
         position: "center", // Center the crop
@@ -397,89 +359,7 @@ async function processImage(imageBuffer, originalKey) {
       error: error.message,
       stack: error.stack,
       name: error.name,
-      code: error.code,
     });
-
-    // Check if this is an AVIF-related error
-    const keyParts = originalKey.split(".");
-    const extension =
-      keyParts.length > 1 ? keyParts[keyParts.length - 1].toLowerCase() : null;
-    const isAVIF = extension === "avif";
-
-    if (isAVIF) {
-      console.error("AVIF processing error detected:", {
-        errorMessage: error.message,
-        errorCode: error.code,
-        errorName: error.name,
-      });
-
-      // Check if error suggests AVIF format is not supported
-      const unsupportedErrorMessages = [
-        "unsupported",
-        "unknown",
-        "invalid",
-        "unsupported image format",
-        "Input buffer contains unsupported image format",
-      ];
-
-      const isUnsupportedError = unsupportedErrorMessages.some((msg) =>
-        error.message.toLowerCase().includes(msg)
-      );
-
-      if (isUnsupportedError) {
-        console.error(
-          "AVIF format may not be supported by Sharp in this Lambda environment."
-        );
-        console.error(
-          "Possible solutions:",
-          "1. Ensure Sharp is built with AVIF support (requires libavif)",
-          "2. Update Sharp to latest version with AVIF support",
-          "3. Pre-convert AVIF images before uploading"
-        );
-      }
-
-      // Try alternative approach: attempt direct conversion without resize first
-      try {
-        console.log("Attempting AVIF fallback: direct format conversion");
-        // Try to decode AVIF and convert directly without intermediate steps
-        const fallbackImage = await sharp(imageBuffer, {
-          failOn: "none",
-          limitInputPixels: false, // Allow large images
-        })
-          .resize(768, 768, {
-            fit: "cover",
-            position: "center",
-          })
-          .webp({
-            quality: 90,
-            effort: 6,
-          })
-          .toBuffer();
-
-        console.log("AVIF fallback conversion successful");
-
-        // Get metadata for fallback
-        const fallbackMetadata = await sharp(imageBuffer, {
-          failOn: "none",
-        }).metadata();
-
-        return {
-          processedImage: fallbackImage,
-          metadata: fallbackMetadata,
-          baseName: originalKey.replace(/\.[^/.]+$/, ""),
-        };
-      } catch (fallbackError) {
-        console.error("AVIF fallback conversion also failed:", {
-          error: fallbackError.message,
-          stack: fallbackError.stack,
-          code: fallbackError.code,
-        });
-        throw new Error(
-          `AVIF image processing failed: ${error.message}. Fallback also failed: ${fallbackError.message}. This may indicate that Sharp in this Lambda environment does not have AVIF support compiled.`
-        );
-      }
-    }
-
     throw new Error(`Image processing failed: ${error.message}`);
   }
 }
@@ -542,14 +422,12 @@ async function uploadProcessedImage(processedImage, originalKey) {
 
 /**
  * Vectorize image using the vectorization API
- * Uses the processed WebP image and converts it to JPEG for API compatibility.
- * The vectorization API prefers JPEG format for consistent processing.
- * - Converts processed WebP to JPEG format
- * - Ensures RGB format (no alpha channel)
+ * Follows the preprocessing guide requirements:
+ * - Ensures RGB format (convert RGBA if needed)
  * - Properly formats multipart form-data with content-type
  * - Handles errors gracefully
  */
-async function vectorizeImage(processedImageBuffer, originalKey, processingId) {
+async function vectorizeImage(imageBuffer, originalKey, processingId) {
   const vectorStartTime = Date.now();
   try {
     console.log(
@@ -567,52 +445,68 @@ async function vectorizeImage(processedImageBuffer, originalKey, processingId) {
 
     // Get image metadata to determine format
     console.log("Extracting image metadata for vectorization preprocessing");
-    const metadata = await sharp(processedImageBuffer).metadata();
-    console.log("Processed image metadata for vectorization:", {
+    const metadata = await sharp(imageBuffer).metadata();
+    console.log("Image metadata for vectorization:", {
       format: metadata.format,
       width: metadata.width,
       height: metadata.height,
       channels: metadata.channels,
-      size: processedImageBuffer.length,
+      size: imageBuffer.length,
       hasAlpha: metadata.hasAlpha,
     });
 
-    // Convert processed image (WebP) to JPEG format for vectorization API
-    // The API prefers JPEG format for consistent processing across all image types
-    console.log(
-      "Converting processed image to JPEG format for vectorization API"
-    );
-    const vectorizationBuffer = await sharp(processedImageBuffer)
-      .ensureAlpha(false) // Remove alpha channel if present
-      .jpeg({
-        quality: 90, // High quality to preserve image details for vectorization
-        mozjpeg: true, // Use mozjpeg for better compression
-      })
-      .toBuffer();
+    // Ensure image is in RGB format (convert RGBA if necessary)
+    // Sharp processes images in a way that's compatible, but we'll ensure RGB
+    let processedBuffer = imageBuffer;
+    if (metadata.channels === 4) {
+      // RGBA detected - convert to RGB
+      console.log("Converting RGBA to RGB for vectorization");
+      processedBuffer = await sharp(imageBuffer)
+        .ensureAlpha(false)
+        .jpeg({ quality: 90 })
+        .toBuffer();
+      console.log(`RGBA conversion completed: ${processedBuffer.length} bytes`);
+    } else if (metadata.channels !== 3) {
+      // Not RGB or RGBA - convert to RGB via JPEG
+      console.log(`Converting ${metadata.channels}-channel image to RGB`);
+      processedBuffer = await sharp(imageBuffer)
+        .jpeg({ quality: 90 })
+        .toBuffer();
+      console.log(
+        `Channel conversion completed: ${processedBuffer.length} bytes`
+      );
+    } else {
+      console.log("Image already in RGB format, no conversion needed");
+    }
 
-    console.log("Image conversion completed:", {
-      originalFormat: metadata.format,
-      originalSize: processedImageBuffer.length,
-      convertedSize: vectorizationBuffer.length,
-      targetFormat: "jpeg",
-    });
+    // Determine content type based on original key extension
+    const keyParts = originalKey.split(".");
+    const extension =
+      keyParts.length > 1 ? keyParts[keyParts.length - 1].toLowerCase() : "jpg";
 
-    // Use JPEG content type and filename for the vectorization API
-    const contentType = "image/jpeg";
-    const baseName = originalKey.replace(/\.[^/.]+$/, "");
-    const filename = `${baseName.split("/").pop() || "image"}.jpg`;
+    const contentTypeMap = {
+      jpg: "image/jpeg",
+      jpeg: "image/jpeg",
+      png: "image/png",
+      webp: "image/webp",
+      bmp: "image/bmp",
+      tiff: "image/tiff",
+    };
+
+    const contentType = contentTypeMap[extension] || "image/jpeg";
+    const filename = originalKey.split("/").pop() || `image.${extension}`;
 
     console.log("Preparing multipart form-data:", {
       filename,
       contentType,
-      vectorizationBufferSize: vectorizationBuffer.length,
-      processedImageSize: processedImageBuffer.length,
+      processedBufferSize: processedBuffer.length,
+      originalBufferSize: imageBuffer.length,
     });
 
     // Create multipart form-data with proper 3-tuple format: (filename, buffer, content-type)
     // This is CRITICAL to avoid the 500 error from the API
     const formData = new FormData();
-    formData.append("file", vectorizationBuffer, {
+    formData.append("file", processedBuffer, {
       filename: filename,
       contentType: contentType,
     });
@@ -634,7 +528,7 @@ async function vectorizeImage(processedImageBuffer, originalKey, processingId) {
       hasAuth: !!VECTORIZATION_API_KEY,
       timeout: 30000,
       contentType: headers["content-type"],
-      contentLength: vectorizationBuffer.length,
+      contentLength: processedBuffer.length,
     });
 
     const requestStartTime = Date.now();
