@@ -549,6 +549,12 @@ def _classify_property(category: str, target: str, request_payload: dict):
         except Exception as e:
             logger.warning(f"Failed to parse ID format value '{primary_value}': {str(e)}")
 
+    # For color classifications, replace "Beige" with "Neutrals" as a safeguard
+    if target and target.lower() in ['color', 'colour'] and isinstance(primary_value, str):
+        if primary_value.lower() == 'beige':
+            primary_value = 'Neutrals'
+            logger.info(f"Replaced 'Beige' with 'Neutrals' for color classification in _classify_property")
+
     # Lookup root for model and material properties
     root_lookup_result = None
     if target in ["model", "material"] and primary_value:
@@ -794,7 +800,14 @@ def _classify_item(payload: dict):
                 if val.startswith("ID "):
                     pred_id = int(val.split("ID ")[1])
                     name = id_map.get(pred_id)
-                    return f"ID {pred_id}: {name}" if name else val
+                    if name:
+                        # For color classifications, replace "Beige" with "Neutrals"
+                        if property_name and property_name.lower() in ['color', 'colour']:
+                            if name.lower() == 'beige':
+                                name = 'Neutrals'
+                                logger.info(f"Replaced 'Beige' with 'Neutrals' for color classification")
+                        return f"ID {pred_id}: {name}"
+                    return val
             except Exception as e:
                 logger.warning(f"Failed to format value '{val}': {str(e)}")
                 return val
