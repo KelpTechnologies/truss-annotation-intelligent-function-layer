@@ -245,7 +245,7 @@ jobs:
 
       - name: Deploy API Gateway
         run: |
-          STACK_NAME="truss-annotation-intelligent-function-api-${STAGE}"
+          STACK_NAME="truss-aifl-api-${STAGE}"
           TEMPLATE_FILE="api-gateway/template-${STAGE}.yaml"
 
           echo "🚀 Deploying API Gateway stack: $STACK_NAME"
@@ -263,7 +263,7 @@ jobs:
         id: get-url
         run: |
           API_URL=$(aws cloudformation describe-stacks \
-            --stack-name "truss-annotation-intelligent-function-api-${STAGE}" \
+            --stack-name "truss-aifl-api-${STAGE}" \
             --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayUrl'].OutputValue" \
             --output text)
 

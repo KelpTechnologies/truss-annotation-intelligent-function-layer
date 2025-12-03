@@ -1,8 +1,8 @@
 {
   "_comment": "Layer configuration - Single source of truth for all scripts",
-  "_generated": "2025-12-01T13:20:00.000Z",
-  "layerName": "annotation-ifl",
-  "stackPrefix": "truss-annotation-intelligent-function",
+  "_generated": "2025-12-03T00:00:00.000Z",
+  "layerName": "aifl",
+  "stackPrefix": "truss-aifl",
   "region": "eu-west-2",
   "accountId": "193757560043",
   "apiTitle": "Truss Annotation Intelligent Function API",
