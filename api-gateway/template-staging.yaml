@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: "Unified annotation-ifl API Gateway with HybridAuth - staging"
+Description: "Unified aifl API Gateway with HybridAuth - staging"
 
 Parameters:
   StageName:
@@ -12,9 +12,9 @@ Resources:
   UnifiedApi:
     Type: AWS::Serverless::Api
     Properties:
-      Name: !Sub "truss-annotation-intelligent-function-api-${StageName}"
+      Name: !Sub "truss-aifl-api-${StageName}"
       StageName: !Ref StageName
-      DefinitionUri: s3://truss-api-automated-deployments/api-specs/annotation-ifl/bb246e6419ba/deployment-ready-staging.yaml
+      DefinitionUri: s3://truss-api-automated-deployments/api-specs/aifl/8476dde57f05/deployment-ready-staging.yaml
       EndpointConfiguration:
         Type: REGIONAL
       TracingEnabled: true
@@ -35,16 +35,16 @@ Outputs:
     Description: Unified API Gateway URL
     Value: !Sub "https://${UnifiedApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
     Export:
-      Name: !Sub "truss-annotation-intelligent-function-api-${StageName}-url"
+      Name: !Sub "truss-aifl-api-${StageName}-url"
 
   ApiGatewayId:
     Description: API Gateway ID
     Value: !Ref UnifiedApi
     Export:
-      Name: !Sub "truss-annotation-intelligent-function-api-${StageName}-id"
+      Name: !Sub "truss-aifl-api-${StageName}-id"
 
   HybridAuthorizerArn:
     Description: Hybrid Authorizer ARN
     Value: "arn:aws:lambda:eu-west-2:193757560043:function:truss-hybrid-authorizer-staging"
     Export:
-      Name: !Sub "truss-annotation-intelligent-function-api-${StageName}-authorizer-arn"
+      Name: !Sub "truss-aifl-api-${StageName}-authorizer-arn"

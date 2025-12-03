@@ -53,15 +53,19 @@ Resources:
         S3Key: !Ref CodeS3Key
       Timeout: 300
       MemorySize: 1024
+      Layers:
+        - "arn:aws:lambda:eu-west-2:193757560043:layer:intelligent-functions-python:5"
       Environment:
         Variables:
           STAGE: !Ref StageName
           SERVICE_NAME: "automated-annotation"
           LAYER_NAME: "aifl"
-          DSL_API_BASE_URL: "https://9tvhx1t3h2.execute-api.eu-west-2.amazonaws.com/external-dev"
+          DSL_API_BASE_URL: "https://1hc7v2pi9d.execute-api.eu-west-2.amazonaws.com/staging"
           DSL_API_KEY: ""
-          ANNOTATION_API_BASE_URL: "https://p4v6cwjlm1.execute-api.eu-west-2.amazonaws.com/external-prod"
+          ANNOTATION_DSL_API_BASE_URL: "https://xu89om0525.execute-api.eu-west-2.amazonaws.com/staging"
           ANNOTATION_API_KEY: ""
+          IFL_API_BASE_URL: "https://ituo0x1fj5.execute-api.eu-west-2.amazonaws.com/staging"
+          ANNOTATION_IFL_API_BASE_URL: "https://mabi7l7lvl.execute-api.eu-west-2.amazonaws.com/staging"
           VERTEXAI_PROJECT: "truss-data-science"
 
   ServiceLambdaPermission:

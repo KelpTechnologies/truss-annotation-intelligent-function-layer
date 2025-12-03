@@ -311,12 +311,12 @@ def _get_signed_image_url(image: str) -> str:
     start_time = time.time()
     logger.info(f"Fetching signed image URL for image ID: {image}")
     
-    api_base_url = os.getenv("ANNOTATION_API_BASE_URL")
+    api_base_url = os.getenv("ANNOTATION_DSL_API_BASE_URL")
     api_key = os.getenv("ANNOTATION_API_KEY")
     
     if not api_base_url:
-        logger.error("ANNOTATION_API_BASE_URL environment variable is not set")
-        raise ValueError("ANNOTATION_API_BASE_URL environment variable is required")
+        logger.error("ANNOTATION_DSL_API_BASE_URL environment variable is not set")
+        raise ValueError("ANNOTATION_DSL_API_BASE_URL environment variable is required")
     
     url = f"{api_base_url.rstrip('/')}/images/processed/{image}"
     logger.debug(f"Image service URL: {url}")
@@ -617,12 +617,12 @@ def _classify_item(payload: dict):
     start_time = time.time()
     logger.info(f"Starting LLM classification - property: {payload.get('property')}, root_type_id: {payload.get('root_type_id')}")
     
-    # Use ANNOTATION_API_BASE_URL for classifier configs, templates, and context data
-    api_base_url = os.getenv("ANNOTATION_API_BASE_URL")
+    # Use ANNOTATION_DSL_API_BASE_URL for classifier configs, templates, and context data
+    api_base_url = os.getenv("ANNOTATION_DSL_API_BASE_URL")
     api_key = os.getenv("ANNOTATION_API_KEY")
     if not api_base_url:
-        logger.error("ANNOTATION_API_BASE_URL environment variable is not set")
-        raise ValueError("ANNOTATION_API_BASE_URL environment variable is required")
+        logger.error("ANNOTATION_DSL_API_BASE_URL environment variable is not set")
+        raise ValueError("ANNOTATION_DSL_API_BASE_URL environment variable is required")
     
     logger.debug(f"Using API base URL: {api_base_url}")
 
