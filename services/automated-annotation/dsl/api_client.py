@@ -18,7 +18,7 @@ class DSLAPIError(Exception):
 class DSLAPIClient:
     """HTTP client for the Truss Annotation Data Service API."""
 
-    def __init__(self, base_url: str, api_key: Optional[str] = None, timeout: int = 30):
+    def __init__(self, base_url: str, api_key: Optional[str] = None, auth_headers: Optional[Dict[str, str]] = None, timeout: int = 30):
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
         self.timeout = timeout
@@ -28,11 +28,18 @@ class DSLAPIClient:
             'Content-Type': 'application/json',
             'Accept': 'application/json'
         }
-        if api_key:
+        
+        # Pass through auth headers from original request (Authorization, x-api-key)
+        if auth_headers:
+            headers.update(auth_headers)
+            logger.info(f"Using pass-through auth headers: {list(auth_headers.keys())}")
+        elif api_key:
             headers['x-api-key'] = api_key
+        
         self.session.headers.update(headers)
 
-        logger.info(f"Initialized DSL API Client with base URL: {base_url} (Auth: {'API Key' if api_key else 'None'})")
+        auth_type = 'Pass-through' if auth_headers else ('API Key' if api_key else 'None')
+        logger.info(f"Initialized DSL API Client with base URL: {base_url} (Auth: {auth_type})")
 
     def _make_request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
         url = f"{self.base_url}{endpoint}"

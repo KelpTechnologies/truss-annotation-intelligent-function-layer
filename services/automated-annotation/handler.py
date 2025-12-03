@@ -455,11 +455,11 @@ def _classify_model(payload: dict):
         logger.info(f"Looking up root for predicted model: {predicted_model}")
         api_base_url = os.getenv("DSL_API_BASE_URL")
         api_key = os.getenv("DSL_API_KEY")
-        if not api_base_url or not api_key:
-            logger.error("DSL_API_BASE_URL or DSL_API_KEY not set")
-            raise ValueError("DSL_API_BASE_URL and DSL_API_KEY environment variables are required")
+        if not api_base_url:
+            logger.error("DSL_API_BASE_URL not set")
+            raise ValueError("DSL_API_BASE_URL environment variable is required")
         
-        api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key)
+        api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key, auth_headers=_request_auth_headers)
         category = payload.get("category", "bags")
         partition = category
         root_type = "Bags" if category == "bags" else None
@@ -574,11 +574,11 @@ def _classify_property(category: str, target: str, request_payload: dict):
         logger.info(f"Looking up root for {target}='{primary_value}'")
         api_base_url = os.getenv("DSL_API_BASE_URL")
         api_key = os.getenv("DSL_API_KEY")
-        if not api_base_url or not api_key:
-            logger.error("DSL_API_BASE_URL or DSL_API_KEY not set")
-            raise ValueError("DSL_API_BASE_URL and DSL_API_KEY environment variables are required")
+        if not api_base_url:
+            logger.error("DSL_API_BASE_URL not set")
+            raise ValueError("DSL_API_BASE_URL environment variable is required")
         
-        api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key)
+        api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key, auth_headers=_request_auth_headers)
         partition = category
         root_type = "Bags" if category == "bags" else None
         brand = request_payload.get("brand") if target == "model" else None
@@ -701,7 +701,7 @@ def _classify_item(payload: dict):
         logger.error(f"Failed to validate credentials file: {str(e)}")
         raise ValueError(f"Credentials file validation failed: {str(e)}")
 
-    api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key)
+    api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key, auth_headers=_request_auth_headers)
     config_loader = ConfigLoader(mode='api', api_client=api_client)
 
     logger.info(f"Loading classifier config for property '{property_name}', root_type_id {root_type_id}")
@@ -961,9 +961,9 @@ def lambda_handler(event, context):
             api_key = os.getenv("DSL_API_KEY")
             status = {"status": "unhealthy"}
             try:
-                if api_base_url and api_key:
+                if api_base_url:
                     logger.debug("Performing DSL API health check")
-                    client = DSLAPIClient(base_url=api_base_url, api_key=api_key)
+                    client = DSLAPIClient(base_url=api_base_url, api_key=api_key, auth_headers=_request_auth_headers)
                     status = client.health_check()
                     logger.info(f"Health check result: {json.dumps(status, default=str)}")
                 else:
