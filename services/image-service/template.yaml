@@ -14,18 +14,8 @@ Parameters:
     Type: String
   CodeS3Key:
     Type: String
-  ApiGatewayId:
-    Type: String
-    Description: API Gateway ID that will invoke this Lambda
-    Default: "*"
 
 Resources:
-  ServiceApiKey:
-    Type: AWS::ApiGateway::ApiKey
-    Properties:
-      Name: !Sub "${FunctionName}-api-key"
-      Description: "API Key for image-service service"
-      Enabled: true
   ServiceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -56,7 +46,6 @@ Resources:
                   - s3:PutObject
                   - s3:DeleteObject
                   - s3:ListBucket
-                  - s3:GetObjectVersion
                 Resource:
                   - !Sub "arn:aws:s3:::truss-annotation-image-source-${StageName}"
                   - !Sub "arn:aws:s3:::truss-annotation-image-source-${StageName}/*"
@@ -92,16 +81,10 @@ Resources:
         Variables:
           STAGE: !Ref StageName
           SERVICE_NAME: "image-service"
-          SUPPORTED_AUTH_MODES: "cognito,api_key"
-          DEFAULT_AUTH_MODE: "cognito"
-          BIGQUERY_SECRET_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:bigquery-service-account-GipBFQ"
-          OPENAI_SECRET_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:openAI-FNAJfl"
-          API_KEY_ID: !Ref ServiceApiKey
-          COGNITO_USER_POOL_ARNS: "arn:aws:cognito-idp:eu-west-2:193757560043:userpool/eu-west-2_JyaPgaRFW"
+          LAYER_NAME: "annotation-ifl"
           SOURCE_BUCKET: !Sub "truss-annotation-image-source-${StageName}"
           PROCESSED_BUCKET: !Sub "truss-annotation-image-processed-${StageName}"
           PROCESSING_TABLE: !Sub "truss-image-processing-${StageName}"
-          CLOUDFRONT_URL: !Sub "https://truss-annotation-image-processed-${StageName}.s3.eu-west-2.amazonaws.com"
 
   ServiceLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -123,9 +106,3 @@ Outputs:
     Value: !Ref ServiceLambda
     Export:
       Name: !Sub "${AWS::StackName}-FunctionName"
-
-  ApiKeyId:
-    Description: API Key ID for private access
-    Value: !Ref ServiceApiKey
-    Export:
-      Name: !Sub "${AWS::StackName}-ApiKeyId"

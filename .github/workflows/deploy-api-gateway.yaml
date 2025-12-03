@@ -2,7 +2,7 @@ name: Deploy API Gateway
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, staging, dev]
     paths:
       - "services/**/openapi.yaml"
       - "services/**/config.json"
@@ -20,6 +20,7 @@ on:
         type: choice
         options:
           - dev
+          - staging
           - prod
 
 jobs:
@@ -35,11 +36,12 @@ jobs:
             echo "stage=${{ github.event.inputs.stage }}" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "stage=prod" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "stage=staging" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
             echo "stage=dev" >> $GITHUB_OUTPUT
           else
-            echo "Unknown branch"
-            exit 1
+            echo "stage=dev" >> $GITHUB_OUTPUT
           fi
 
   validate-services:
@@ -135,7 +137,7 @@ jobs:
 
           echo "✅ OpenAPI aggregation test passed"
 
-  check-custom-authorizer:
+  check-hybrid-authorizer:
     needs: set-environment
     runs-on: ubuntu-latest
     env:
@@ -148,31 +150,31 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-      - name: Check Custom Authorizer Exists
+      - name: Check Hybrid Authorizer Exists
         run: |
-          echo "🔍 Checking if custom authorizer exists for stage: ${STAGE}"
+          echo "🔍 Checking if hybrid authorizer exists for stage: ${STAGE}"
 
-          FUNCTION_NAME="truss-custom-authorizer-${STAGE}"
+          FUNCTION_NAME="truss-hybrid-authorizer-${STAGE}"
 
           if aws lambda get-function --function-name "${FUNCTION_NAME}" >/dev/null 2>&1; then
-            echo "✅ Custom authorizer function exists: ${FUNCTION_NAME}"
+            echo "✅ Hybrid authorizer function exists: ${FUNCTION_NAME}"
             
             # Get the function ARN
             FUNCTION_ARN=$(aws lambda get-function --function-name "${FUNCTION_NAME}" --query 'Configuration.FunctionArn' --output text)
             echo "📍 Function ARN: ${FUNCTION_ARN}"
-            echo "✅ Custom authorizer is available for use"
+            echo "✅ Hybrid authorizer is available for use (supports API Key + Cognito JWT)"
           else
-            echo "⚠️  Custom authorizer function not found: ${FUNCTION_NAME}"
-            echo "🔧 You may need to deploy the custom authorizer first:"
-            echo "   Run the 'Deploy Custom Authorizer' workflow"
-            echo "   Or manually deploy with: aws cloudformation deploy --stack-name truss-custom-authorizer-${STAGE}"
+            echo "⚠️  Hybrid authorizer function not found: ${FUNCTION_NAME}"
+            echo "🔧 You need to deploy the hybrid authorizer from truss-api-platform first:"
+            echo "   cd truss-api-platform && npm run deploy:authorizer -- --stage ${STAGE}"
+            echo "   Or trigger the 'Deploy Truss API Platform' workflow"
             
             # Don't fail the build, just warn
-            echo "⏭️  Continuing with API Gateway deployment (services may use direct Cognito auth as fallback)"
+            echo "⏭️  Continuing with API Gateway deployment (auth may not work without authorizer)"
           fi
 
   deploy-api-gateway:
-    needs: [set-environment, validate-services, check-custom-authorizer]
+    needs: [set-environment, validate-services, check-hybrid-authorizer]
     runs-on: ubuntu-latest
     env:
       STAGE: ${{ needs.set-environment.outputs.stage }}
@@ -345,14 +347,15 @@ jobs:
             fi
           done
 
-          # Check if custom authorizer is being used
-          CUSTOM_AUTH_FUNCTION="truss-custom-authorizer-${STAGE}"
-          if aws lambda get-function --function-name "${CUSTOM_AUTH_FUNCTION}" >/dev/null 2>&1; then
-            echo "   - Custom Authorizer: ✅ Active (${CUSTOM_AUTH_FUNCTION})"
-            echo "   - Multi-Cognito Support: ✅ Enabled"
+          # Check if hybrid authorizer is being used
+          HYBRID_AUTH_FUNCTION="truss-hybrid-authorizer-${STAGE}"
+          if aws lambda get-function --function-name "${HYBRID_AUTH_FUNCTION}" >/dev/null 2>&1; then
+            echo "   - Hybrid Authorizer: ✅ Active (${HYBRID_AUTH_FUNCTION})"
+            echo "   - API Key Auth: ✅ Enabled"
+            echo "   - Cognito JWT Auth: ✅ Enabled"
           else
-            echo "   - Custom Authorizer: ⚠️  Not deployed"
-            echo "   - Multi-Cognito Support: ❌ Using direct Cognito integration"
+            echo "   - Hybrid Authorizer: ⚠️  Not deployed"
+            echo "   - Auth: ❌ Deploy from truss-api-platform first"
           fi
 
           echo ""

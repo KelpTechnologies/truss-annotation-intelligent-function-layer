@@ -1,0 +1,11 @@
+{
+  "_comment": "Layer configuration - Single source of truth for all scripts",
+  "_generated": "2025-12-01T13:20:00.000Z",
+  "layerName": "annotation-ifl",
+  "stackPrefix": "truss-annotation-intelligent-function",
+  "region": "eu-west-2",
+  "accountId": "193757560043",
+  "apiTitle": "Truss Annotation Intelligent Function API",
+  "services": ["automated-annotation", "image-service"]
+}
+

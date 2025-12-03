@@ -1,24 +1,26 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: "Truss Data Service API Gateway - Generated for external-dev"
+Description: "Unified annotation-ifl API Gateway with HybridAuth - staging"
 
 Parameters:
   StageName:
     Type: String
-    Default: external-dev
+    Default: staging
     Description: Deployment stage
 
 Resources:
-  TrussDataServiceApi:
+  UnifiedApi:
     Type: AWS::Serverless::Api
     Properties:
       Name: !Sub "truss-annotation-intelligent-function-api-${StageName}"
       StageName: !Ref StageName
-      DefinitionUri: s3://truss-api-automated-deployments/api-specs/770b38241ed7/deployment-ready-external-dev.yaml
+      DefinitionUri: s3://truss-api-automated-deployments/api-specs/annotation-ifl/bb246e6419ba/deployment-ready-staging.yaml
       EndpointConfiguration:
         Type: REGIONAL
       TracingEnabled: true
-
+      Variables:
+        hybridAuthorizerArn: "arn:aws:lambda:eu-west-2:193757560043:function:truss-hybrid-authorizer-staging"
+        authorizerStage: !Ref StageName
       MethodSettings:
         - ResourcePath: "/*"
           HttpMethod: "*"
@@ -30,20 +32,19 @@ Resources:
 
 Outputs:
   ApiGatewayUrl:
-    Description: API Gateway Invoke URL
-    Value: !Sub "https://${TrussDataServiceApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
+    Description: Unified API Gateway URL
+    Value: !Sub "https://${UnifiedApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
     Export:
       Name: !Sub "truss-annotation-intelligent-function-api-${StageName}-url"
 
   ApiGatewayId:
     Description: API Gateway ID
-    Value: !Ref TrussDataServiceApi
+    Value: !Ref UnifiedApi
     Export:
       Name: !Sub "truss-annotation-intelligent-function-api-${StageName}-id"
 
-  Stage:
-    Description: Deployment stage
-    Value: !Ref StageName
+  HybridAuthorizerArn:
+    Description: Hybrid Authorizer ARN
+    Value: "arn:aws:lambda:eu-west-2:193757560043:function:truss-hybrid-authorizer-staging"
     Export:
-      Name: !Sub "truss-annotation-intelligent-function-api-${StageName}-stage"
-
+      Name: !Sub "truss-annotation-intelligent-function-api-${StageName}-authorizer-arn"

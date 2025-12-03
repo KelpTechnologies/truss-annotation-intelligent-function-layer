@@ -2,7 +2,7 @@ name: Deploy Image Processing Infrastructure
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, staging, dev]
     paths:
       - "image-processing/**"
       - "services/image-service/**"
@@ -16,6 +16,7 @@ on:
         type: choice
         options:
           - dev
+          - staging
           - prod
 
 jobs:
@@ -31,6 +32,8 @@ jobs:
             echo "stage=${{ github.event.inputs.stage }}" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "stage=prod" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "stage=staging" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
             echo "stage=dev" >> $GITHUB_OUTPUT
           else

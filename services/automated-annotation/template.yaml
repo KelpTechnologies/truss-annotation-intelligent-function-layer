@@ -14,18 +14,8 @@ Parameters:
     Type: String
   CodeS3Key:
     Type: String
-  ApiGatewayId:
-    Type: String
-    Description: API Gateway ID that will invoke this Lambda
-    Default: "*"
 
 Resources:
-  ServiceApiKey:
-    Type: AWS::ApiGateway::ApiKey
-    Properties:
-      Name: !Sub "${FunctionName}-api-key"
-      Description: "API Key for automated-annotation service"
-      Enabled: true
   ServiceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -67,17 +57,12 @@ Resources:
         Variables:
           STAGE: !Ref StageName
           SERVICE_NAME: "automated-annotation"
-          SUPPORTED_AUTH_MODES: "cognito,api_key"
-          DEFAULT_AUTH_MODE: "cognito"
-          BIGQUERY_SECRET_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:bigquery-service-account-GipBFQ"
-          OPENAI_SECRET_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:openAI-FNAJfl"
+          LAYER_NAME: "annotation-ifl"
           DSL_API_BASE_URL: "https://9tvhx1t3h2.execute-api.eu-west-2.amazonaws.com/external-dev"
           DSL_API_KEY: ""
           ANNOTATION_API_BASE_URL: "https://p4v6cwjlm1.execute-api.eu-west-2.amazonaws.com/external-prod"
           ANNOTATION_API_KEY: ""
           VERTEXAI_PROJECT: "truss-data-science"
-          API_KEY_ID: !Ref ServiceApiKey
-          COGNITO_USER_POOL_ARNS: "arn:aws:cognito-idp:eu-west-2:193757560043:userpool/eu-west-2_JyaPgaRFW"
 
   ServiceLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -99,9 +84,3 @@ Outputs:
     Value: !Ref ServiceLambda
     Export:
       Name: !Sub "${AWS::StackName}-FunctionName"
-
-  ApiKeyId:
-    Description: API Key ID for private access
-    Value: !Ref ServiceApiKey
-    Export:
-      Name: !Sub "${AWS::StackName}-ApiKeyId"

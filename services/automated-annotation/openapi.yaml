@@ -1,0 +1,215 @@
+# Generated OpenAPI spec with HybridAuth - DO NOT EDIT DIRECTLY
+# Service: automated-annotation
+# Layer: annotation-ifl
+# Generated: 2025-12-01T16:45:03.264Z
+openapi: 3.0.1
+info:
+  title: automated-annotation
+  version: 1.0.0
+  description: Automated annotation service using LangChain for knowledge extraction and text annotation
+components:
+  securitySchemes:
+    HybridAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      x-amazon-apigateway-authtype: custom
+      x-amazon-apigateway-authorizer:
+        type: request
+        authorizerUri: arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/${stageVariables.hybridAuthorizerArn}/invocations
+        authorizerResultTtlInSeconds: 0
+paths:
+  /automations/annotation/bags/classify/model:
+    post:
+      summary: Classify bag model using vector-based similarity search (image vector from image). Returns model, model_id, root_model, root_model_id, and confidence.
+      description: Classify bag model using vector-based similarity search (image vector from image). Returns model, model_id, root_model, root_model_id, and confidence.
+      security:
+        - HybridAuth: []
+      responses:
+        "200":
+          description: Success
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Bad request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+        "500":
+          description: Internal server error
+      x-amazon-apigateway-integration:
+        uri: arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/${stageVariables.automated-annotationFunctionArn}/invocations
+        passthroughBehavior: when_no_match
+        httpMethod: POST
+        type: aws_proxy
+    options:
+      summary: CORS support
+      security: []
+      responses:
+        "200":
+          description: CORS enabled
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: "{\"statusCode\": 200}"
+        responses:
+          default:
+            statusCode: "200"
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Api-Key,X-Amz-Date,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+  /automations/annotation/bags/classify/{property}:
+    post:
+      summary: Classify a bag property (type, material, colour, etc.) using the DSL orchestrator. For model/material, returns simplified response with only essential fields.
+      description: Classify a bag property (type, material, colour, etc.) using the DSL orchestrator. For model/material, returns simplified response with only essential fields.
+      security:
+        - HybridAuth: []
+      responses:
+        "200":
+          description: Success
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Bad request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+        "500":
+          description: Internal server error
+      x-amazon-apigateway-integration:
+        uri: arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/${stageVariables.automated-annotationFunctionArn}/invocations
+        passthroughBehavior: when_no_match
+        httpMethod: POST
+        type: aws_proxy
+    options:
+      summary: CORS support
+      security: []
+      responses:
+        "200":
+          description: CORS enabled
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: "{\"statusCode\": 200}"
+        responses:
+          default:
+            statusCode: "200"
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Api-Key,X-Amz-Date,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+  /automations/annotation/health:
+    get:
+      summary: Health check endpoint for the automated annotation service
+      description: Health check endpoint for the automated annotation service
+      security: []
+      responses:
+        "200":
+          description: Success
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Bad request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+        "500":
+          description: Internal server error
+      x-amazon-apigateway-integration:
+        uri: arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/${stageVariables.automated-annotationFunctionArn}/invocations
+        passthroughBehavior: when_no_match
+        httpMethod: POST
+        type: aws_proxy
+    options:
+      summary: CORS support
+      security: []
+      responses:
+        "200":
+          description: CORS enabled
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: "{\"statusCode\": 200}"
+        responses:
+          default:
+            statusCode: "200"
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Api-Key,X-Amz-Date,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"

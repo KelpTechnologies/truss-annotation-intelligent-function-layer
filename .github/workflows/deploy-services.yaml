@@ -2,7 +2,7 @@ name: Deploy Services
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, staging, dev]
     paths:
       - "services/**"
       - "scripts/deploy-service.js"
@@ -19,6 +19,7 @@ on:
         type: choice
         options:
           - dev
+          - staging
           - prod
       max_parallel:
         description: "Maximum parallel deployments"
@@ -42,6 +43,8 @@ jobs:
             echo "stage=${{ github.event.inputs.stage }}" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "stage=prod" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "stage=staging" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
             echo "stage=dev" >> $GITHUB_OUTPUT
           else

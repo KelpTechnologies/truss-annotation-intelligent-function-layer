@@ -1,8 +1,20 @@
-// scripts/generate-service-templates.js - Updated with comprehensive CORS handling
+// scripts/generate-service-templates.js - UNIFIED API VERSION
+// Generates a single OpenAPI spec per service using HybridAuth
+
 const fs = require("fs");
 const path = require("path");
 const yaml = require("js-yaml");
-const registryModule = require("./generate-service-registry"); // Import registry module
+const registryModule = require("./generate-service-registry");
+
+// Load layer configuration from single source of truth
+const LAYER_CONFIG = (() => {
+  const configPath = path.join(__dirname, "layer-config.json");
+  if (!fs.existsSync(configPath)) {
+    console.error("❌ layer-config.json not found! Create it first.");
+    process.exit(1);
+  }
+  return JSON.parse(fs.readFileSync(configPath, "utf-8"));
+})();
 
 function generateServiceTemplates(servicePath, configFileArg, stageArg) {
   const configPath = path.join(servicePath, configFileArg || "config.json");
@@ -12,29 +24,19 @@ function generateServiceTemplates(servicePath, configFileArg, stageArg) {
     process.exit(1);
   }
 
-  // Load the unified config
   const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
   // Generate CloudFormation template
   generateCloudFormationTemplate(servicePath, config, "");
 
-  // Generate OpenAPI specs based on access configuration
-  if (config.access?.internal) {
-    generateOpenAPISpec(servicePath, config, "internal", ".internal");
-  }
-
-  if (config.access?.external) {
-    generateOpenAPISpec(servicePath, config, "external", ".external");
-  }
+  // Generate SINGLE unified OpenAPI spec with HybridAuth
+  generateUnifiedOpenAPISpec(servicePath, config);
 
   console.log(`✅ Generated templates for ${config.service.name} service`);
 
-  // IMPORTANT: After generating individual service templates,
-  // trigger the service registry generation to ensure it's up-to-date.
-  // This will read all new/updated openapi.yaml files and compile the registry.
+  // Update service registry
   try {
     console.log("🔄 Updating overall service-registry.json...");
-    // Write combined and per-root registries to disk
     registryModule.runMain();
     console.log("✅ service-registry.json updated successfully.");
   } catch (error) {
@@ -48,23 +50,9 @@ function generateCloudFormationTemplate(
   config,
   outputSuffix = ""
 ) {
-  // Determine supported auth methods from access configuration
-  const authConfig = config.access?.auth_config || {};
-  const supportsApiKey = config.access?.external && authConfig.api_key;
-  const supportsCognito = config.access?.internal && authConfig.cognito;
-  const supportsServiceRole = authConfig.service_role;
-  const requiresDatabase = config.database.required;
-  const requiresVPC = config.deployment.vpc_config?.required || false;
+  const requiresDatabase = config.database?.required || false;
+  const requiresVPC = config.deployment?.vpc_config?.required || false;
   const requiresImageProcessing = config.image_processing !== undefined;
-
-  // Build security modes list for environment variables
-  const securityModes = [];
-  if (config.access?.internal && authConfig.cognito)
-    securityModes.push("cognito");
-  if (config.access?.external && authConfig.api_key)
-    securityModes.push("api_key");
-  if (authConfig.public) securityModes.push("public");
-  const defaultSecurity = securityModes[0] || "public";
 
   const runtime = config.deployment.runtime;
   const handler = runtime.startsWith("python")
@@ -88,7 +76,6 @@ Parameters:
   CodeS3Key:
     Type: String`;
 
-  // Add database parameters only if needed
   if (requiresDatabase) {
     template += `
   DatabaseHost:
@@ -98,57 +85,30 @@ Parameters:
   DatabaseUser:
     Type: String
     NoEcho: true
-    Description: Database username
   DatabasePassword:
     Type: String
     NoEcho: true
-    Description: Database password
   DatabaseName:
     Type: String
     Default: "${config.database.name}"`;
   }
 
-  // Add VPC parameters only if needed
   if (requiresVPC) {
     template += `
   VpcId:
     Type: String
-    Description: VPC ID where RDS Proxy is located
     Default: "${config.aws.vpc_id}"
   SubnetIds:
     Type: CommaDelimitedList
-    Description: Subnet IDs for Lambda
     Default: "${config.deployment.vpc_config.subnets.join(",")}"
   SecurityGroupIds:
     Type: CommaDelimitedList
-    Description: Security Group IDs for Lambda
     Default: "${config.deployment.vpc_config.security_groups.join(",")}"`;
   }
 
-  // Add API Gateway ID parameter (always include this)
-  template += `
-  ApiGatewayId:
-    Type: String
-    Description: API Gateway ID that will invoke this Lambda
-    Default: "*"`;
-
   template += `
 
-Resources:`;
-
-  // Add API Key if supported
-  if (supportsApiKey) {
-    template += `
-  ServiceApiKey:
-    Type: AWS::ApiGateway::ApiKey
-    Properties:
-      Name: !Sub "\${FunctionName}-api-key"
-      Description: "API Key for ${config.service.name} service"
-      Enabled: true`;
-  }
-
-  // IAM Role - simplified approach
-  template += `
+Resources:
   ServiceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -159,39 +119,14 @@ Resources:`;
           - Effect: Allow
             Principal:
               Service: lambda.amazonaws.com
-            Action: sts:AssumeRole`;
-
-  // Add service role principals if supported
-  if (
-    supportsServiceRole &&
-    config.auth_config?.service_role?.allowed_principals
-  ) {
-    config.auth_config.service_role.allowed_principals.forEach((principal) => {
-      template += `
-          - Effect: Allow
-            Principal:
-              AWS: "${principal}"
             Action: sts:AssumeRole
-            Condition:
-              StringEquals:
-                "sts:ExternalId": !Sub "\${FunctionName}-service-access"`;
-    });
-  }
-
-  template += `
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole`;
-
-  // Add policies - always include BigQuery secrets access
-  template += `
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
         - PolicyName: !Sub "\${FunctionName}-Policy"
           PolicyDocument:
             Version: "2012-10-17"
-            Statement:`;
-
-  // Always add secrets access for BigQuery and OpenAI
-  template += `
+            Statement:
               - Effect: Allow
                 Action:
                   - secretsmanager:GetSecretValue
@@ -199,17 +134,6 @@ Resources:`;
                   - "arn:aws:secretsmanager:${config.aws.region}:${config.aws.account_id}:secret:bigquery-service-account*"
                   - "arn:aws:secretsmanager:${config.aws.region}:${config.aws.account_id}:secret:openAI*"`;
 
-  // Add database permissions if needed
-  if (requiresDatabase) {
-    template += `
-              - Effect: Allow
-                Action:
-                  - rds-db:connect
-                Resource:
-                  - "arn:aws:rds-db:${config.aws.region}:${config.aws.account_id}:dbuser:prx-06ec245e2f74cefcd/*"`;
-  }
-
-  // Add VPC permissions if needed
   if (requiresVPC) {
     template += `
               - Effect: Allow
@@ -217,12 +141,9 @@ Resources:`;
                   - ec2:CreateNetworkInterface
                   - ec2:DescribeNetworkInterfaces
                   - ec2:DeleteNetworkInterface
-                  - ec2:AttachNetworkInterface
-                  - ec2:DetachNetworkInterface
                 Resource: "*"`;
   }
 
-  // Add S3 and DynamoDB permissions for image processing
   if (requiresImageProcessing) {
     template += `
               - Effect: Allow
@@ -231,7 +152,6 @@ Resources:`;
                   - s3:PutObject
                   - s3:DeleteObject
                   - s3:ListBucket
-                  - s3:GetObjectVersion
                 Resource:
                   - !Sub "arn:aws:s3:::truss-annotation-image-source-\${StageName}"
                   - !Sub "arn:aws:s3:::truss-annotation-image-source-\${StageName}/*"
@@ -249,7 +169,6 @@ Resources:`;
                   - !Sub "arn:aws:dynamodb:\${AWS::Region}:\${AWS::AccountId}:table/truss-image-processing-\${StageName}"`;
   }
 
-  // Lambda Function
   template += `
 
   ServiceLambda:
@@ -265,7 +184,6 @@ Resources:`;
       Timeout: ${config.deployment.timeout}
       MemorySize: ${config.deployment.memory}`;
 
-  // Layers only if non-empty
   const layers = (config.deployment.layers || [])
     .map((layer) => `        - "${layer}"`)
     .join("\n");
@@ -275,7 +193,6 @@ Resources:`;
 ${layers}`;
   }
 
-  // VPC Config only if required
   if (requiresVPC) {
     template += `
       VpcConfig:
@@ -283,77 +200,35 @@ ${layers}`;
         SubnetIds: !Ref SubnetIds`;
   }
 
-  // Environment Variables
   template += `
       Environment:
         Variables:
           STAGE: !Ref StageName
           SERVICE_NAME: "${config.service.name}"
-          SUPPORTED_AUTH_MODES: "${securityModes.join(",")}"
-          DEFAULT_AUTH_MODE: "${defaultSecurity}"
-          BIGQUERY_SECRET_ARN: "arn:aws:secretsmanager:${config.aws.region}:${
-    config.aws.account_id
-  }:secret:bigquery-service-account-GipBFQ"
-          OPENAI_SECRET_ARN: "arn:aws:secretsmanager:${config.aws.region}:${
-    config.aws.account_id
-  }:secret:openAI-FNAJfl"`;
+          LAYER_NAME: "${LAYER_CONFIG.layerName}"`;
 
-  // Merge extra env variables if provided
-  if (
-    config.deployment.extra_env &&
-    typeof config.deployment.extra_env === "object"
-  ) {
+  if (config.deployment.extra_env) {
     Object.entries(config.deployment.extra_env).forEach(([k, v]) => {
       template += `
           ${k}: "${String(v)}"`;
     });
   }
 
-  // Database environment variables only if needed
   if (requiresDatabase) {
     template += `
-          RDS_PROXY_ENDPOINT: !Ref DatabaseHost
           DB_HOST: !Ref DatabaseHost
           DB_USER: !Ref DatabaseUser
           DB_PASSWORD: !Ref DatabasePassword
-          DB_NAME: !Ref DatabaseName
-          DB_CONNECTION_STRATEGY: "${config.database.connection_type}"`;
+          DB_NAME: !Ref DatabaseName`;
   }
 
-  // Auth environment variables
-  if (supportsApiKey) {
-    template += `
-          API_KEY_ID: !Ref ServiceApiKey`;
-  }
-
-  if (supportsServiceRole) {
-    template += `
-          SERVICE_ROLE_EXTERNAL_ID: !Sub "\${FunctionName}-service-access"`;
-  }
-
-  if (supportsCognito && authConfig.cognito) {
-    // Handle both single ARN (backward compatibility) and multiple ARNs
-    let cognitoArns = [];
-    if (authConfig.cognito.user_pool_arns) {
-      cognitoArns = authConfig.cognito.user_pool_arns;
-    } else if (authConfig.cognito.user_pool_arn) {
-      cognitoArns = [authConfig.cognito.user_pool_arn];
-    }
-
-    template += `
-          COGNITO_USER_POOL_ARNS: "${cognitoArns.join(",")}"`;
-  }
-
-  // Image processing environment variables
   if (requiresImageProcessing) {
     template += `
           SOURCE_BUCKET: !Sub "truss-annotation-image-source-\${StageName}"
           PROCESSED_BUCKET: !Sub "truss-annotation-image-processed-\${StageName}"
-          PROCESSING_TABLE: !Sub "truss-image-processing-\${StageName}"
-          CLOUDFRONT_URL: !Sub "https://truss-annotation-image-processed-\${StageName}.s3.${config.aws.region}.amazonaws.com"`;
+          PROCESSING_TABLE: !Sub "truss-image-processing-\${StageName}"`;
   }
 
-  // Lambda Permissions - Allow any API Gateway to invoke
   template += `
 
   ServiceLambdaPermission:
@@ -362,25 +237,7 @@ ${layers}`;
       FunctionName: !Ref ServiceLambda
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub "arn:aws:execute-api:\${AWS::Region}:\${AWS::AccountId}:*/*/*"`;
-
-  // Service role invoke permissions
-  if (supportsServiceRole && authConfig.service_role?.allowed_principals) {
-    authConfig.service_role.allowed_principals.forEach((principal, index) => {
-      template += `
-
-  ServiceInvokePermission${index + 1}:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref ServiceLambda
-      Action: lambda:InvokeFunction
-      Principal: iam.amazonaws.com
-      SourceArn: "${principal}"`;
-    });
-  }
-
-  // Outputs
-  template += `
+      SourceArn: !Sub "arn:aws:execute-api:\${AWS::Region}:\${AWS::AccountId}:*/*/*"
 
 Outputs:
   FunctionArn:
@@ -393,17 +250,8 @@ Outputs:
     Description: "Name of the ${config.service.name} Service Lambda"
     Value: !Ref ServiceLambda
     Export:
-      Name: !Sub "\${AWS::StackName}-FunctionName"`;
-
-  if (supportsApiKey) {
-    template += `
-
-  ApiKeyId:
-    Description: API Key ID for private access
-    Value: !Ref ServiceApiKey
-    Export:
-      Name: !Sub "\${AWS::StackName}-ApiKeyId"`;
-  }
+      Name: !Sub "\${AWS::StackName}-FunctionName"
+`;
 
   fs.writeFileSync(
     path.join(servicePath, `template${outputSuffix}.yaml`),
@@ -412,27 +260,12 @@ Outputs:
   console.log(`✅ Generated template${outputSuffix}.yaml`);
 }
 
-function generateOpenAPISpec(servicePath, config, stageArg, outputSuffix = "") {
-  const stage = stageArg || process.env.STAGE || process.env.stage || "dev";
-  const isExternal = stage.startsWith("external");
-
-  // Determine available security modes based on access configuration
-  const authConfig = config.access?.auth_config || {};
-  const securityModes = [];
-
-  if (isExternal && config.access?.external && authConfig.api_key) {
-    securityModes.push("api_key");
-  }
-
-  if (!isExternal && config.access?.internal && authConfig.cognito) {
-    securityModes.push("cognito");
-  }
-
-  if (authConfig.public) {
-    securityModes.push("public");
-  }
-
-  const defaultSecurity = securityModes[0] || "public";
+/**
+ * Generate UNIFIED OpenAPI spec with HybridAuth security scheme
+ * This replaces the separate internal/external spec generation
+ */
+function generateUnifiedOpenAPISpec(servicePath, config) {
+  const corsOrigin = config.access?.auth_config?.cognito?.cors_origin || "*";
 
   const spec = {
     openapi: "3.0.1",
@@ -442,127 +275,41 @@ function generateOpenAPISpec(servicePath, config, stageArg, outputSuffix = "") {
       description: config.service.description,
     },
     components: {
-      securitySchemes: {},
+      securitySchemes: {
+        // Unified Hybrid Authorizer - supports both API Key (x-api-key) and Cognito JWT (Authorization)
+        // Uses REQUEST type to receive all headers
+        // No identitySource - let Lambda handle auth detection (supports either API Key OR JWT)
+        // TTL set to 0 to ensure every request is evaluated (required for flexible auth)
+        HybridAuth: {
+          type: "apiKey",
+          in: "header",
+          name: "Authorization",
+          "x-amazon-apigateway-authtype": "custom",
+          "x-amazon-apigateway-authorizer": {
+            type: "request",
+            authorizerUri: `arn:aws:apigateway:${LAYER_CONFIG.region}:lambda:path/2015-03-31/functions/\${stageVariables.hybridAuthorizerArn}/invocations`,
+            authorizerResultTtlInSeconds: 0,
+          },
+        },
+      },
     },
     paths: {},
   };
 
-  // For external, add API-level key source extension
-  if (isExternal) {
-    spec["x-amazon-apigateway-api-key-source"] = "HEADER";
-  }
-
-  // Only add security schemes that are actually supported
-  if (!isExternal && securityModes.includes("cognito")) {
-    // Use custom authorizer instead of direct Cognito integration
-    spec.components.securitySchemes.CognitoAuth = {
-      type: "apiKey",
-      in: "header",
-      name: "Authorization",
-      "x-amazon-apigateway-authtype": "custom",
-      "x-amazon-apigateway-authorizer": {
-        type: "token",
-        authorizerUri: `arn:aws:apigateway:${config.aws.region}:lambda:path/2015-03-31/functions/\${stageVariables.customAuthorizerArn}/invocations`,
-        authorizerCredentials: `arn:aws:iam::${config.aws.account_id}:role/TrussApiGatewayAuthorizerRole-prod`,
-        authorizerResultTtlInSeconds: 300,
-        identitySource: "method.request.header.Authorization",
-      },
-    };
-  }
-
-  if (securityModes.includes("api_key")) {
-    // For external, do NOT add x-amazon-apigateway-authtype
-    if (isExternal) {
-      spec.components.securitySchemes.ApiKeyAuth = {
-        type: "apiKey",
-        in: "header",
-        name: "X-API-Key",
-      };
-    } else {
-      spec.components.securitySchemes.ApiKeyAuth = {
-        type: "apiKey",
-        in: "header",
-        name: "X-API-Key",
-        "x-amazon-apigateway-authtype": "apiKey",
-      };
-    }
-  }
-
-  // Helper to add an endpoint operation into spec under a basePath
+  // Helper to add endpoint
   function addEndpointPath(basePath, endpoint) {
     const fullPath = `${basePath}${endpoint.path}`;
-
-    let security = [];
-    if (isExternal) {
-      // For external stages, public endpoints remain public, others require API Key
-      if (securityModes.includes("public") || endpoint.security === "public") {
-        security = [{}];
-      } else {
-        security = [{ ApiKeyAuth: [] }];
-      }
-    } else {
-      // Determine which auth to use based on default security or first available
-      if (defaultSecurity === "public") {
-        security = [{}];
-      } else if (
-        defaultSecurity === "cognito" &&
-        securityModes.includes("cognito")
-      ) {
-        security = [{ CognitoAuth: [] }];
-      } else if (
-        defaultSecurity === "api_key" &&
-        securityModes.includes("api_key")
-      ) {
-        security = [{ ApiKeyAuth: [] }];
-      } else {
-        // Fallback to first available auth method
-        if (securityModes.includes("cognito")) {
-          security = [{ CognitoAuth: [] }];
-        } else if (securityModes.includes("api_key")) {
-          security = [{ ApiKeyAuth: [] }];
-        } else {
-          security = [{}]; // Public fallback
-        }
-      }
-    }
-
     const methodLower = endpoint.method.toLowerCase();
 
-    // Determine CORS origin based on auth config
-    const corsOrigin =
-      authConfig[defaultSecurity]?.cors_origin ||
-      authConfig.cognito?.cors_origin ||
-      "*";
-
-    // Build the response schema without CORS headers in properties
-    const responseSchema = {
-      type: "object",
-      properties: {
-        component_type: { type: "string" },
-        data: { type: "array" },
-        metadata: {
-          type: "object",
-          properties: {
-            auth_method: {
-              type: "string",
-              enum: securityModes,
-            },
-          },
-        },
-      },
-    };
+    // All endpoints use HybridAuth (except health checks)
+    const isPublic =
+      endpoint.path === "/health" || endpoint.security === "public";
+    const security = isPublic ? [] : [{ HybridAuth: [] }];
 
     spec.paths[fullPath] = {
       [methodLower]: {
         summary: endpoint.description,
-        description: `${endpoint.description} - Auth: ${
-          isExternal
-            ? security.length === 0 ||
-              (security.length === 1 && Object.keys(security[0]).length === 0)
-              ? "public"
-              : "api_key"
-            : defaultSecurity
-        }`,
+        description: `${endpoint.description}`,
         security: security,
         responses: {
           200: {
@@ -574,91 +321,26 @@ function generateOpenAPISpec(servicePath, config, stageArg, outputSuffix = "") {
             },
             content: {
               "application/json": {
-                schema: responseSchema,
+                schema: { type: "object" },
               },
             },
           },
-          400: {
-            description: "Bad request",
-            headers: {
-              "Access-Control-Allow-Origin": { schema: { type: "string" } },
-              "Access-Control-Allow-Methods": { schema: { type: "string" } },
-              "Access-Control-Allow-Headers": { schema: { type: "string" } },
-            },
-          },
-          401: {
-            description: "Unauthorized - authentication failed",
-            headers: {
-              "Access-Control-Allow-Origin": { schema: { type: "string" } },
-              "Access-Control-Allow-Methods": { schema: { type: "string" } },
-              "Access-Control-Allow-Headers": { schema: { type: "string" } },
-            },
-          },
-          403: {
-            description: "Forbidden - access denied",
-            headers: {
-              "Access-Control-Allow-Origin": { schema: { type: "string" } },
-              "Access-Control-Allow-Methods": { schema: { type: "string" } },
-              "Access-Control-Allow-Headers": { schema: { type: "string" } },
-            },
-          },
-          404: {
-            description: "Not found",
-            headers: {
-              "Access-Control-Allow-Origin": { schema: { type: "string" } },
-              "Access-Control-Allow-Methods": { schema: { type: "string" } },
-              "Access-Control-Allow-Headers": { schema: { type: "string" } },
-            },
-          },
-          500: {
-            description: "Internal server error",
-            headers: {
-              "Access-Control-Allow-Origin": { schema: { type: "string" } },
-              "Access-Control-Allow-Methods": { schema: { type: "string" } },
-              "Access-Control-Allow-Headers": { schema: { type: "string" } },
-            },
-          },
+          400: { description: "Bad request" },
+          401: { description: "Unauthorized" },
+          403: { description: "Forbidden" },
+          404: { description: "Not found" },
+          500: { description: "Internal server error" },
         },
         "x-amazon-apigateway-integration": {
-          uri: `arn:aws:apigateway:${config.aws.region}:lambda:path/2015-03-31/functions/\${stageVariables.${config.service.name}FunctionArn}/invocations`,
+          uri: `arn:aws:apigateway:${LAYER_CONFIG.region}:lambda:path/2015-03-31/functions/\${stageVariables.${config.service.name}FunctionArn}/invocations`,
           passthroughBehavior: "when_no_match",
           httpMethod: "POST",
           type: "aws_proxy",
-          responses: {
-            default: {
-              statusCode: "200",
-              responseParameters: {
-                "method.response.header.Access-Control-Allow-Origin": `'${corsOrigin}'`,
-                "method.response.header.Access-Control-Allow-Headers":
-                  "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Methods": `'${endpoint.method},OPTIONS'`,
-              },
-            },
-            "4\\d{2}": {
-              statusCode: "400",
-              responseParameters: {
-                "method.response.header.Access-Control-Allow-Origin": `'${corsOrigin}'`,
-                "method.response.header.Access-Control-Allow-Headers":
-                  "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Methods": `'${endpoint.method},OPTIONS'`,
-              },
-            },
-            "5\\d{2}": {
-              statusCode: "500",
-              responseParameters: {
-                "method.response.header.Access-Control-Allow-Origin": `'${corsOrigin}'`,
-                "method.response.header.Access-Control-Allow-Headers":
-                  "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
-                "method.response.header.Access-Control-Allow-Methods": `'${endpoint.method},OPTIONS'`,
-              },
-            },
-          },
         },
       },
       options: {
         summary: "CORS support",
-        description: "CORS preflight - no authentication required",
-        security: [], // No authentication for OPTIONS
+        security: [],
         responses: {
           200: {
             description: "CORS enabled",
@@ -666,7 +348,6 @@ function generateOpenAPISpec(servicePath, config, stageArg, outputSuffix = "") {
               "Access-Control-Allow-Origin": { schema: { type: "string" } },
               "Access-Control-Allow-Methods": { schema: { type: "string" } },
               "Access-Control-Allow-Headers": { schema: { type: "string" } },
-              "Access-Control-Max-Age": { schema: { type: "string" } },
             },
           },
         },
@@ -678,10 +359,9 @@ function generateOpenAPISpec(servicePath, config, stageArg, outputSuffix = "") {
               statusCode: "200",
               responseParameters: {
                 "method.response.header.Access-Control-Allow-Headers":
-                  "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+                  "'Content-Type,Authorization,X-Api-Key,X-Amz-Date,X-Amz-Security-Token'",
                 "method.response.header.Access-Control-Allow-Methods": `'${endpoint.method},OPTIONS'`,
-                "method.response.header.Access-Control-Allow-Origin": "'*'", // Always allow * for OPTIONS
-                "method.response.header.Access-Control-Max-Age": "'86400'",
+                "method.response.header.Access-Control-Allow-Origin": `'${corsOrigin}'`,
               },
             },
           },
@@ -690,17 +370,13 @@ function generateOpenAPISpec(servicePath, config, stageArg, outputSuffix = "") {
     };
   }
 
-  // Generate paths from config.api.endpoints for default base path
+  // Generate paths from endpoints
+  (config.api.endpoints || []).forEach((endpoint) => {
+    addEndpointPath(config.api.base_path, endpoint);
+  });
+
+  // Handle partitions if defined
   const partitionRoutes = config.api?.partitions?.routes || {};
-  const hasPartitions = Object.keys(partitionRoutes).length > 0;
-
-  if (!hasPartitions) {
-    (config.api.endpoints || []).forEach((endpoint) => {
-      addEndpointPath(config.api.base_path, endpoint);
-    });
-  }
-
-  // Also generate partition base paths (mounted directly at routeCfg.base_path), if defined
   Object.values(partitionRoutes).forEach((routeCfg) => {
     if (routeCfg && typeof routeCfg.base_path === "string") {
       const partitionBase = `${routeCfg.base_path}${config.api.base_path}`;
@@ -710,19 +386,15 @@ function generateOpenAPISpec(servicePath, config, stageArg, outputSuffix = "") {
     }
   });
 
-  const yamlContent = `# Generated from config.json - DO NOT EDIT DIRECTLY
+  const yamlContent = `# Generated OpenAPI spec with HybridAuth - DO NOT EDIT DIRECTLY
 # Service: ${config.service.name}
+# Layer: ${LAYER_CONFIG.layerName}
 # Generated: ${new Date().toISOString()}
-# CORS Support: Enhanced with error response handling
 ${yaml.dump(spec, { lineWidth: -1, noRefs: true, quotingType: '"' })}`;
 
-  fs.writeFileSync(
-    path.join(servicePath, `openapi${outputSuffix}.yaml`),
-    yamlContent
-  );
-  console.log(
-    `✅ Generated openapi${outputSuffix}.yaml with enhanced CORS support`
-  );
+  // Write SINGLE unified spec (no .internal or .external suffix)
+  fs.writeFileSync(path.join(servicePath, `openapi.yaml`), yamlContent);
+  console.log(`✅ Generated openapi.yaml with HybridAuth`);
 }
 
 // CLI interface
@@ -739,3 +411,5 @@ if (require.main === module) {
   }
   generateServiceTemplates(servicePath, configFileArg, stageArg);
 }
+
+module.exports = { generateServiceTemplates, LAYER_CONFIG };

@@ -1,16 +1,28 @@
 {
-	"folders": [
-		{
-			"path": "../.."
-		},
-		{
-			"path": "../../../truss-intelligent-function-layer"
-		},
-		{
-			"path": "../../../truss-annotation-data-service-layer"
-		},
-		{
-			"path": "../../../truss-data-service-layer"
-		}
-	]
+  "folders": [
+    {
+      "path": "../.."
+    },
+    {
+      "path": "../../../truss-intelligent-function-layer"
+    },
+    {
+      "path": "../../../truss-annotation-data-service-layer"
+    },
+    {
+      "path": "../../../truss-data-service-layer"
+    },
+    {
+      "path": "../../../truss-api-platform"
+    },
+    {
+      "path": "../../../truss-internal-api"
+    },
+    {
+      "path": "../../../../Truss Applications/truss-system-management"
+    },
+    {
+      "path": "../../../../Truss Applications/truss-insights-platform"
+    }
+  ]
 }

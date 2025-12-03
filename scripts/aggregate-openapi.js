@@ -1,10 +1,24 @@
+// scripts/aggregate-openapi.js - UNIFIED API VERSION
+// Aggregates all service OpenAPI specs into a single unified API Gateway spec
+
 const fs = require("fs");
 const path = require("path");
 const yaml = require("js-yaml");
 const glob = require("glob");
 
+// Load layer configuration from single source of truth
+const LAYER_CONFIG = (() => {
+  const configPath = path.join(__dirname, "layer-config.json");
+  if (!fs.existsSync(configPath)) {
+    console.error("❌ layer-config.json not found! Create it first.");
+    process.exit(1);
+  }
+  return JSON.parse(fs.readFileSync(configPath, "utf-8"));
+})();
+
 /**
- * Aggregates all service OpenAPI specs into a single API Gateway specification
+ * Aggregates all service OpenAPI specs into a single unified API Gateway specification
+ * NO LONGER generates separate internal/external specs
  */
 function aggregateOpenAPISpecs(options = {}) {
   const {
@@ -16,19 +30,10 @@ function aggregateOpenAPISpecs(options = {}) {
   console.log(`🔍 Discovering OpenAPI specs in ${servicesDir}/`);
   console.log(`🔎 Aggregation stage: '${stage}'`);
 
-  // Determine which OpenAPI files to aggregate based on stage
-  let openApiPattern = "openapi.yaml";
-  if (stage.toLowerCase().includes("external")) {
-    openApiPattern = "openapi.external.yaml";
-  } else if (
-    stage.toLowerCase().includes("prod") ||
-    stage.toLowerCase().includes("dev")
-  ) {
-    openApiPattern = "openapi.internal.yaml";
-  }
-  console.log(`🔎 Using OpenAPI pattern: '${openApiPattern}'`);
+  // UNIFIED: Always look for openapi.yaml (no internal/external distinction)
+  const openApiPattern = "openapi.yaml";
+  console.log(`🔎 Using unified OpenAPI pattern: '${openApiPattern}'`);
 
-  // Find all openapi files in services (including nested directories)
   const openApiFiles = glob.sync(`${servicesDir}/**/${openApiPattern}`);
 
   if (openApiFiles.length === 0) {
@@ -41,42 +46,54 @@ function aggregateOpenAPISpecs(options = {}) {
   console.log(`📄 Found ${openApiFiles.length} OpenAPI specs:`);
   openApiFiles.forEach((file) => console.log(`   - ${file}`));
 
-  // Base OpenAPI structure
+  // Base unified OpenAPI structure
   const aggregatedSpec = {
     openapi: "3.0.1",
     info: {
-      title: "Truss Data Service API",
+      title: LAYER_CONFIG.apiTitle,
       version: "1.0.0",
-      description:
-        "Comprehensive API for Truss Data Services with multi-authentication support",
+      description: `Unified API with hybrid authentication (API Key + Cognito JWT)\nLayer: ${LAYER_CONFIG.layerName}`,
     },
     servers: [
       {
-        url: "https://{apiId}.execute-api.{region}.amazonaws.com/{stage}",
+        url: `https://{apiId}.execute-api.${LAYER_CONFIG.region}.amazonaws.com/{stage}`,
         variables: {
           apiId: { default: "your-api-id" },
-          region: { default: "eu-west-2" },
           stage: { default: stage },
         },
       },
     ],
     paths: {},
     components: {
-      securitySchemes: {},
+      securitySchemes: {
+        // UNIFIED HybridAuth security scheme
+        HybridAuth: {
+          type: "apiKey",
+          in: "header",
+          name: "Authorization",
+          description:
+            "Hybrid authentication: Accepts both 'Bearer <JWT>' for Cognito and x-api-key header for API key auth",
+          "x-amazon-apigateway-authtype": "custom",
+          "x-amazon-apigateway-authorizer": {
+            type: "request",
+            authorizerUri: `arn:aws:apigateway:${LAYER_CONFIG.region}:lambda:path/2015-03-31/functions/\${stageVariables.hybridAuthorizerArn}/invocations`,
+            authorizerCredentials: `arn:aws:iam::${LAYER_CONFIG.accountId}:role/truss-api-gateway-authorizer-\${stageVariables.authorizerStage}-role`,
+            authorizerResultTtlInSeconds: 300,
+            identitySource:
+              "method.request.header.Authorization, method.request.header.x-api-key",
+          },
+        },
+      },
       schemas: {},
       responses: {},
       parameters: {},
       examples: {},
     },
-    security: [], // Will be populated based on services
+    security: [{ HybridAuth: [] }],
     tags: [],
   };
 
   const serviceConfigs = [];
-  const allSecurityModes = new Set();
-
-  // If external, force API Key auth for all services
-  const forceApiKeyOnly = stage.startsWith("external");
 
   // Process each service
   for (const openApiFile of openApiFiles) {
@@ -86,59 +103,41 @@ function aggregateOpenAPISpecs(options = {}) {
       const servicePath = path.dirname(openApiFile);
       const configPath = path.join(servicePath, "config.json");
 
-      // Load service config
       let serviceConfig = null;
       let serviceName = null;
 
       if (fs.existsSync(configPath)) {
         serviceConfig = JSON.parse(fs.readFileSync(configPath, "utf8"));
 
-        // Calculate flattened service name for stage variables
         const relativePath = path.relative(servicesDir, servicePath);
         const pathParts = relativePath.split(path.sep);
-        serviceName = pathParts.join("-"); // e.g., meta/component-types -> meta-component-types
+        serviceName = pathParts.join("-");
 
-        // Override config with calculated name for aggregation
         const configCopy = JSON.parse(JSON.stringify(serviceConfig));
         configCopy.service.aggregatedName = serviceName;
-
-        // Force API Key auth for external stage
-        if (forceApiKeyOnly) {
-          configCopy.access = {
-            internal: false,
-            external: true,
-            auth_config: {
-              api_key: { cors_origin: "*" },
-            },
-          };
-        }
-
         serviceConfigs.push(configCopy);
-
-        // Track all security modes (after override)
-        const authConfig = configCopy.access?.auth_config || {};
-        if (configCopy.access?.internal && authConfig.cognito)
-          allSecurityModes.add("cognito");
-        if (configCopy.access?.external && authConfig.api_key)
-          allSecurityModes.add("api_key");
-        if (authConfig.public) allSecurityModes.add("public");
       }
 
       // Load OpenAPI spec
       const serviceSpec = yaml.load(fs.readFileSync(openApiFile, "utf8"));
 
-      // Update stage variables in integrations to use flattened service name
+      // Update stage variables in integrations
       if (serviceSpec.paths && serviceName) {
         Object.keys(serviceSpec.paths).forEach((pathKey) => {
           Object.keys(serviceSpec.paths[pathKey]).forEach((method) => {
             const operation = serviceSpec.paths[pathKey][method];
+
+            // Ensure all protected endpoints use HybridAuth
+            if (method !== "options" && pathKey !== "/health") {
+              operation.security = [{ HybridAuth: [] }];
+            }
+
             if (operation["x-amazon-apigateway-integration"]) {
               const integration = operation["x-amazon-apigateway-integration"];
-              if (integration.uri) {
-                // Replace service name references in stage variables
+              if (integration.uri && serviceConfig) {
                 const originalServiceName = serviceConfig.service.name;
-                const stageVarPattern = `\\\${stageVariables.${originalServiceName}FunctionArn}`;
-                const newStageVarPattern = `\\\${stageVariables.${serviceName}FunctionArn}`;
+                const stageVarPattern = `\${stageVariables.${originalServiceName}FunctionArn}`;
+                const newStageVarPattern = `\${stageVariables.${serviceName}FunctionArn}`;
 
                 integration.uri = integration.uri.replace(
                   new RegExp(
@@ -158,14 +157,8 @@ function aggregateOpenAPISpecs(options = {}) {
         Object.assign(aggregatedSpec.paths, serviceSpec.paths);
       }
 
-      // Merge components
+      // Merge components (excluding security schemes - we use our unified HybridAuth)
       if (serviceSpec.components) {
-        if (serviceSpec.components.securitySchemes) {
-          Object.assign(
-            aggregatedSpec.components.securitySchemes,
-            serviceSpec.components.securitySchemes
-          );
-        }
         if (serviceSpec.components.schemas) {
           Object.assign(
             aggregatedSpec.components.schemas,
@@ -182,12 +175,6 @@ function aggregateOpenAPISpecs(options = {}) {
           Object.assign(
             aggregatedSpec.components.parameters,
             serviceSpec.components.parameters
-          );
-        }
-        if (serviceSpec.components.examples) {
-          Object.assign(
-            aggregatedSpec.components.examples,
-            serviceSpec.components.examples
           );
         }
       }
@@ -222,28 +209,21 @@ function aggregateOpenAPISpecs(options = {}) {
     }
   }
 
-  // Add global security schemes that are used across services
-  console.log(
-    `🔐 Detected security modes: ${Array.from(allSecurityModes).join(", ")}`
-  );
-
-  // Add info about services to description
+  // Update description with service list
   aggregatedSpec.info.description += `\n\n## Services Included\n\n${serviceConfigs
-    .map((config) => {
-      // Build security modes list for display
-      const authConfig = config.access?.auth_config || {};
-      const securityModes = [];
-      if (config.access?.internal && authConfig.cognito)
-        securityModes.push("cognito");
-      if (config.access?.external && authConfig.api_key)
-        securityModes.push("api_key");
-      if (authConfig.public) securityModes.push("public");
+    .map(
+      (config) =>
+        `- **${config.service.aggregatedName || config.service.name}**: ${config.service.description}`
+    )
+    .join("\n")}
 
-      return `- **${config.service.aggregatedName || config.service.name}**: ${
-        config.service.description
-      } (${securityModes.join(", ")})`;
-    })
-    .join("\n")}`;
+## Authentication
+
+This API supports hybrid authentication:
+- **API Key**: Include \`x-api-key\` header with your API key
+- **Cognito JWT**: Include \`Authorization: Bearer <token>\` header with your JWT
+
+Both methods are validated by the same hybrid authorizer.`;
 
   // Sort paths alphabetically
   const sortedPaths = {};
@@ -255,9 +235,7 @@ function aggregateOpenAPISpecs(options = {}) {
   aggregatedSpec.paths = sortedPaths;
 
   // Ensure output directory exists
-  const outputDir = outputFile.includes("api-gateway-external")
-    ? "api-gateway-external"
-    : "api-gateway";
+  const outputDir = path.dirname(outputFile);
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
@@ -269,33 +247,28 @@ function aggregateOpenAPISpecs(options = {}) {
     quotingType: '"',
   });
 
-  const finalContent = `# Generated by aggregate-openapi.js - DO NOT EDIT DIRECTLY
-# This file aggregates all service OpenAPI specifications
-# Generated on: ${new Date().toISOString()}
-# Services included: ${serviceConfigs
-    .map((c) => c.service.aggregatedName || c.service.name)
-    .join(", ")}
+  const finalContent = `# Unified API Gateway Specification with HybridAuth
+# Generated by aggregate-openapi.js - DO NOT EDIT DIRECTLY
+# Layer: ${LAYER_CONFIG.layerName}
+# Generated: ${new Date().toISOString()}
+# Services: ${serviceConfigs.map((c) => c.service.aggregatedName || c.service.name).join(", ")}
 
 ${yamlContent}`;
 
   fs.writeFileSync(outputFile, finalContent);
 
-  console.log(`🎉 Aggregated OpenAPI spec written to: ${outputFile}`);
+  console.log(`🎉 Unified OpenAPI spec written to: ${outputFile}`);
   console.log(`📊 Summary:`);
   console.log(`   - Services: ${serviceConfigs.length}`);
   console.log(`   - Paths: ${Object.keys(aggregatedSpec.paths).length}`);
-  console.log(
-    `   - Security schemes: ${
-      Object.keys(aggregatedSpec.components.securitySchemes).length
-    }`
-  );
+  console.log(`   - Security: HybridAuth (unified)`);
   console.log(`   - Tags: ${aggregatedSpec.tags.length}`);
 
   return {
     outputFile,
     servicesCount: serviceConfigs.length,
     pathsCount: Object.keys(aggregatedSpec.paths).length,
-    securitySchemes: Object.keys(aggregatedSpec.components.securitySchemes),
+    securitySchemes: ["HybridAuth"],
     services: serviceConfigs.map(
       (c) => c.service.aggregatedName || c.service.name
     ),
@@ -309,7 +282,6 @@ function main() {
   let outputFile = "api-gateway/aggregated-openapi.yaml";
   let stage = "dev";
 
-  // Robust argument parsing: support --flag value, --flag=value, any order
   for (let i = 0; i < args.length; i++) {
     let arg = args[i];
     if (arg.startsWith("--")) {
@@ -338,7 +310,7 @@ function main() {
             "  --output <file>        Output file path (default: api-gateway/aggregated-openapi.yaml)"
           );
           console.log(
-            "  --stage <stage>        Deployment stage (default: dev)"
+            "  --stage <stage>        Deployment stage: dev, staging, or prod (default: dev)"
           );
           console.log("  --help                 Show this help message");
           process.exit(0);
@@ -346,7 +318,6 @@ function main() {
     }
   }
 
-  // Debug print for parsed CLI args
   console.log("Parsed CLI args:", { servicesDir, outputFile, stage });
 
   try {
@@ -361,4 +332,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { aggregateOpenAPISpecs };
+module.exports = { aggregateOpenAPISpecs, LAYER_CONFIG };

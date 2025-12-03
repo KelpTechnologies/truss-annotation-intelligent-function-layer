@@ -2,13 +2,13 @@
   "openapi": "3.0.1",
   "info": {
     "title": "Truss Annotation Intelligent Function API",
-    "version": "1.0.0-dev",
+    "version": "1.0.0-staging",
     "description": "Unified API with hybrid authentication (API Key + Cognito JWT)\nLayer: annotation-ifl\n\n## Services Included\n\n- **image-service**: Image service for managing image uploads, processing status, and processed image URLs\n- **automated-annotation**: Automated annotation service using LangChain for knowledge extraction and text annotation\n\n## Authentication\n\nThis API supports hybrid authentication:\n- **API Key**: Include `x-api-key` header with your API key\n- **Cognito JWT**: Include `Authorization: Bearer <token>` header with your JWT\n\nBoth methods are validated by the same hybrid authorizer.",
     "x-deployment": {
-      "stage": "dev",
+      "stage": "staging",
       "layer": "annotation-ifl",
-      "timestamp": "2025-12-01T13:21:34.433Z",
-      "hybridAuthorizerArn": "arn:aws:lambda:eu-west-2:193757560043:function:truss-hybrid-authorizer-dev",
+      "timestamp": "2025-12-01T16:45:03.455Z",
+      "hybridAuthorizerArn": "arn:aws:lambda:eu-west-2:193757560043:function:truss-hybrid-authorizer-staging",
       "services": [
         "image-service",
         "automated-annotation"
@@ -17,8 +17,8 @@
   },
   "servers": [
     {
-      "url": "https://${ApiId}.execute-api.eu-west-2.amazonaws.com/dev",
-      "description": "Dev environment"
+      "url": "https://${ApiId}.execute-api.eu-west-2.amazonaws.com/staging",
+      "description": "Staging environment"
     }
   ],
   "paths": {
@@ -76,7 +76,7 @@
           }
         },
         "x-amazon-apigateway-integration": {
-          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-automated-annotation-dev/invocations",
+          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-automated-annotation-staging/invocations",
           "passthroughBehavior": "when_no_match",
           "httpMethod": "POST",
           "type": "aws_proxy"
@@ -182,7 +182,7 @@
           }
         },
         "x-amazon-apigateway-integration": {
-          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-automated-annotation-dev/invocations",
+          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-automated-annotation-staging/invocations",
           "passthroughBehavior": "when_no_match",
           "httpMethod": "POST",
           "type": "aws_proxy"
@@ -288,7 +288,7 @@
           }
         },
         "x-amazon-apigateway-integration": {
-          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-automated-annotation-dev/invocations",
+          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-automated-annotation-staging/invocations",
           "passthroughBehavior": "when_no_match",
           "httpMethod": "POST",
           "type": "aws_proxy"
@@ -394,7 +394,7 @@
           }
         },
         "x-amazon-apigateway-integration": {
-          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-image-service-dev/invocations",
+          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-image-service-staging/invocations",
           "passthroughBehavior": "when_no_match",
           "httpMethod": "POST",
           "type": "aws_proxy"
@@ -500,7 +500,7 @@
           }
         },
         "x-amazon-apigateway-integration": {
-          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-image-service-dev/invocations",
+          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-image-service-staging/invocations",
           "passthroughBehavior": "when_no_match",
           "httpMethod": "POST",
           "type": "aws_proxy"
@@ -606,7 +606,7 @@
           }
         },
         "x-amazon-apigateway-integration": {
-          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-image-service-dev/invocations",
+          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-image-service-staging/invocations",
           "passthroughBehavior": "when_no_match",
           "httpMethod": "POST",
           "type": "aws_proxy"
@@ -712,7 +712,7 @@
           }
         },
         "x-amazon-apigateway-integration": {
-          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-image-service-dev/invocations",
+          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-image-service-staging/invocations",
           "passthroughBehavior": "when_no_match",
           "httpMethod": "POST",
           "type": "aws_proxy"
@@ -818,7 +818,7 @@
           }
         },
         "x-amazon-apigateway-integration": {
-          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-image-service-dev/invocations",
+          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-image-service-staging/invocations",
           "passthroughBehavior": "when_no_match",
           "httpMethod": "POST",
           "type": "aws_proxy"
@@ -924,7 +924,7 @@
           }
         },
         "x-amazon-apigateway-integration": {
-          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-image-service-dev/invocations",
+          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-image-service-staging/invocations",
           "passthroughBehavior": "when_no_match",
           "httpMethod": "POST",
           "type": "aws_proxy"
@@ -1030,7 +1030,7 @@
           }
         },
         "x-amazon-apigateway-integration": {
-          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-image-service-dev/invocations",
+          "uri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-intelligent-function-image-service-staging/invocations",
           "passthroughBehavior": "when_no_match",
           "httpMethod": "POST",
           "type": "aws_proxy"
@@ -1093,8 +1093,8 @@
         "x-amazon-apigateway-authtype": "custom",
         "x-amazon-apigateway-authorizer": {
           "type": "request",
-          "authorizerUri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-hybrid-authorizer-dev/invocations",
-          "authorizerCredentials": "arn:aws:iam::193757560043:role/truss-api-gateway-authorizer-dev-role",
+          "authorizerUri": "arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/arn:aws:lambda:eu-west-2:193757560043:function:truss-hybrid-authorizer-staging/invocations",
+          "authorizerCredentials": "arn:aws:iam::193757560043:role/truss-api-gateway-authorizer-staging-role",
           "authorizerResultTtlInSeconds": 300,
           "identitySource": "method.request.header.Authorization, method.request.header.x-api-key"
         }
