@@ -57,7 +57,7 @@ Resources:
         Variables:
           STAGE: !Ref StageName
           SERVICE_NAME: "automated-annotation"
-          LAYER_NAME: "annotation-ifl"
+          LAYER_NAME: "aifl"
           DSL_API_BASE_URL: "https://9tvhx1t3h2.execute-api.eu-west-2.amazonaws.com/external-dev"
           DSL_API_KEY: ""
           ANNOTATION_API_BASE_URL: "https://p4v6cwjlm1.execute-api.eu-west-2.amazonaws.com/external-prod"

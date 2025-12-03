@@ -81,7 +81,7 @@ Resources:
         Variables:
           STAGE: !Ref StageName
           SERVICE_NAME: "image-service"
-          LAYER_NAME: "annotation-ifl"
+          LAYER_NAME: "aifl"
           SOURCE_BUCKET: !Sub "truss-annotation-image-source-${StageName}"
           PROCESSED_BUCKET: !Sub "truss-annotation-image-processed-${StageName}"
           PROCESSING_TABLE: !Sub "truss-image-processing-${StageName}"

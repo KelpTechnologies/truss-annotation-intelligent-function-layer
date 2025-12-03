@@ -67,6 +67,9 @@ function aggregateOpenAPISpecs(options = {}) {
     components: {
       securitySchemes: {
         // UNIFIED HybridAuth security scheme
+        // Uses REQUEST type to receive all headers
+        // No identitySource - let Lambda handle auth detection (supports either API Key OR JWT)
+        // TTL set to 0 to ensure every request is evaluated (required for flexible auth)
         HybridAuth: {
           type: "apiKey",
           in: "header",
@@ -77,10 +80,7 @@ function aggregateOpenAPISpecs(options = {}) {
           "x-amazon-apigateway-authorizer": {
             type: "request",
             authorizerUri: `arn:aws:apigateway:${LAYER_CONFIG.region}:lambda:path/2015-03-31/functions/\${stageVariables.hybridAuthorizerArn}/invocations`,
-            authorizerCredentials: `arn:aws:iam::${LAYER_CONFIG.accountId}:role/truss-api-gateway-authorizer-\${stageVariables.authorizerStage}-role`,
-            authorizerResultTtlInSeconds: 300,
-            identitySource:
-              "method.request.header.Authorization, method.request.header.x-api-key",
+            authorizerResultTtlInSeconds: 0,
           },
         },
       },
