@@ -306,8 +306,12 @@ def _ensure_gcp_adc():
     logger.info("GCP Application Default Credentials setup completed successfully")
 
 
+# Global context for request auth headers (set per-request in lambda_handler)
+_request_auth_headers = {}
+
 def _get_signed_image_url(image: str) -> str:
     """Get signed image URL from annotation-data-service-layer image-service."""
+    global _request_auth_headers
     start_time = time.time()
     logger.info(f"Fetching signed image URL for image ID: {image}")
     
@@ -322,11 +326,20 @@ def _get_signed_image_url(image: str) -> str:
     logger.debug(f"Image service URL: {url}")
     
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
-    if api_key:
+    
+    # First try to use pass-through auth from original request
+    if _request_auth_headers.get('x-api-key'):
+        headers['x-api-key'] = _request_auth_headers['x-api-key']
+        logger.debug("Using pass-through x-api-key from original request")
+    elif _request_auth_headers.get('Authorization'):
+        headers['Authorization'] = _request_auth_headers['Authorization']
+        logger.debug("Using pass-through Authorization from original request")
+    elif api_key:
+        # Fall back to configured API key
         headers['x-api-key'] = api_key
-        logger.debug("API key provided for image service request")
+        logger.debug("Using configured ANNOTATION_API_KEY")
     else:
-        logger.warning("No API key provided for image service request")
+        logger.warning("No authentication available for image service request")
         
     try:
         logger.debug(f"Making GET request to image service for image: {image}")
@@ -838,6 +851,7 @@ def _classify_item(payload: dict):
 
 
 def lambda_handler(event, context):
+    global _request_auth_headers
     request_start_time = time.time()
     request_id = context.aws_request_id if context else "unknown"
     
@@ -845,6 +859,19 @@ def lambda_handler(event, context):
     logger.info(f"Lambda invocation started - Request ID: {request_id}")
     logger.info(f"Event method: {event.get('httpMethod', 'UNKNOWN')}, path: {event.get('path', 'UNKNOWN')}")
     logger.debug(f"Full event: {json.dumps(event, default=str)[:1000]}")
+    
+    # Extract auth headers from original request for pass-through to downstream services
+    incoming_headers = event.get("headers") or {}
+    _request_auth_headers = {}
+    # Check both lowercase and mixed-case header names (API Gateway normalizes differently)
+    for key in incoming_headers:
+        key_lower = key.lower()
+        if key_lower == 'authorization':
+            _request_auth_headers['Authorization'] = incoming_headers[key]
+            logger.debug("Captured Authorization header for pass-through")
+        elif key_lower == 'x-api-key':
+            _request_auth_headers['x-api-key'] = incoming_headers[key]
+            logger.debug("Captured x-api-key header for pass-through")
     
     try:
         method = event.get("httpMethod", "GET")
