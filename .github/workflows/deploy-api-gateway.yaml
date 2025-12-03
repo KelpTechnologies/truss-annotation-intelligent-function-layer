@@ -211,42 +211,6 @@ jobs:
             echo "⚠️  No API Gateway registry found, but continuing..."
           fi
 
-      - name: Wait for service deployments
-        run: |
-          echo "⏳ Waiting for service Lambda deployments to complete..."
-
-          # Function to check if directory is a service
-          is_service_directory() {
-            local dir=$1
-            if [ -f "$dir/config.json" ] && ([ -f "$dir/index.js" ] || [ -f "$dir/index.py" ]); then
-              return 0
-            else
-              return 1
-            fi
-          }
-
-          # Get list of actual services only (recursively)
-          services=""
-          while IFS= read -r -d '' config_file; do
-            service_dir=$(dirname "$config_file")
-            if is_service_directory "$service_dir"; then
-              # Create flattened service name (e.g., meta/routes -> meta-routes)
-              relative_path="${service_dir#services/}"
-              flattened_name=$(echo "$relative_path" | tr '/' '-')
-              services="$services $flattened_name"
-            fi
-          done < <(find services/ -name "config.json" -type f -print0)
-
-          for service in $services; do
-            stack_name="truss-annotation-intelligent-function-${service}-${STAGE}"
-            echo "Checking stack: $stack_name"
-            
-            # Wait for stack to be in stable state
-            aws cloudformation wait stack-create-complete --stack-name $stack_name 2>/dev/null || \
-            aws cloudformation wait stack-update-complete --stack-name $stack_name 2>/dev/null || \
-            echo "Stack $stack_name already in stable state or doesn't exist"
-          done
-
       - name: Prepare API Gateway deployment
         run: |
           echo "🚀 Preparing API Gateway deployment for stage: ${STAGE}"
