@@ -110,10 +110,11 @@ def _build_text_metadata(payload: dict):
 
 
 def _load_gcp_credentials_from_secrets():
-    """Load GCP service account JSON from AWS Secrets Manager."""
-    secret_arn = os.getenv("BIGQUERY_SECRET_ARN")
+    """Load GCP service account JSON from AWS Secrets Manager (centralized truss-platform-secrets)."""
+    # Support both new TRUSS_SECRETS_ARN and legacy BIGQUERY_SECRET_ARN
+    secret_arn = os.getenv("TRUSS_SECRETS_ARN") or os.getenv("BIGQUERY_SECRET_ARN")
     if not secret_arn:
-        raise ValueError("BIGQUERY_SECRET_ARN environment variable is required")
+        raise ValueError("TRUSS_SECRETS_ARN environment variable is required")
     
     logger.info(f"Loading GCP credentials from Secrets Manager: {secret_arn}")
     secrets_client = boto3.client('secretsmanager', region_name=os.getenv('AWS_REGION', 'eu-west-2'))
@@ -131,6 +132,25 @@ def _load_gcp_credentials_from_secrets():
         
         # If it's a dict, try to extract the service account JSON
         if isinstance(secret_data, dict):
+            # NEW: Check for centralized 'bigquery' key (truss-platform-secrets structure)
+            if 'bigquery' in secret_data:
+                logger.info("Found BigQuery credentials under 'bigquery' key (centralized secrets)")
+                bigquery_creds = secret_data['bigquery']
+                # Build complete service account JSON
+                service_account = {
+                    "type": "service_account",
+                    "project_id": bigquery_creds.get('project_id'),
+                    "private_key_id": bigquery_creds.get('private_key_id'),
+                    "private_key": bigquery_creds.get('private_key'),
+                    "client_email": bigquery_creds.get('client_email'),
+                    "client_id": bigquery_creds.get('client_id'),
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                    "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{bigquery_creds.get('client_email')}"
+                }
+                return json.dumps(service_account)
+            
             # Check if it's already a service account JSON (has 'type' and 'project_id')
             if secret_data.get('type') == 'service_account' and 'project_id' in secret_data:
                 logger.info("Secret contains full service account JSON")
