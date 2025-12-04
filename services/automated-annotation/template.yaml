@@ -40,6 +40,13 @@ Resources:
                 Resource:
                   - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:bigquery-service-account*"
                   - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:openAI*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/truss-image-processing-*"
 
   ServiceLambda:
     Type: AWS::Lambda::Function
