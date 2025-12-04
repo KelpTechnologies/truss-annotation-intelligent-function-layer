@@ -53,6 +53,7 @@ function generateCloudFormationTemplate(
   const requiresDatabase = config.database?.required || false;
   const requiresVPC = config.deployment?.vpc_config?.required || false;
   const requiresImageProcessing = config.image_processing !== undefined;
+  const requiresDynamoDB = config.database?.connection_type === "dynamodb" && requiresDatabase;
 
   const runtime = config.deployment.runtime;
   const handler = runtime.startsWith("python")
@@ -142,6 +143,28 @@ Resources:
                   - ec2:DescribeNetworkInterfaces
                   - ec2:DeleteNetworkInterface
                 Resource: "*"`;
+  }
+
+  if (requiresDynamoDB && config.database.tables && Array.isArray(config.database.tables)) {
+    template += `
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:`;
+    config.database.tables.forEach((table) => {
+      if (table.includes("${STAGE}")) {
+        const tableName = table.replace("${STAGE}", "${StageName}");
+        template += `
+                  - !Sub "arn:aws:dynamodb:${config.aws.region}:${config.aws.account_id}:table/${tableName}"
+                  - !Sub "arn:aws:dynamodb:${config.aws.region}:${config.aws.account_id}:table/${tableName}/index/*"`;
+      } else {
+        template += `
+                  - "arn:aws:dynamodb:${config.aws.region}:${config.aws.account_id}:table/${table}"
+                  - "arn:aws:dynamodb:${config.aws.region}:${config.aws.account_id}:table/${table}/index/*"`;
+      }
+    });
   }
 
   if (requiresImageProcessing) {

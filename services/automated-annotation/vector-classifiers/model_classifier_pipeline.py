@@ -475,17 +475,17 @@ def classify_image(processing_id: str, brand: str, k: int = 7) -> Dict[str, Any]
         import traceback
 
         traceback.print_exc()
-        return {
-            "processing_id": processing_id,
-            "brand": brand,
-            "k": k,
-            "predicted_model": None,
-            "predicted_root_model": None,
-            "confidence": 0.0,
-            "method": "error",
-            "message": str(e),
-            "vector_source": "image-processing-table",
-        }
+        
+        # Re-raise the exception with a descriptive message so caller can handle appropriately
+        error_message = str(e)
+        if "AccessDeniedException" in error_message or "not authorized" in error_message:
+            raise PermissionError(f"Vector classification failed - DynamoDB access denied: {error_message}") from e
+        elif "No processing record found" in error_message:
+            raise ValueError(f"Image not found for vector classification: {error_message}") from e
+        elif "does not contain an image vector" in error_message:
+            raise ValueError(f"Image not vectorized: {error_message}") from e
+        else:
+            raise RuntimeError(f"Vector classification failed: {error_message}") from e
 
 
 if __name__ == "__main__":

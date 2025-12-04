@@ -22,9 +22,16 @@
     }
   },
   "database": {
-    "required": false,
-    "connection_type": "none",
-    "permissions": []
+    "required": true,
+    "connection_type": "dynamodb",
+    "permissions": ["read"],
+    "tables": [
+      "truss-image-processing-${STAGE}",
+      "truss-image-processing-dev",
+      "truss-image-processing-staging",
+      "truss-image-processing-prod",
+      "model_visual_classifier_nodes"
+    ]
   },
   "api": {
     "base_path": "/automations/annotation",

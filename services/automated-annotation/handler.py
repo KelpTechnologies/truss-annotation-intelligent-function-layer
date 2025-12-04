@@ -973,6 +973,18 @@ def lambda_handler(event, context):
                 response = _response(400, {"error": str(exc)})
                 structured_logger.log_error(req_ctx, exc, status_code=400)
                 return response
+            except PermissionError as exc:
+                elapsed = time.time() - request_start_time
+                logger.error(f"Permission error after {elapsed:.2f}s: {str(exc)}")
+                response = _response(403, {"error": str(exc)})
+                structured_logger.log_error(req_ctx, exc, status_code=403)
+                return response
+            except RuntimeError as exc:
+                elapsed = time.time() - request_start_time
+                logger.error(f"Runtime error after {elapsed:.2f}s: {str(exc)}")
+                response = _response(500, {"error": str(exc)})
+                structured_logger.log_error(req_ctx, exc, status_code=500)
+                return response
 
         if path.endswith("/health"):
             logger.info("Processing health check request")
