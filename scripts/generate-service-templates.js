@@ -53,7 +53,8 @@ function generateCloudFormationTemplate(
   const requiresDatabase = config.database?.required || false;
   const requiresVPC = config.deployment?.vpc_config?.required || false;
   const requiresImageProcessing = config.image_processing !== undefined;
-  const requiresDynamoDB = config.database?.connection_type === "dynamodb" && requiresDatabase;
+  const requiresDynamoDB =
+    config.database?.connection_type === "dynamodb" && requiresDatabase;
 
   const runtime = config.deployment.runtime;
   const handler = runtime.startsWith("python")
@@ -138,7 +139,11 @@ Resources:
                 Resource: "*"`;
   }
 
-  if (requiresDynamoDB && config.database.tables && Array.isArray(config.database.tables)) {
+  if (
+    requiresDynamoDB &&
+    config.database.tables &&
+    Array.isArray(config.database.tables)
+  ) {
     template += `
               - Effect: Allow
                 Action:

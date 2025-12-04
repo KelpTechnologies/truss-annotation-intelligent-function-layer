@@ -1,10 +1,10 @@
 /**
  * Centralized Secrets Manager for Truss Platform
  * Retrieves and caches secrets from AWS Secrets Manager
- * 
+ *
  * All secrets are stored in a single consolidated secret:
  * arn:aws:secretsmanager:eu-west-2:193757560043:secret:truss-platform-secrets-yVuz1R
- * 
+ *
  * Secret structure:
  * {
  *   "bigquery": { project_id, private_key_id, private_key, client_email, client_id },
@@ -18,7 +18,8 @@
 const AWS = require("aws-sdk");
 
 // Default ARN - can be overridden via environment variable
-const DEFAULT_SECRET_ARN = "arn:aws:secretsmanager:eu-west-2:193757560043:secret:truss-platform-secrets-yVuz1R";
+const DEFAULT_SECRET_ARN =
+  "arn:aws:secretsmanager:eu-west-2:193757560043:secret:truss-platform-secrets-yVuz1R";
 
 let secretsClient = null;
 let cachedSecrets = null;
@@ -52,7 +53,7 @@ function isCacheValid() {
 /**
  * Retrieve all secrets from AWS Secrets Manager
  * Results are cached for performance
- * 
+ *
  * @returns {Promise<object>} Parsed secrets object
  */
 async function getSecrets() {
@@ -69,15 +70,17 @@ async function getSecrets() {
     const response = await client
       .getSecretValue({ SecretId: secretArn })
       .promise();
-    
+
     cachedSecrets = JSON.parse(response.SecretString);
     cacheTimestamp = Date.now();
-    
+
     console.log("✅ Secrets retrieved and cached successfully");
     return cachedSecrets;
   } catch (error) {
     console.error("❌ Failed to retrieve secrets:", error.message);
-    throw new Error(`Failed to retrieve secrets from Secrets Manager: ${error.message}`);
+    throw new Error(
+      `Failed to retrieve secrets from Secrets Manager: ${error.message}`
+    );
   }
 }
 
@@ -156,4 +159,3 @@ module.exports = {
   getInternalApiKeys,
   clearCache,
 };
-
