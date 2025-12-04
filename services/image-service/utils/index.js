@@ -12,6 +12,7 @@ const dataParser = require("./data-parser");
 const constants = require("./constants");
 const logger = require("./logger");
 const serviceTemplate = require("./service-template");
+const structuredLogger = require("./structured-logger");
 
 module.exports = {
   // Database utilities
@@ -37,4 +38,8 @@ module.exports = {
 
   // Service template utilities
   ...serviceTemplate,
+
+  // Structured logger for metrics (use for REQUEST/RESPONSE/ERROR lifecycle events)
+  createLogger: structuredLogger.createLogger,
+  StructuredLogger: structuredLogger.StructuredLogger,
 };

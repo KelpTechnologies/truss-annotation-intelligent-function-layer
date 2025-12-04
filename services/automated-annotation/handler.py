@@ -12,6 +12,9 @@ import boto3
 from dsl import DSLAPIClient, ConfigLoader, LLMAnnotationAgent
 from dsl import load_property_id_mapping_api
 
+# Import structured logger for metrics (schema v2 compliant)
+from structured_logger import StructuredLogger
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -19,6 +22,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+# Initialize structured logger for metrics (REQUEST/RESPONSE/ERROR lifecycle events)
+structured_logger = StructuredLogger(layer="aifl", service_name="automated-annotation")
 
 CATEGORY_CONFIG = {
     "bags": {
@@ -855,6 +861,9 @@ def lambda_handler(event, context):
     request_start_time = time.time()
     request_id = context.aws_request_id if context else "unknown"
     
+    # Start structured logging for metrics (captures request timing)
+    req_ctx = structured_logger.start_request(event)
+    
     logger.info("=" * 80)
     logger.info(f"Lambda invocation started - Request ID: {request_id}")
     logger.info(f"Event method: {event.get('httpMethod', 'UNKNOWN')}, path: {event.get('path', 'UNKNOWN')}")
@@ -881,7 +890,9 @@ def lambda_handler(event, context):
 
         if method == "OPTIONS":
             logger.info("Handling OPTIONS request")
-            return _response(200, {"ok": True})
+            response = _response(200, {"ok": True})
+            structured_logger.log_response(req_ctx, status_code=200)
+            return response
 
         segments = [segment for segment in path.strip("/").split("/") if segment]
         logger.debug(f"Path segments: {segments}")
@@ -903,7 +914,9 @@ def lambda_handler(event, context):
 
             if category not in CATEGORY_CONFIG:
                 logger.error(f"Unsupported category: {category}")
-                return _response(404, {"error": f"Unsupported category '{category}'"})
+                response = _response(404, {"error": f"Unsupported category '{category}'"})
+                structured_logger.log_response(req_ctx, status_code=404)
+                return response
 
             try:
                 if target == "model":
@@ -928,7 +941,7 @@ def lambda_handler(event, context):
                     
                     elapsed = time.time() - request_start_time
                     logger.info(f"Model classification request completed in {elapsed:.2f}s")
-                    return _response(
+                    response = _response(
                         200,
                         {
                             "component_type": "model_classification_result",
@@ -936,13 +949,15 @@ def lambda_handler(event, context):
                             "metadata": {"category": category, "target": target},
                         },
                     )
+                    structured_logger.log_response(req_ctx, status_code=200)
+                    return response
 
                 logger.info(f"Processing property classification - target: {target}")
                 result = _classify_property(category, target, payload)
                 
                 elapsed = time.time() - request_start_time
                 logger.info(f"Property classification request completed in {elapsed:.2f}s")
-                return _response(
+                response = _response(
                     200,
                     {
                         "component_type": "classification_result",
@@ -950,10 +965,14 @@ def lambda_handler(event, context):
                         "metadata": {"category": category, "target": target},
                     },
                 )
+                structured_logger.log_response(req_ctx, status_code=200)
+                return response
             except ValueError as exc:
                 elapsed = time.time() - request_start_time
                 logger.error(f"Validation error after {elapsed:.2f}s: {str(exc)}")
-                return _response(400, {"error": str(exc)})
+                response = _response(400, {"error": str(exc)})
+                structured_logger.log_error(req_ctx, exc, status_code=400)
+                return response
 
         if path.endswith("/health"):
             logger.info("Processing health check request")
@@ -974,10 +993,14 @@ def lambda_handler(event, context):
 
             elapsed = time.time() - request_start_time
             logger.info(f"Health check completed in {elapsed:.2f}s")
-            return _response(200, {"component_type": "health_check", "data": [status], "metadata": {}}, methods="GET,OPTIONS")
+            response = _response(200, {"component_type": "health_check", "data": [status], "metadata": {}}, methods="GET,OPTIONS")
+            structured_logger.log_response(req_ctx, status_code=200)
+            return response
 
         logger.warning(f"Endpoint not found - path: {path}, method: {method}")
-        return _response(404, {"error": "Endpoint not found"})
+        response = _response(404, {"error": "Endpoint not found"})
+        structured_logger.log_response(req_ctx, status_code=404)
+        return response
 
     except Exception as e:
         elapsed = time.time() - request_start_time
@@ -985,6 +1008,8 @@ def lambda_handler(event, context):
         logger.error(f"Exception type: {type(e).__name__}")
         logger.error(f"Traceback:\n{traceback.format_exc()}")
         traceback.print_exc()
+        # Log structured error for metrics (captures duration, error details)
+        structured_logger.log_error(req_ctx, e, status_code=500)
         return _response(500, {"error": str(e)})
     finally:
         total_elapsed = time.time() - request_start_time

@@ -1,9 +1,16 @@
 const AWS = require("aws-sdk");
 const { v4: uuidv4 } = require("uuid");
+const { createLogger } = require("./utils");
 
 // Initialize AWS services
 const s3 = new AWS.S3();
 const dynamodb = new AWS.DynamoDB.DocumentClient();
+
+// Initialize structured logger for metrics (REQUEST/RESPONSE/ERROR lifecycle events)
+const structuredLogger = createLogger({
+  layer: "aifl",
+  serviceName: "image-service",
+});
 
 // Configuration from environment variables
 const STAGE = process.env.STAGE || "prod";
@@ -24,6 +31,9 @@ console.log("Configuration:", {
  * Main Lambda handler for image service API endpoints
  */
 exports.handler = async (event) => {
+  // Start structured logging for metrics (captures request timing)
+  const reqCtx = structuredLogger.startRequest(event);
+
   console.log(
     "Image service Lambda triggered:",
     JSON.stringify(event, null, 2)
@@ -43,17 +53,31 @@ exports.handler = async (event) => {
     });
 
     // Route requests based on HTTP method and path
+    let response;
     switch (httpMethod) {
       case "GET":
-        return await handleGetRequest(pathInfo, queryStringParameters);
+        response = await handleGetRequest(pathInfo, queryStringParameters);
+        break;
       case "POST":
-        return await handlePostRequest(pathInfo, JSON.parse(body || "{}"));
+        response = await handlePostRequest(pathInfo, JSON.parse(body || "{}"));
+        break;
       case "DELETE":
-        return await handleDeleteRequest(pathInfo, pathParameters);
+        response = await handleDeleteRequest(pathInfo, pathParameters);
+        break;
       default:
-        return createResponse(405, { error: "Method not allowed" });
+        response = createResponse(405, { error: "Method not allowed" });
     }
+
+    // Log structured response for metrics (captures duration, status)
+    structuredLogger.logResponse(reqCtx, {
+      statusCode: response.statusCode,
+    });
+
+    return response;
   } catch (error) {
+    // Log structured error for metrics (captures duration, error details)
+    structuredLogger.logError(reqCtx, error, { statusCode: 500 });
+
     console.error("Error in image service:", error);
     return createResponse(500, {
       error: "Internal server error",
