@@ -83,12 +83,6 @@ Parameters:
     Type: String
     Description: RDS Proxy endpoint
     Default: "${config.database.host}"
-  DatabaseUser:
-    Type: String
-    NoEcho: true
-  DatabasePassword:
-    Type: String
-    NoEcho: true
   DatabaseName:
     Type: String
     Default: "${config.database.name}"`;
@@ -132,8 +126,7 @@ Resources:
                 Action:
                   - secretsmanager:GetSecretValue
                 Resource:
-                  - "arn:aws:secretsmanager:${config.aws.region}:${config.aws.account_id}:secret:bigquery-service-account*"
-                  - "arn:aws:secretsmanager:${config.aws.region}:${config.aws.account_id}:secret:openAI*"`;
+                  - "arn:aws:secretsmanager:${config.aws.region}:${config.aws.account_id}:secret:truss-platform-secrets*"`;
 
   if (requiresVPC) {
     template += `
@@ -228,7 +221,8 @@ ${layers}`;
         Variables:
           STAGE: !Ref StageName
           SERVICE_NAME: "${config.service.name}"
-          LAYER_NAME: "${LAYER_CONFIG.layerName}"`;
+          LAYER_NAME: "${LAYER_CONFIG.layerName}"
+          TRUSS_SECRETS_ARN: "arn:aws:secretsmanager:${LAYER_CONFIG.region}:${LAYER_CONFIG.accountId}:secret:truss-platform-secrets-yVuz1R"`;
 
   if (config.deployment.extra_env) {
     Object.entries(config.deployment.extra_env).forEach(([k, v]) => {
@@ -239,10 +233,7 @@ ${layers}`;
 
   if (requiresDatabase) {
     template += `
-          DB_HOST: !Ref DatabaseHost
-          DB_USER: !Ref DatabaseUser
-          DB_PASSWORD: !Ref DatabasePassword
-          DB_NAME: !Ref DatabaseName`;
+          DB_HOST: !Ref DatabaseHost`;
   }
 
   if (requiresImageProcessing) {

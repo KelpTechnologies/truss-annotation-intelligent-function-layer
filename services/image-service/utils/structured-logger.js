@@ -5,7 +5,7 @@
  * To update, run: npm run copy:toolkit from truss-api-platform
  * 
  * Source: truss-api-platform/logging-toolkit/structured-logger.js
- * Generated: 2025-12-03T20:38:57.984Z
+ * Generated: 2025-12-04T11:30:27.848Z
  */
 
 /**
@@ -232,6 +232,58 @@ function truncateForLogging(obj, maxSize = MAX_RESPONSE_SIZE) {
 }
 
 /**
+ * Normalize error messages by removing dynamic values for cleaner aggregation
+ * Strips UUIDs, processing IDs, URLs, S3 paths, and large numeric IDs
+ * @param {string|Error} error - Error message or Error object
+ * @returns {string} Normalized error message
+ */
+function normalizeErrorMessage(error) {
+  let message = error instanceof Error ? error.message : String(error);
+  
+  if (!message || typeof message !== "string") {
+    return message || "Unknown error";
+  }
+
+  // Remove UUIDs (e.g., "123e4567-e89b-12d3-a456-426614174000")
+  message = message.replace(
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+    "{id}"
+  );
+
+  // Remove processing IDs (e.g., "proc_abc123xyz")
+  message = message.replace(/proc_[a-zA-Z0-9]+/g, "{processingId}");
+
+  // Remove HTTPS URLs
+  message = message.replace(/https?:\/\/[^\s"'<>]+/g, "{url}");
+
+  // Remove S3 paths (e.g., "s3://bucket/key/path")
+  message = message.replace(/s3:\/\/[^\s"'<>]+/g, "{s3-path}");
+
+  // Remove large numeric IDs (5+ digits, likely database IDs)
+  message = message.replace(/\b\d{5,}\b/g, "{numericId}");
+
+  // Remove request IDs (e.g., "req_1234567890_abc123xyz")
+  message = message.replace(/req_\d+_[a-zA-Z0-9]+/g, "{requestId}");
+
+  // Remove AWS request IDs
+  message = message.replace(
+    /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/gi,
+    "{awsRequestId}"
+  );
+
+  // Remove timestamps in ISO format
+  message = message.replace(
+    /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z?/g,
+    "{timestamp}"
+  );
+
+  // Remove file paths with specific extensions
+  message = message.replace(/\/[^\s"'<>]*\.(js|py|json|yaml|yml)/g, "{filepath}");
+
+  return message;
+}
+
+/**
  * Generate unique request ID
  */
 function generateRequestId() {
@@ -336,11 +388,15 @@ class StructuredLogger {
     const durationMs = Date.now() - (requestContext.startTime || Date.now());
     this.requestTimings.delete(requestContext.requestId);
 
+    // Normalize error message for cleaner aggregation
+    const normalizedMessage = normalizeErrorMessage(error);
+
     this._emit(LOG_TYPES.ERROR, requestContext, {
       statusCode: options.statusCode || 500,
       durationMs,
       error: {
-        message: error.message || String(error),
+        message: normalizedMessage,
+        messageOriginal: error.message || String(error),
         name: error.name || "Error",
         stack: error.stack?.substring(0, 1000) || null,
         code: error.code || null,
@@ -470,6 +526,7 @@ module.exports = {
   normalizeRoute,
   redactSensitiveFields,
   truncateForLogging,
+  normalizeErrorMessage,
   generateRequestId,
   extractUserContext,
   calculateQueryComplexity,

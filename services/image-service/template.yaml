@@ -38,8 +38,7 @@ Resources:
                 Action:
                   - secretsmanager:GetSecretValue
                 Resource:
-                  - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:bigquery-service-account*"
-                  - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:openAI*"
+                  - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:truss-platform-secrets*"
               - Effect: Allow
                 Action:
                   - s3:GetObject
@@ -82,6 +81,7 @@ Resources:
           STAGE: !Ref StageName
           SERVICE_NAME: "image-service"
           LAYER_NAME: "aifl"
+          TRUSS_SECRETS_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:truss-platform-secrets-yVuz1R"
           SOURCE_BUCKET: !Sub "truss-annotation-image-source-${StageName}"
           PROCESSED_BUCKET: !Sub "truss-annotation-image-processed-${StageName}"
           PROCESSING_TABLE: !Sub "truss-image-processing-${StageName}"

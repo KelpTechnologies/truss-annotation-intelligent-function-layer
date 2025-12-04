@@ -14,6 +14,13 @@ Parameters:
     Type: String
   CodeS3Key:
     Type: String
+  DatabaseHost:
+    Type: String
+    Description: RDS Proxy endpoint
+    Default: "undefined"
+  DatabaseName:
+    Type: String
+    Default: "undefined"
 
 Resources:
   ServiceRole:
@@ -38,15 +45,23 @@ Resources:
                 Action:
                   - secretsmanager:GetSecretValue
                 Resource:
-                  - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:bigquery-service-account*"
-                  - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:openAI*"
+                  - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:truss-platform-secrets*"
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
                   - dynamodb:Query
                   - dynamodb:Scan
                 Resource:
-                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/truss-image-processing-*"
+                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-${StageName}"
+                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-${StageName}/index/*"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-dev"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-dev/index/*"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-staging"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-staging/index/*"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-prod"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-prod/index/*"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/model_visual_classifier_nodes"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/model_visual_classifier_nodes/index/*"
 
   ServiceLambda:
     Type: AWS::Lambda::Function
@@ -67,6 +82,7 @@ Resources:
           STAGE: !Ref StageName
           SERVICE_NAME: "automated-annotation"
           LAYER_NAME: "aifl"
+          TRUSS_SECRETS_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:truss-platform-secrets-yVuz1R"
           DSL_API_BASE_URL: "https://1hc7v2pi9d.execute-api.eu-west-2.amazonaws.com/staging"
           DSL_API_KEY: ""
           ANNOTATION_DSL_API_BASE_URL: "https://xu89om0525.execute-api.eu-west-2.amazonaws.com/staging"
@@ -74,6 +90,7 @@ Resources:
           IFL_API_BASE_URL: "https://ituo0x1fj5.execute-api.eu-west-2.amazonaws.com/staging"
           ANNOTATION_IFL_API_BASE_URL: "https://mabi7l7lvl.execute-api.eu-west-2.amazonaws.com/staging"
           VERTEXAI_PROJECT: "truss-data-science"
+          DB_HOST: !Ref DatabaseHost
 
   ServiceLambdaPermission:
     Type: AWS::Lambda::Permission
