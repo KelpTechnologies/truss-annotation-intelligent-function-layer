@@ -180,6 +180,51 @@ def _load_gcp_credentials_from_secrets():
         raise ValueError(f"Secret is not valid JSON: {str(e)}")
 
 
+# Cache for centralized secrets
+_cached_platform_secrets = None
+
+def _get_platform_secrets():
+    """Get all platform secrets from centralized truss-platform-secrets."""
+    global _cached_platform_secrets
+    if _cached_platform_secrets:
+        return _cached_platform_secrets
+    
+    secret_arn = os.getenv("TRUSS_SECRETS_ARN") or os.getenv("BIGQUERY_SECRET_ARN")
+    if not secret_arn:
+        raise ValueError("TRUSS_SECRETS_ARN environment variable is required")
+    
+    logger.info(f"Loading platform secrets from: {secret_arn}")
+    secrets_client = boto3.client('secretsmanager', region_name=os.getenv('AWS_REGION', 'eu-west-2'))
+    
+    response = secrets_client.get_secret_value(SecretId=secret_arn)
+    secret_string = response.get('SecretString')
+    
+    if not secret_string:
+        raise ValueError(f"Secret string is empty for secret {secret_arn}")
+    
+    _cached_platform_secrets = json.loads(secret_string)
+    return _cached_platform_secrets
+
+
+def _ensure_pinecone_api_key():
+    """Ensure PINECONE_API_KEY environment variable is set from centralized secrets."""
+    if os.getenv("PINECONE_API_KEY"):
+        logger.info("PINECONE_API_KEY already set in environment")
+        return
+    
+    logger.info("Loading Pinecone API key from centralized secrets")
+    try:
+        secrets = _get_platform_secrets()
+        pinecone_key = secrets.get('pinecone', {}).get('api_key')
+        if pinecone_key:
+            os.environ["PINECONE_API_KEY"] = pinecone_key
+            logger.info("PINECONE_API_KEY set from centralized secrets")
+        else:
+            logger.warning("Pinecone API key not found in centralized secrets")
+    except Exception as e:
+        logger.error(f"Failed to load Pinecone API key from secrets: {str(e)}")
+
+
 def _ensure_gcp_adc():
     """Ensure Application Default Credentials are available from env or Secrets Manager."""
     logger.info("Setting up GCP Application Default Credentials")
@@ -444,6 +489,9 @@ def _classify_model(payload: dict):
     """Classify model using a pre-computed image vector from the image-processing table."""
     start_time = time.time()
     logger.info(f"Starting model classification - payload: {json.dumps(payload, default=str)}")
+    
+    # Ensure Pinecone API key is available before classification
+    _ensure_pinecone_api_key()
     
     if not classify_image:
         logger.error("Vector classifier pipeline not available")
