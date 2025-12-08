@@ -954,6 +954,11 @@ def lambda_handler(event, context):
         method = event.get("httpMethod", "GET")
         path = (event.get("path") or "").rstrip("/")
         
+        # Strip custom domain base path prefix if present (e.g., /agents from api.trussarchive.io/agents/...)
+        if path.startswith("/agents/"):
+            path = path[7:]  # Remove "/agents" prefix, keep leading "/"
+            logger.info(f"Stripped /agents prefix from path")
+        
         logger.info(f"Processing {method} request to {path}")
 
         if method == "OPTIONS":
