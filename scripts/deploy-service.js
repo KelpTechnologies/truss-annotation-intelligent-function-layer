@@ -247,7 +247,7 @@ async function packageService(
       }
     }
 
-    // Python: include handler.py, structured_logger.py, dsl/ package, and vector-classifiers/ package
+    // Python: include handler.py, structured_logger.py, stage_urls.py, dsl/ package, and vector-classifiers/ package
     if (runtime.startsWith("python")) {
       const handlerPath = path.join(servicePath, "handler.py");
       if (fs.existsSync(handlerPath)) {
@@ -255,11 +255,20 @@ async function packageService(
         fs.copyFileSync(handlerPath, destHandler);
         console.log(`     📄 Copied handler.py`);
       }
-      const structuredLoggerPath = path.join(servicePath, "structured_logger.py");
+      const structuredLoggerPath = path.join(
+        servicePath,
+        "structured_logger.py"
+      );
       if (fs.existsSync(structuredLoggerPath)) {
         const destStructuredLogger = path.join(tempDir, "structured_logger.py");
         fs.copyFileSync(structuredLoggerPath, destStructuredLogger);
         console.log(`     📄 Copied structured_logger.py`);
+      }
+      const stageUrlsPath = path.join(servicePath, "stage_urls.py");
+      if (fs.existsSync(stageUrlsPath)) {
+        const destStageUrls = path.join(tempDir, "stage_urls.py");
+        fs.copyFileSync(stageUrlsPath, destStageUrls);
+        console.log(`     📄 Copied stage_urls.py`);
       }
       const dslDir = path.join(servicePath, "dsl");
       if (fs.existsSync(dslDir)) {
