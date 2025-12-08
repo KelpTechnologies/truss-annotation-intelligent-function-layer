@@ -12,14 +12,9 @@
       "arn:aws:lambda:eu-west-2:193757560043:layer:intelligent-functions-python:5"
     ],
     "extra_env": {
-      "DSL_API_BASE_URL": "https://1hc7v2pi9d.execute-api.eu-west-2.amazonaws.com/staging",
-      "DSL_API_KEY": "",
-      "ANNOTATION_DSL_API_BASE_URL": "https://xu89om0525.execute-api.eu-west-2.amazonaws.com/staging",
-      "ANNOTATION_API_KEY": "",
-      "IFL_API_BASE_URL": "https://ituo0x1fj5.execute-api.eu-west-2.amazonaws.com/staging",
-      "ANNOTATION_IFL_API_BASE_URL": "https://mabi7l7lvl.execute-api.eu-west-2.amazonaws.com/staging",
       "VERTEXAI_PROJECT": "truss-data-science"
-    }
+    },
+    "_url_config_note": "API URLs are now stage-aware and configured in stage_urls.py. URLs are selected based on STAGE env var (dev/staging/prod)."
   },
   "database": {
     "required": true,

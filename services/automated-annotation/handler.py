@@ -12,6 +12,9 @@ import boto3
 from dsl import DSLAPIClient, ConfigLoader, LLMAnnotationAgent
 from dsl import load_property_id_mapping_api
 
+# Import stage-aware URL configuration
+from stage_urls import get_dsl_url, get_annotation_dsl_url, get_ifl_url, get_annotation_ifl_url, get_stage
+
 # Import structured logger for metrics (schema v2 compliant)
 from structured_logger import StructuredLogger
 
@@ -25,6 +28,13 @@ logger.setLevel(logging.INFO)
 
 # Initialize structured logger for metrics (REQUEST/RESPONSE/ERROR lifecycle events)
 structured_logger = StructuredLogger(layer="aifl", service_name="automated-annotation")
+
+# Log stage-aware URL configuration at module load
+logger.info(f"🔗 Stage URL Configuration - Stage: {get_stage()}")
+logger.info(f"   DSL_API_BASE_URL: {get_dsl_url()}")
+logger.info(f"   ANNOTATION_DSL_API_BASE_URL: {get_annotation_dsl_url()}")
+logger.info(f"   IFL_API_BASE_URL: {get_ifl_url()}")
+logger.info(f"   ANNOTATION_IFL_API_BASE_URL: {get_annotation_ifl_url()}")
 
 CATEGORY_CONFIG = {
     "bags": {
@@ -386,12 +396,10 @@ def _get_signed_image_url(image: str) -> str:
     start_time = time.time()
     logger.info(f"Fetching signed image URL for image ID: {image}")
     
-    api_base_url = os.getenv("ANNOTATION_DSL_API_BASE_URL")
+    api_base_url = get_annotation_dsl_url()
     api_key = os.getenv("ANNOTATION_API_KEY")
     
-    if not api_base_url:
-        logger.error("ANNOTATION_DSL_API_BASE_URL environment variable is not set")
-        raise ValueError("ANNOTATION_DSL_API_BASE_URL environment variable is required")
+    logger.info(f"Using ANNOTATION_DSL URL for stage '{get_stage()}': {api_base_url}")
     
     url = f"{api_base_url.rstrip('/')}/images/processed/{image}"
     logger.debug(f"Image service URL: {url}")
@@ -527,11 +535,9 @@ def _classify_model(payload: dict):
     root_lookup_result = None
     if predicted_model:
         logger.info(f"Looking up root for predicted model: {predicted_model}")
-        api_base_url = os.getenv("DSL_API_BASE_URL")
+        api_base_url = get_dsl_url()
         api_key = os.getenv("DSL_API_KEY")
-        if not api_base_url:
-            logger.error("DSL_API_BASE_URL not set")
-            raise ValueError("DSL_API_BASE_URL environment variable is required")
+        logger.info(f"Using DSL URL for stage '{get_stage()}': {api_base_url}")
         
         api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key, auth_headers=_request_auth_headers)
         category = payload.get("category", "bags")
@@ -646,11 +652,9 @@ def _classify_property(category: str, target: str, request_payload: dict):
     root_lookup_result = None
     if target in ["model", "material"] and primary_value:
         logger.info(f"Looking up root for {target}='{primary_value}'")
-        api_base_url = os.getenv("DSL_API_BASE_URL")
+        api_base_url = get_dsl_url()
         api_key = os.getenv("DSL_API_KEY")
-        if not api_base_url:
-            logger.error("DSL_API_BASE_URL not set")
-            raise ValueError("DSL_API_BASE_URL environment variable is required")
+        logger.info(f"Using DSL URL for stage '{get_stage()}': {api_base_url}")
         
         api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key, auth_headers=_request_auth_headers)
         partition = category
@@ -704,14 +708,11 @@ def _classify_item(payload: dict):
     start_time = time.time()
     logger.info(f"Starting LLM classification - property: {payload.get('property')}, root_type_id: {payload.get('root_type_id')}")
     
-    # Use ANNOTATION_DSL_API_BASE_URL for classifier configs, templates, and context data
-    api_base_url = os.getenv("ANNOTATION_DSL_API_BASE_URL")
+    # Use stage-aware ANNOTATION_DSL URL for classifier configs, templates, and context data
+    api_base_url = get_annotation_dsl_url()
     api_key = os.getenv("ANNOTATION_API_KEY")
-    if not api_base_url:
-        logger.error("ANNOTATION_DSL_API_BASE_URL environment variable is not set")
-        raise ValueError("ANNOTATION_DSL_API_BASE_URL environment variable is required")
     
-    logger.debug(f"Using API base URL: {api_base_url}")
+    logger.info(f"Using ANNOTATION_DSL URL for stage '{get_stage()}': {api_base_url}")
 
     property_name = payload.get("property")
     root_type_id = payload.get("root_type_id")
@@ -1061,20 +1062,18 @@ def lambda_handler(event, context):
 
         if path.endswith("/health"):
             logger.info("Processing health check request")
-            api_base_url = os.getenv("DSL_API_BASE_URL")
+            api_base_url = get_dsl_url()
             api_key = os.getenv("DSL_API_KEY")
-            status = {"status": "unhealthy"}
+            status = {"status": "unhealthy", "stage": get_stage()}
             try:
-                if api_base_url:
-                    logger.debug("Performing DSL API health check")
-                    client = DSLAPIClient(base_url=api_base_url, api_key=api_key, auth_headers=_request_auth_headers)
-                    status = client.health_check()
-                    logger.info(f"Health check result: {json.dumps(status, default=str)}")
-                else:
-                    logger.warning("DSL_API_BASE_URL or DSL_API_KEY not set, skipping health check")
+                logger.info(f"Performing DSL API health check - stage: {get_stage()}, url: {api_base_url}")
+                client = DSLAPIClient(base_url=api_base_url, api_key=api_key, auth_headers=_request_auth_headers)
+                status = client.health_check()
+                status["stage"] = get_stage()
+                logger.info(f"Health check result: {json.dumps(status, default=str)}")
             except Exception as e:
                 logger.error(f"Health check failed: {str(e)}")
-                status = {"status": "unhealthy", "error": str(e)}
+                status = {"status": "unhealthy", "error": str(e), "stage": get_stage()}
 
             elapsed = time.time() - request_start_time
             logger.info(f"Health check completed in {elapsed:.2f}s")
