@@ -5,7 +5,7 @@
  * To update, run: npm run copy:toolkit from truss-api-platform
  * 
  * Source: truss-api-platform/logging-toolkit/structured-logger.js
- * Generated: 2025-12-04T11:30:27.848Z
+ * Generated: 2025-12-04T17:12:11.823Z
  */
 
 /**
@@ -24,6 +24,7 @@ const LOG_TYPES = {
   REQUEST: "REQUEST",
   RESPONSE: "RESPONSE",
   ERROR: "ERROR",
+  WARNING: "WARNING",
   METRIC: "METRIC",
   DEBUG: "DEBUG",
 };
@@ -400,6 +401,27 @@ class StructuredLogger {
         name: error.name || "Error",
         stack: error.stack?.substring(0, 1000) || null,
         code: error.code || null,
+      },
+    });
+  }
+
+  /**
+   * Log a warning
+   * Unlike errors, warnings don't terminate the request - they're informational alerts
+   * Can be called multiple times per request to emit multiple warnings
+   * @param {object} requestContext - Request context from startRequest
+   * @param {string} message - Warning message
+   * @param {object} details - Additional details about the warning
+   */
+  logWarning(requestContext, message, details = {}) {
+    // Normalize warning message for cleaner aggregation (reuse error normalization)
+    const normalizedMessage = normalizeErrorMessage(message);
+
+    this._emit(LOG_TYPES.WARNING, requestContext, {
+      warning: {
+        message: normalizedMessage,
+        messageOriginal: message,
+        ...details,
       },
     });
   }
