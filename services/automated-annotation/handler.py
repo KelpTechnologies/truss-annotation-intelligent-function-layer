@@ -493,8 +493,8 @@ def _lookup_root_from_child(api_client: DSLAPIClient, property_type: str, value:
         raise
 
 
-# Minimum confidence threshold for model classification (5/7 neighbors must agree = 71.43%)
-MIN_MODEL_CONFIDENCE_THRESHOLD = 71.43
+# Minimum confidence threshold for model classification (4/7 neighbors must agree = 57.14%)
+MIN_MODEL_CONFIDENCE_THRESHOLD = 57.14
 
 
 def _classify_model(payload: dict):
@@ -533,7 +533,7 @@ def _classify_model(payload: dict):
     predicted_root_model = result.get("predicted_root_model")
     confidence = result.get("confidence", 0.0)
     
-    # Check confidence threshold - require at least 5/7 neighbors to agree (71.43%)
+    # Check confidence threshold - require at least 4/7 neighbors to agree (57.14%)
     if confidence < MIN_MODEL_CONFIDENCE_THRESHOLD:
         logger.warning(f"Model classification confidence {confidence:.1f}% is below threshold {MIN_MODEL_CONFIDENCE_THRESHOLD}% - returning null result")
         total_elapsed = time.time() - start_time
