@@ -493,6 +493,10 @@ def _lookup_root_from_child(api_client: DSLAPIClient, property_type: str, value:
         raise
 
 
+# Minimum confidence threshold for model classification (5/7 neighbors must agree = 71.43%)
+MIN_MODEL_CONFIDENCE_THRESHOLD = 71.43
+
+
 def _classify_model(payload: dict):
     """Classify model using a pre-computed image vector from the image-processing table."""
     start_time = time.time()
@@ -528,6 +532,20 @@ def _classify_model(payload: dict):
     predicted_model = result.get("predicted_model")
     predicted_root_model = result.get("predicted_root_model")
     confidence = result.get("confidence", 0.0)
+    
+    # Check confidence threshold - require at least 5/7 neighbors to agree (71.43%)
+    if confidence < MIN_MODEL_CONFIDENCE_THRESHOLD:
+        logger.warning(f"Model classification confidence {confidence:.1f}% is below threshold {MIN_MODEL_CONFIDENCE_THRESHOLD}% - returning null result")
+        total_elapsed = time.time() - start_time
+        return {
+            "model": None,
+            "model_id": None,
+            "root_model": None,
+            "root_model_id": None,
+            "confidence": confidence,
+            "below_threshold": True,
+            "threshold": MIN_MODEL_CONFIDENCE_THRESHOLD,
+        }
     
     logger.info(f"Vector classifier result - model: {predicted_model}, root_model: {predicted_root_model}, confidence: {confidence}")
 
