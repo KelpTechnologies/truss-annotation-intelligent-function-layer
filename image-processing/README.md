@@ -1,196 +1,247 @@
-# Image Processing Infrastructure
+# Image Processing & Vectorization Pipeline
 
-This directory contains the image processing infrastructure for the Truss microservices platform, including S3 buckets, Lambda functions, and API endpoints for managing image uploads and processing.
+Automated image processing and vectorization system for the Truss Annotation platform. Handles image uploads, optimization, and AI-powered vector embedding generation.
 
-## Architecture Overview
+## Architecture
 
-The image processing solution consists of two main components:
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
+│  Client Upload  │────▶│  S3 Source       │────▶│  Image Processing   │
+│  (via presigned │     │  Bucket          │     │  Lambda (S3 trigger)│
+│   URL)          │     │                  │     │                     │
+└─────────────────┘     └──────────────────┘     └──────────┬──────────┘
+                                                            │
+                        ┌──────────────────┐                │
+                        │  DynamoDB        │◀───────────────┤
+                        │  (status/vector) │                │
+                        └──────────────────┘                │
+                                                            ▼
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
+│  Vectorization  │◀────│  S3 Processed    │◀────│  Sharp Image        │
+│  API (GPU)      │     │  Bucket          │     │  Processing         │
+│  (Google Cloud) │     │  (768x768 WebP)  │     │                     │
+└─────────────────┘     └──────────────────┘     └─────────────────────┘
+```
 
-### 1. Image Processing Lambda (`image-processing/`)
+## Processing Flow
 
-- **Purpose**: Processes images uploaded to S3 source bucket
-- **Trigger**: S3 object creation events
-- **Functionality**:
-  - Downloads images from source bucket
-  - Processes images using Sharp (resize, format conversion)
-  - Uploads processed images to destination bucket
-  - Tracks processing status in DynamoDB
+### 1. Upload Request
 
-### 2. Image Service API (`services/image-service/`)
+Client requests a presigned URL from the Image Service API:
 
-- **Purpose**: Provides API endpoints for image management
-- **Functionality**:
-  - Generate presigned URLs for uploads
-  - Check processing status
-  - List images and processed versions
-  - Delete images and processed versions
+```bash
+POST /images/upload-url
+{
+  "filename": "product-image.jpg",
+  "contentType": "image/jpeg"
+}
+```
 
-## Infrastructure Components
+Response:
 
-### S3 Buckets
+```json
+{
+  "uploadUrl": "https://s3.eu-west-2.amazonaws.com/...",
+  "processingId": "abc123-uuid",
+  "key": "uploads/abc123-uuid.jpg",
+  "expiresIn": 3600
+}
+```
 
-- **Source Bucket**: `truss-image-source-{stage}-{account_id}`
-  - Stores original uploaded images
-  - Triggers processing Lambda on upload
-  - Private access only
-- **Processed Bucket**: `truss-image-processed-{stage}-{account_id}`
-  - Stores processed image variants
-  - Public access via CloudFront
-  - Contains multiple sizes (thumbnail, medium, large, webp)
+### 2. S3 Upload & Lambda Trigger
 
-### DynamoDB Table
+- Client uploads image directly to S3 using the presigned URL
+- S3 `ObjectCreated` event triggers the Image Processing Lambda
+- Processing ID is extracted from the filename
 
-- **Processing Status Table**: `truss-image-processing-{stage}`
-  - Tracks processing status and metadata
-  - TTL enabled for automatic cleanup
-  - Global Secondary Index on timestamp
+### 3. Image Processing (Sharp)
 
-### CloudFront Distribution
+The Lambda processes the image using Sharp:
 
-- **Purpose**: CDN for processed images
-- **Configuration**:
-  - Caching disabled for real-time updates
-  - Security headers enabled
-  - HTTPS redirect
+| Step     | Description                                      |
+| -------- | ------------------------------------------------ |
+| Download | Fetch original image from source bucket          |
+| Resize   | Crop to **768x768** pixels (cover fit, centered) |
+| Convert  | Output as **WebP** format (quality 90, effort 6) |
+| Upload   | Store processed image in destination bucket      |
+
+**Supported Input Formats:** JPEG, PNG, WebP, AVIF, GIF
+
+### 4. Vectorization
+
+The processed image is sent to a GPU-powered vectorization API:
+
+| Step    | Description                                        |
+| ------- | -------------------------------------------------- |
+| Convert | WebP → JPEG (for API compatibility)                |
+| Send    | POST to vectorization API with multipart form-data |
+| Receive | Embedding vector + dimension                       |
+| Store   | Save vector to DynamoDB                            |
+
+**Vectorization API:** Google Cloud Run (GPU-enabled)
+
+```
+https://image-vectorization-api-gpu-*.us-central1.run.app/vectorize
+```
+
+### 5. Status Tracking
+
+All processing states are tracked in DynamoDB:
+
+```
+uploaded → processing → completed/failed
+```
+
+## Data Schema
+
+### DynamoDB Record
+
+| Field                  | Type   | Description                                     |
+| ---------------------- | ------ | ----------------------------------------------- |
+| `processingId`         | String | Unique identifier (UUID)                        |
+| `originalKey`          | String | S3 key of original upload                       |
+| `status`               | String | `uploaded`, `processing`, `completed`, `failed` |
+| `timestamp`            | String | ISO 8601 timestamp                              |
+| `processedImage`       | Object | `{ key, url, size }`                            |
+| `imageVector`          | Array  | Embedding vector (floats)                       |
+| `vectorDimension`      | Number | Vector dimension (e.g., 768)                    |
+| `vectorizationTimings` | Object | API performance metrics                         |
+| `error`                | String | Error message (if failed)                       |
+| `vectorizationError`   | Object | Vectorization error details                     |
 
 ## API Endpoints
 
-### Upload Management
+### Image Service (`/images/*`)
 
-- `POST /images/upload-url` - Generate presigned upload URL
-- `GET /images/upload-url` - Generate presigned upload URL (query params)
-
-### Processing Status
-
-- `GET /images/status/{processingId}` - Get processing status
-- `GET /images/list` - List images with filtering
-- `POST /images/process/{uniqueId}` - Manually trigger processing
-
-### Processed Images
-
-- `GET /images/processed/{uniqueId}` - Get processed image URLs
-- `DELETE /images/image/{uniqueId}` - Delete image and processed versions
-
-### Health Check
-
-- `GET /images/health` - Service health status
-
-## Image Processing Workflow
-
-1. **Upload Request**: Client requests presigned URL from image service
-2. **Upload**: Client uploads image directly to S3 source bucket
-3. **Processing Trigger**: S3 event triggers image processing Lambda
-4. **Image Processing**: Lambda processes image into multiple sizes/formats
-5. **Storage**: Processed images stored in processed bucket
-6. **Status Tracking**: Processing status updated in DynamoDB
-7. **Access**: Processed images accessible via CloudFront URLs
-
-## Supported Image Formats
-
-- **Input**: JPG, JPEG, PNG, WebP, GIF
-- **Output**: WebP (optimized for web)
-- **Sizes**:
-  - Thumbnail: 300x300 (max)
-  - Medium: 800x600 (max)
-  - Large: 1920x1080 (max)
-  - Original: WebP conversion
-
-## Deployment
-
-The image processing infrastructure is deployed via GitHub Actions workflow:
-
-```bash
-# Deploy to dev environment
-gh workflow run "Deploy Image Processing Infrastructure" --ref dev
-
-# Deploy to prod environment
-gh workflow run "Deploy Image Processing Infrastructure" --ref main
-```
-
-### Manual Deployment Options
-
-- `deploy_infrastructure`: Deploy S3 buckets and Lambda (default: true)
-- `deploy_image_service`: Deploy image service API (default: true)
+| Endpoint                           | Method | Description                                  |
+| ---------------------------------- | ------ | -------------------------------------------- |
+| `/images/upload-url`               | POST   | Generate presigned upload URL                |
+| `/images/upload-url`               | GET    | Generate presigned upload URL (query params) |
+| `/images/status/{processingId}`    | GET    | Get processing status                        |
+| `/images/processed/{processingId}` | GET    | Get processed image URLs                     |
+| `/images/list`                     | GET    | List images with filtering                   |
+| `/images/process/{uniqueId}`       | POST   | Manually trigger processing                  |
+| `/images/image/{uniqueId}`         | DELETE | Delete image and processed versions          |
+| `/images/health`                   | GET    | Service health check                         |
 
 ## Environment Variables
 
 ### Image Processing Lambda
 
-- `SOURCE_BUCKET`: Source S3 bucket name
-- `PROCESSED_BUCKET`: Processed S3 bucket name
-- `PROCESSING_TABLE`: DynamoDB table name
-- `STAGE`: Deployment stage (dev/prod)
+| Variable                | Description                    | Example                                 |
+| ----------------------- | ------------------------------ | --------------------------------------- |
+| `SOURCE_BUCKET`         | S3 bucket for original uploads | `truss-annotation-image-source-prod`    |
+| `PROCESSED_BUCKET`      | S3 bucket for processed images | `truss-annotation-image-processed-prod` |
+| `PROCESSING_TABLE`      | DynamoDB table name            | `truss-image-processing-prod`           |
+| `STAGE`                 | Deployment stage               | `prod`, `staging`, `dev`                |
+| `VECTORIZATION_API_URL` | GPU vectorization API endpoint | `https://...run.app/vectorize`          |
+| `VECTORIZATION_API_KEY` | API authentication key         | `sk-...`                                |
 
-### Image Service API
+## Output Specifications
 
-- `SOURCE_BUCKET`: Source S3 bucket name
-- `PROCESSED_BUCKET`: Processed S3 bucket name
-- `PROCESSING_TABLE`: DynamoDB table name
-- `CLOUDFRONT_URL`: CloudFront distribution URL
-- `STAGE`: Deployment stage (dev/prod)
+### Processed Image
 
-## Security
+| Property   | Value                        |
+| ---------- | ---------------------------- |
+| Dimensions | 768 x 768 pixels             |
+| Format     | WebP                         |
+| Quality    | 90                           |
+| Fit        | Cover (center crop)          |
+| Filename   | `{originalKey}_768x768.webp` |
 
-- **Authentication**: Cognito JWT tokens and API keys
-- **Authorization**: IAM roles with least privilege access
-- **S3 Security**: Private buckets with CloudFront public access
-- **CORS**: Configured for cross-origin requests
+### Vector Embedding
 
-## Monitoring and Logging
+| Property  | Value                                   |
+| --------- | --------------------------------------- |
+| Dimension | Model-dependent (typically 768 or 1024) |
+| Format    | Array of floats                         |
+| Use Case  | Similarity search, visual search        |
 
-- **CloudWatch Logs**: Lambda execution logs
-- **DynamoDB**: Processing status and metadata
-- **S3 Metrics**: Upload and processing metrics
-- **CloudFront**: CDN performance metrics
+## Error Handling
 
-## Cost Optimization
+### Processing Errors
 
-- **S3 Lifecycle**: Automatic cleanup of old versions
-- **DynamoDB TTL**: Automatic record expiration
-- **CloudFront**: Efficient content delivery
-- **Lambda**: Pay-per-execution model
+- AVIF format fallback if initial decode fails
+- Graceful degradation if vectorization fails (image still processed)
+- All errors logged with full stack traces
+- DynamoDB status updated to `failed` with error details
 
-## Troubleshooting
+### Vectorization Errors
 
-### Common Issues
+Vectorization failures don't block image processing:
 
-1. **Processing Not Triggered**
-
-   - Check S3 event configuration
-   - Verify Lambda permissions
-   - Check CloudWatch logs
-
-2. **Upload URL Expired**
-
-   - Default expiration: 1 hour
-   - Request new URL if needed
-
-3. **Processing Failed**
-   - Check image format support
-   - Verify file size limits
-   - Review Lambda logs
-
-### Debugging Commands
-
-```bash
-# Check processing status
-aws dynamodb get-item \
-  --table-name truss-image-processing-dev \
-  --key '{"processingId":{"S":"img_1234567890_abc123"}}'
-
-# List S3 objects
-aws s3 ls s3://truss-image-source-dev-123456789012/uploads/
-
-# Check Lambda logs
-aws logs describe-log-groups --log-group-name-prefix /aws/lambda/truss-image-processing-dev
+```javascript
+// Vector result stored even on failure
+{
+  success: false,
+  error: "Error message",
+  statusCode: 500,
+  details: { ... }
+}
 ```
 
-## Future Enhancements
+## Monitoring
 
-- **AI Processing**: Integration with AI services for image analysis
-- **Batch Processing**: Support for bulk image processing
-- **Advanced Formats**: Support for additional image formats
-- **Metadata Extraction**: EXIF data processing
-- **Image Optimization**: Advanced compression algorithms
-- **Watermarking**: Automatic watermark application
-- **Face Detection**: AI-powered face detection and blurring
+### CloudWatch Logs
+
+Comprehensive logging at each step:
+
+- Record processing start/end
+- S3 download/upload metrics
+- Sharp processing timings
+- Vectorization API request/response
+- DynamoDB operations
+
+### Timing Metrics
+
+Each processed record includes timing breakdown:
+
+```json
+{
+  "timings": {
+    "download": 245,
+    "process": 892,
+    "upload": 156,
+    "vectorization": 1234,
+    "total": 2527
+  }
+}
+```
+
+## Deployment
+
+Deployed via GitHub Actions:
+
+```bash
+# Deploy to staging
+gh workflow run "Deploy Image Processing" --ref staging
+
+# Deploy to production
+gh workflow run "Deploy Image Processing" --ref main
+```
+
+## Local Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run tests (if available)
+npm test
+```
+
+## Dependencies
+
+| Package     | Purpose                           |
+| ----------- | --------------------------------- |
+| `aws-sdk`   | AWS services (S3, DynamoDB)       |
+| `sharp`     | Image processing                  |
+| `axios`     | HTTP client for vectorization API |
+| `form-data` | Multipart form handling           |
+
+## Related Services
+
+- **Image Service API:** `services/image-service/` - REST API for image management
+- **Vectorization API:** External GPU service for embedding generation
+- **S3 Buckets:** Source and processed image storage
+- **DynamoDB:** Processing status and vector storage
