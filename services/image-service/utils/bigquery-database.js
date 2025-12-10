@@ -188,14 +188,29 @@ async function query(sql, args = [], config, options = {}, maxRetries = 3) {
       const startTime = Date.now();
 
       // Configure query job
+      // Normalize limit: convert empty strings, null, undefined to undefined
+      // Only include maxResults if it's a valid positive number
+      const normalizedLimit =
+        options.limit !== undefined &&
+        options.limit !== null &&
+        options.limit !== "" &&
+        !isNaN(options.limit) &&
+        Number(options.limit) > 0
+          ? Number(options.limit)
+          : undefined;
+      
       const queryConfig = {
         query: sql,
         useQueryCache: options.useCache !== false,
         useLegacySql: false,
         dryRun: options.dryRun || false,
-        maxResults: options.limit || null,
         jobTimeoutMs: options.timeout || 30000,
       };
+      
+      // Only include maxResults if we have a valid positive number
+      if (normalizedLimit !== undefined) {
+        queryConfig.maxResults = normalizedLimit;
+      }
 
       // Add parameterized query support if args are provided
       if (args && args.length > 0) {
