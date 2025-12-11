@@ -16,6 +16,7 @@ import os
 import sys
 import re
 import unicodedata
+import math
 from collections import Counter
 from decimal import Decimal
 from typing import Any, Dict, Optional
@@ -307,6 +308,8 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
         Classification result dictionary
     """
     print(f"\n[STEP 4] Performing majority voting (K={k})")
+    required_model_votes = 5 if k >= 7 else math.ceil((5 / 7) * k)
+    required_root_votes = 6 if k >= 7 else math.ceil((6 / 7) * k)
     
     # Take top K matches (already ordered by score)
     top_k_matches = matches[:k]
@@ -352,7 +355,7 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
         }
     
     most_common_model, model_vote_count = model_counts.most_common(1)[0]
-    model_confidence = (model_vote_count / len(models)) * 100 if models else 0.0
+    model_confidence = (model_vote_count / k) * 100 if k else 0.0
     
     print(f"\n  Model voting results:")
     for model, count in model_counts.most_common():
@@ -360,10 +363,48 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
     
     # If root_model is available, include the most common root_model in output
     predicted_root_model = None
+    predicted_root_votes = 0
     if root_models:
         root_model_counts = Counter(root_models)
-        predicted_root_model = root_model_counts.most_common(1)[0][0]
-        print(f"\n  Root model (for reference): {predicted_root_model}")
+        predicted_root_model, predicted_root_votes = root_model_counts.most_common(1)[0]
+        root_confidence = (predicted_root_votes / k) * 100 if k else 0.0
+        print(f"\n  Root model voting results:")
+        for rm, count in root_model_counts.most_common():
+            print(f"    {rm}: {count}/{k} ({(count/k)*100:.1f}%)")
+        print(f"  Required root_model votes: {required_root_votes}/{k}")
+        print(f"  Required model votes: {required_model_votes}/{k}")
+    else:
+        root_confidence = 0.0
+        print("\n  Root model data missing for all results")
+        print(f"  Required root_model votes: {required_root_votes}/{k}")
+        print(f"  Required model votes: {required_model_votes}/{k}")
+
+    if model_vote_count < required_model_votes:
+        return {
+            "predicted_model": None,
+            "predicted_root_model": None,
+            "confidence": 0.0,
+            "method": "insufficient_consensus",
+            "message": (
+                f"Model consensus not reached: {model_vote_count}/{k} votes "
+                f"(requires {required_model_votes}/{k})"
+            ),
+        }
+
+    if not root_models or predicted_root_votes < required_root_votes:
+        return {
+            "predicted_model": None,
+            "predicted_root_model": None,
+            "confidence": 0.0,
+            "method": "insufficient_consensus",
+            "message": (
+                "Root model consensus not reached: "
+                f"{predicted_root_votes}/{k} votes "
+                f"(requires {required_root_votes}/{k})"
+                if root_models
+                else "Root model data unavailable for consensus check"
+            ),
+        }
     
     message = f"Model '{most_common_model}' has {model_vote_count}/{len(models)} votes"
     
@@ -371,8 +412,9 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
         "predicted_model": most_common_model,
         "predicted_model_confidence": model_confidence,
         "predicted_root_model": predicted_root_model,
-        "confidence": model_confidence,
-        "method": "model_voting",
+        "predicted_root_model_confidence": root_confidence,
+        "confidence": min(model_confidence, root_confidence),
+        "method": "threshold_voting",
         "message": message,
     }
     
