@@ -334,6 +334,7 @@ async function processImage(imageBuffer, originalKey) {
       space: metadata.space,
       size: metadata.size,
       density: metadata.density,
+      orientation: metadata.orientation, // EXIF orientation (1-8, undefined if not set)
       extensionHint: extension,
     });
 
@@ -365,9 +366,11 @@ async function processImage(imageBuffer, originalKey) {
       inputFormat: metadata.format || extension || "unknown",
     });
 
-    // Process image: resize and convert to WebP
-    // Sharp automatically handles AVIF decoding when format is detected
+    // Process image: rotate based on EXIF, resize, and convert to WebP
+    // .rotate() without arguments auto-rotates based on EXIF Orientation tag
+    // This MUST happen before resize to ensure correct orientation for vectorization
     const processedImage = await sharpInstance
+      .rotate() // Apply EXIF orientation correction (fixes flipped images)
       .resize(768, 768, {
         fit: "cover", // Crop to fill exact dimensions
         position: "center", // Center the crop
@@ -446,6 +449,7 @@ async function processImage(imageBuffer, originalKey) {
           failOn: "none",
           limitInputPixels: false, // Allow large images
         })
+          .rotate() // Apply EXIF orientation correction (fixes flipped images)
           .resize(768, 768, {
             fit: "cover",
             position: "center",
