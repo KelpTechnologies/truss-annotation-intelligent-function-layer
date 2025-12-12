@@ -558,7 +558,7 @@ def _classify_model(payload: dict):
     if confidence < MIN_MODEL_CONFIDENCE_THRESHOLD:
         logger.warning(f"Model classification confidence {confidence:.1f}% is below threshold {MIN_MODEL_CONFIDENCE_THRESHOLD}% - returning null result")
         total_elapsed = time.time() - start_time
-        return {
+        below_threshold_result = {
             "model": None,
             "model_id": None,
             "root_model": None,
@@ -567,6 +567,10 @@ def _classify_model(payload: dict):
             "below_threshold": True,
             "threshold": MIN_MODEL_CONFIDENCE_THRESHOLD,
         }
+        # Include metadata from classification result (match_details, voting_details, etc.)
+        if result.get("metadata"):
+            below_threshold_result["metadata"] = result["metadata"]
+        return below_threshold_result
     
     logger.info(f"Vector classifier result - model: {predicted_model}, root_model: {predicted_root_model}, confidence: {confidence}")
 
@@ -615,6 +619,11 @@ def _classify_model(payload: dict):
         "root_model_id": root_model_id,
         "confidence": confidence,
     }
+    
+    # Include metadata from classification result (match_details, voting_details, etc.)
+    if result.get("metadata"):
+        final_result["metadata"] = result["metadata"]
+    
     logger.info(f"Model classification completed in {total_elapsed:.2f}s - Result: {json.dumps(final_result, default=str)}")
     return final_result
 
