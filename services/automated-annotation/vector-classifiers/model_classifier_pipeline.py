@@ -308,9 +308,9 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
         Classification result dictionary
     """
     print(f"\n[STEP 4] Performing majority voting (K={k})")
-    # Lowered thresholds: was 5/6, now 3/4 for more lenient matching
-    required_model_votes = 3 if k >= 7 else math.ceil((3 / 7) * k)
-    required_root_votes = 4 if k >= 7 else math.ceil((4 / 7) * k)
+    # Thresholds: model requires 4 votes, root_model requires 5 votes (was 5/6, then 3/4)
+    required_model_votes = 4 if k >= 7 else math.ceil((4 / 7) * k)
+    required_root_votes = 5 if k >= 7 else math.ceil((5 / 7) * k)
     
     # Take top K matches (already ordered by score)
     top_k_matches = matches[:k]
