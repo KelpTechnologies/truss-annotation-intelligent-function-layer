@@ -308,15 +308,17 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
         Classification result dictionary
     """
     print(f"\n[STEP 4] Performing majority voting (K={k})")
-    required_model_votes = 5 if k >= 7 else math.ceil((5 / 7) * k)
-    required_root_votes = 6 if k >= 7 else math.ceil((6 / 7) * k)
+    # Thresholds: model requires 4 votes, root_model requires 5 votes (was 5/6, then 3/4)
+    required_model_votes = 4 if k >= 7 else math.ceil((4 / 7) * k)
+    required_root_votes = 5 if k >= 7 else math.ceil((5 / 7) * k)
     
     # Take top K matches (already ordered by score)
     top_k_matches = matches[:k]
     
-    # Extract models and root_models for top K
+    # Extract models and root_models for top K, and build match details
     models = []
     root_models = []
+    match_details = []
     
     print(f"\n  Top {k} results:")
     for i, match in enumerate(top_k_matches, 1):
@@ -330,8 +332,20 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
             if root_model:
                 root_models.append(root_model)
             print(f"    {i}. ID: {image_id}, Score: {score:.4f}, Model: {model}, Root: {root_model or 'N/A'}")
+            match_details.append({
+                "id": image_id,
+                "score": round(score, 4),
+                "model": model,
+                "root_model": root_model
+            })
         else:
             print(f"    {i}. ID: {image_id}, Score: {score:.4f}, Model: MISSING")
+            match_details.append({
+                "id": image_id,
+                "score": round(score, 4),
+                "model": None,
+                "root_model": None
+            })
     
     # Check if we have any valid model data
     if not models:
@@ -340,7 +354,10 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
             "predicted_root_model": None,
             "confidence": 0.0,
             "method": "no_data",
-            "message": "No valid model metadata found for top K results"
+            "message": "No valid model metadata found for top K results",
+            "metadata": {
+                "match_details": match_details
+            }
         }
     
     # Always vote on model
@@ -351,7 +368,10 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
             "predicted_root_model": None,
             "confidence": 0.0,
             "method": "no_data",
-            "message": "No valid model metadata found for top K results"
+            "message": "No valid model metadata found for top K results",
+            "metadata": {
+                "match_details": match_details
+            }
         }
     
     most_common_model, model_vote_count = model_counts.most_common(1)[0]
@@ -364,8 +384,8 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
     # If root_model is available, include the most common root_model in output
     predicted_root_model = None
     predicted_root_votes = 0
+    root_model_counts = Counter(root_models) if root_models else Counter()
     if root_models:
-        root_model_counts = Counter(root_models)
         predicted_root_model, predicted_root_votes = root_model_counts.most_common(1)[0]
         root_confidence = (predicted_root_votes / k) * 100 if k else 0.0
         print(f"\n  Root model voting results:")
@@ -380,6 +400,12 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
         print(f"  Required model votes: {required_model_votes}/{k}")
 
     if model_vote_count < required_model_votes:
+        # Find the top model that didn't make it (second most common if exists)
+        top_excluded_model = None
+        top_excluded_model_votes = 0
+        if len(model_counts) > 1:
+            top_excluded_model, top_excluded_model_votes = model_counts.most_common(2)[1]
+        
         return {
             "predicted_model": None,
             "predicted_root_model": None,
@@ -389,9 +415,80 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
                 f"Model consensus not reached: {model_vote_count}/{k} votes "
                 f"(requires {required_model_votes}/{k})"
             ),
+            "metadata": {
+                "match_details": match_details,
+                "voting_details": {
+                    "top_model": {
+                        "name": most_common_model,
+                        "votes": model_vote_count,
+                        "required_votes": required_model_votes,
+                        "confidence_percent": (model_vote_count / k) * 100 if k else 0.0,
+                    },
+                    "top_excluded_model": {
+                        "name": top_excluded_model,
+                        "votes": top_excluded_model_votes,
+                        "confidence_percent": (top_excluded_model_votes / k) * 100 if k and top_excluded_model else 0.0,
+                    } if top_excluded_model else None,
+                    "all_model_votes": [
+                        {
+                            "model": model,
+                            "votes": count,
+                            "confidence_percent": (count / k) * 100 if k else 0.0,
+                        }
+                        for model, count in model_counts.most_common()
+                    ],
+                }
+            },
         }
 
     if not root_models or predicted_root_votes < required_root_votes:
+        # Find the top root_model that didn't make it (second most common if exists)
+        top_excluded_root_model = None
+        top_excluded_root_model_votes = 0
+        if root_models and len(root_model_counts) > 1:
+            top_excluded_root_model, top_excluded_root_model_votes = root_model_counts.most_common(2)[1]
+        
+        voting_metadata = {
+            "match_details": match_details,
+            "voting_details": {
+                "top_model": {
+                    "name": most_common_model,
+                    "votes": model_vote_count,
+                    "required_votes": required_model_votes,
+                    "confidence_percent": (model_vote_count / k) * 100 if k else 0.0,
+                },
+                "top_root_model": {
+                    "name": predicted_root_model,
+                    "votes": predicted_root_votes,
+                    "required_votes": required_root_votes,
+                    "confidence_percent": (predicted_root_votes / k) * 100 if k else 0.0,
+                } if root_models else None,
+                "top_excluded_root_model": {
+                    "name": top_excluded_root_model,
+                    "votes": top_excluded_root_model_votes,
+                    "confidence_percent": (top_excluded_root_model_votes / k) * 100 if k and top_excluded_root_model else 0.0,
+                } if top_excluded_root_model else None,
+                "all_model_votes": [
+                    {
+                        "model": model,
+                        "votes": count,
+                        "confidence_percent": (count / k) * 100 if k else 0.0,
+                    }
+                    for model, count in model_counts.most_common()
+                ],
+            }
+        }
+        
+        if root_models:
+            voting_metadata["voting_details"]["all_root_model_votes"] = [
+                {
+                    "root_model": rm,
+                    "votes": count,
+                    "confidence_percent": (count / k) * 100 if k else 0.0,
+                }
+                for rm, count in root_model_counts.most_common()
+            ]
+        
         return {
             "predicted_model": None,
             "predicted_root_model": None,
@@ -404,9 +501,21 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
                 if root_models
                 else "Root model data unavailable for consensus check"
             ),
+            "metadata": voting_metadata,
         }
     
     message = f"Model '{most_common_model}' has {model_vote_count}/{len(models)} votes"
+    
+    # Find the top excluded attributes for successful cases too (for completeness)
+    top_excluded_model = None
+    top_excluded_model_votes = 0
+    if len(model_counts) > 1:
+        top_excluded_model, top_excluded_model_votes = model_counts.most_common(2)[1]
+    
+    top_excluded_root_model = None
+    top_excluded_root_model_votes = 0
+    if root_models and len(root_model_counts) > 1:
+        top_excluded_root_model, top_excluded_root_model_votes = root_model_counts.most_common(2)[1]
     
     result = {
         "predicted_model": most_common_model,
@@ -416,7 +525,52 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
         "confidence": min(model_confidence, root_confidence),
         "method": "threshold_voting",
         "message": message,
+        "metadata": {
+            "match_details": match_details,
+            "voting_details": {
+                "top_model": {
+                    "name": most_common_model,
+                    "votes": model_vote_count,
+                    "required_votes": required_model_votes,
+                    "confidence_percent": model_confidence,
+                },
+                "top_root_model": {
+                    "name": predicted_root_model,
+                    "votes": predicted_root_votes,
+                    "required_votes": required_root_votes,
+                    "confidence_percent": root_confidence,
+                } if root_models else None,
+                "top_excluded_model": {
+                    "name": top_excluded_model,
+                    "votes": top_excluded_model_votes,
+                    "confidence_percent": (top_excluded_model_votes / k) * 100 if k and top_excluded_model else 0.0,
+                } if top_excluded_model else None,
+                "top_excluded_root_model": {
+                    "name": top_excluded_root_model,
+                    "votes": top_excluded_root_model_votes,
+                    "confidence_percent": (top_excluded_root_model_votes / k) * 100 if k and top_excluded_root_model else 0.0,
+                } if top_excluded_root_model else None,
+                "all_model_votes": [
+                    {
+                        "model": model,
+                        "votes": count,
+                        "confidence_percent": (count / k) * 100 if k else 0.0,
+                    }
+                    for model, count in model_counts.most_common()
+                ],
+            }
+        },
     }
+    
+    if root_models:
+        result["metadata"]["voting_details"]["all_root_model_votes"] = [
+            {
+                "root_model": rm,
+                "votes": count,
+                "confidence_percent": (count / k) * 100 if k else 0.0,
+            }
+            for rm, count in root_model_counts.most_common()
+        ]
     
     return result
 
@@ -494,6 +648,27 @@ def classify_image(processing_id: str, brand: str, k: int = 7) -> Dict[str, Any]
 
         print(f"{'=' * 70}\n")
 
+        # Merge metadata from classification_result with additional metadata
+        # This preserves match_details and voting_details from perform_voting
+        classification_metadata = classification_result.get("metadata", {})
+        merged_metadata = {
+            **classification_metadata,  # This includes match_details and voting_details
+            "vector": processing_record["metadata"],
+            "pinecone": {
+                "namespace": namespace,
+                "index_name": "mfc-classifier-bags-models",
+            },
+            "model_metadata_count": len(metadata),
+        }
+        
+        # Ensure match_details is preserved (defensive check)
+        if "match_details" not in merged_metadata and classification_metadata.get("match_details"):
+            merged_metadata["match_details"] = classification_metadata["match_details"]
+        
+        # Debug: Log match_details count to verify it's being included
+        match_details_count = len(merged_metadata.get("match_details", []))
+        print(f"\n[DEBUG] Merged metadata includes {match_details_count} match_details entries")
+        
         return {
             **classification_result,
             "processing_id": processing_id,
@@ -502,14 +677,7 @@ def classify_image(processing_id: str, brand: str, k: int = 7) -> Dict[str, Any]
             "vector_dimension": vector_dimension,
             "vector_source": "image-processing-table",
             "matches": matches,
-            "metadata": {
-                "vector": processing_record["metadata"],
-                "pinecone": {
-                    "namespace": namespace,
-                    "index_name": "mfc-classifier-bags-models",
-                },
-                "model_metadata_count": len(metadata),
-            },
+            "metadata": merged_metadata,
         }
 
     except Exception as e:

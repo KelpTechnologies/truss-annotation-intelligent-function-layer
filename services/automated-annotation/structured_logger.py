@@ -241,6 +241,33 @@ class StructuredLogger:
             },
         })
     
+    def log_warning(
+        self,
+        ctx: dict,
+        message: str,
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Log a warning.
+        Unlike errors, warnings don't terminate the request - they're informational alerts.
+        Can be called multiple times per request to emit multiple warnings.
+        
+        Args:
+            ctx: Request context from start_request
+            message: Warning message
+            details: Additional details about the warning
+        """
+        warning_data = {
+            "message": message,
+            "messageOriginal": message,
+        }
+        if details:
+            warning_data.update(details)
+        
+        self._emit("WARNING", ctx, {
+            "warning": warning_data,
+        })
+    
     def log_metric(
         self,
         ctx: dict,
