@@ -35,6 +35,7 @@ const {
   logServiceError,
   testDatabaseConnection,
 } = require("./logger");
+const { createLogger } = require("./structured-logger");
 
 /**
  * Generic confidence metrics service handler template
@@ -52,6 +53,13 @@ async function handleConfidenceMetricsRequest(
   queryFunction,
   partitionKey = null
 ) {
+  // Create structured logger for this request
+  const structuredLogger = createLogger({
+    layer: "annotation-ifl",
+    serviceName: serviceConfig.service.name,
+  });
+  const requestContext = structuredLogger.startRequest(event);
+
   const requestId = generateRequestId();
   const startTime = Date.now();
 
@@ -191,7 +199,14 @@ async function handleConfidenceMetricsRequest(
           queryMode
         );
       } catch (hookErr) {
-        console.warn("⚠️ postProcessData hook failed:", hookErr?.message);
+        structuredLogger.logWarning(
+          requestContext,
+          "postProcessData hook failed",
+          {
+            error: hookErr?.message,
+            hookName: "postProcessData",
+          }
+        );
       }
     }
     console.log(
@@ -261,7 +276,14 @@ async function handleConfidenceMetricsRequest(
           requestId,
         });
       } catch (hookErr) {
-        console.warn("⚠️ finalizeData hook failed:", hookErr?.message);
+        structuredLogger.logWarning(
+          requestContext,
+          "finalizeData hook failed",
+          {
+            error: hookErr?.message,
+            hookName: "finalizeData",
+          }
+        );
       }
     }
     console.log(
@@ -337,8 +359,9 @@ async function handleConfidenceMetricsRequest(
       enhancedMetadata
     );
   } catch (error) {
-    console.error("❌ Error in handleConfidenceMetricsRequest:", error.message);
-    console.error("❌ Error stack:", error.stack);
+    structuredLogger.logError(requestContext, error, {
+      statusCode: error.statusCode || 500,
+    });
     logServiceError(
       serviceConfig.service.name,
       options.endpoint || "default",
@@ -364,6 +387,13 @@ async function handleAggregationRequest(
   queryFunction,
   partitionKey = null
 ) {
+  // Create structured logger for this request
+  const structuredLogger = createLogger({
+    layer: "annotation-ifl",
+    serviceName: serviceConfig.service.name,
+  });
+  const requestContext = structuredLogger.startRequest(event);
+
   const requestId = generateRequestId();
   const startTime = Date.now();
 
@@ -541,7 +571,14 @@ async function handleAggregationRequest(
           queryMode
         );
       } catch (hookErr) {
-        console.warn("⚠️ postProcessData hook failed:", hookErr?.message);
+        structuredLogger.logWarning(
+          requestContext,
+          "postProcessData hook failed",
+          {
+            error: hookErr?.message,
+            hookName: "postProcessData",
+          }
+        );
       }
     }
     console.log(
@@ -611,7 +648,14 @@ async function handleAggregationRequest(
           requestId,
         });
       } catch (hookErr) {
-        console.warn("⚠️ finalizeData hook failed:", hookErr?.message);
+        structuredLogger.logWarning(
+          requestContext,
+          "finalizeData hook failed",
+          {
+            error: hookErr?.message,
+            hookName: "finalizeData",
+          }
+        );
       }
     }
     console.log(
@@ -686,8 +730,9 @@ async function handleAggregationRequest(
       enhancedMetadata
     );
   } catch (error) {
-    console.error("❌ Error in handleAggregationRequest:", error.message);
-    console.error("❌ Error stack:", error.stack);
+    structuredLogger.logError(requestContext, error, {
+      statusCode: error.statusCode || 500,
+    });
     logServiceError(
       serviceConfig.service.name,
       options.endpoint || "default",

@@ -29,6 +29,16 @@ logger.setLevel(logging.INFO)
 # Initialize structured logger for metrics (REQUEST/RESPONSE/ERROR lifecycle events)
 structured_logger = StructuredLogger(layer="aifl", service_name="automated-annotation")
 
+# Create fallback context for initialization errors (no request context)
+init_context = {
+    "request_id": "init",
+    "layer": "aifl",
+    "service_name": "automated-annotation",
+    "route": "MODULE_INIT",
+    "route_normalized": "MODULE_INIT",
+    "start_time": time.time(),
+}
+
 # Log stage-aware URL configuration at module load
 logger.info(f"🔗 Stage URL Configuration - Stage: {get_stage()}")
 logger.info(f"   DSL_API_BASE_URL: {get_dsl_url()}")
@@ -73,7 +83,9 @@ try:
     else:
         classify_image = None
 except Exception as e:
-    logger.warning(f"Could not load vector classifier pipeline: {e}")
+    structured_logger.log_warning(init_context, f"Could not load vector classifier pipeline: {e}", {
+        "error": str(e),
+    })
     classify_image = None
 
 
@@ -230,9 +242,9 @@ def _ensure_pinecone_api_key():
             os.environ["PINECONE_API_KEY"] = pinecone_key
             logger.info("PINECONE_API_KEY set from centralized secrets")
         else:
-            logger.warning("Pinecone API key not found in centralized secrets")
+            structured_logger.log_warning(init_context, "Pinecone API key not found in centralized secrets", {})
     except Exception as e:
-        logger.error(f"Failed to load Pinecone API key from secrets: {str(e)}")
+        structured_logger.log_error(init_context, e, status_code=500)
 
 
 def _ensure_gcp_adc():
@@ -252,9 +264,14 @@ def _ensure_gcp_adc():
                     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
                     return
                 else:
-                    logger.warning(f"Existing credentials file at {creds_path} is missing required fields, will recreate")
+                    structured_logger.log_warning(init_context, f"Existing credentials file at {creds_path} is missing required fields, will recreate", {
+                        "creds_path": creds_path,
+                    })
         except Exception as e:
-            logger.warning(f"Existing credentials file at {creds_path} is invalid ({str(e)}), will recreate")
+            structured_logger.log_warning(init_context, f"Existing credentials file at {creds_path} is invalid, will recreate", {
+                "creds_path": creds_path,
+                "error": str(e),
+            })
         # If we get here, the file exists but is invalid, so we'll recreate it
     
     # Try to get from environment variable first
@@ -332,7 +349,9 @@ def _ensure_gcp_adc():
         service_account_email = creds_data.get("client_email", "unknown")
         logger.info(f"Using GCP service account: {service_account_email}")
     except Exception as e:
-        logger.warning(f"Could not parse service account email from credentials: {str(e)}")
+        structured_logger.log_warning(init_context, f"Could not parse service account email from credentials: {str(e)}", {
+            "error": str(e),
+        })
         service_account_email = "unknown"
 
     # Set environment variable
@@ -351,7 +370,9 @@ def _ensure_gcp_adc():
             if vertexai_project:
                 logger.info(f"Extracted project_id from GCP credentials: {vertexai_project}")
         except (json.JSONDecodeError, KeyError) as e:
-            logger.warning(f"Could not extract project_id from credentials: {str(e)}")
+            structured_logger.log_warning(init_context, f"Could not extract project_id from credentials: {str(e)}", {
+                "error": str(e),
+            })
     
     if not vertexai_project:
         raise ValueError("VERTEXAI_PROJECT environment variable is required (or project_id must be in GCP service account JSON)")
@@ -369,7 +390,10 @@ def _ensure_gcp_adc():
     
     # Log important info for debugging IAM issues
     logger.info(f"GCP Configuration - Project: {vertexai_project}, Service Account: {service_account_email}")
-    logger.warning(f"IMPORTANT: Service account '{service_account_email}' needs 'Vertex AI User' role (roles/aiplatform.user) in project '{vertexai_project}' to use Gemini models")
+    structured_logger.log_warning(init_context, f"IMPORTANT: Service account '{service_account_email}' needs 'Vertex AI User' role (roles/aiplatform.user) in project '{vertexai_project}' to use Gemini models", {
+        "service_account_email": service_account_email,
+        "vertexai_project": vertexai_project,
+    })
     
     # Verify credentials can be read by Google auth libraries
     try:
@@ -381,8 +405,8 @@ def _ensure_gcp_adc():
         if hasattr(creds, 'service_account_email'):
             logger.info(f"Service account from credentials: {creds.service_account_email}")
     except Exception as e:
-        logger.error(f"Failed to verify credentials with google.auth.default(): {str(e)}")
-        logger.warning("This may indicate a problem with credential setup")
+        structured_logger.log_error(init_context, e, status_code=500)
+        structured_logger.log_warning(init_context, "This may indicate a problem with credential setup", {})
         
     logger.info("GCP Application Default Credentials setup completed successfully")
 
@@ -506,17 +530,14 @@ def _classify_model(payload: dict):
     _ensure_pinecone_api_key()
     
     if not classify_image:
-        logger.error("Vector classifier pipeline not available")
         raise ValueError("Vector classifier pipeline not available")
 
     processing_id = payload.get("processing_id") or payload.get("processingId")
     if not processing_id:
-        logger.error("Missing processing_id in payload")
         raise ValueError("'processing_id' is required for model classification")
 
     brand = payload.get("brand")
     if not brand:
-        logger.error("Missing brand in payload")
         raise ValueError("'brand' is required for model classification")
 
     logger.info(f"Calling vector classifier for processing_id={processing_id}, brand={brand}")
@@ -619,7 +640,6 @@ def _classify_property(category: str, target: str, request_payload: dict):
     # Get image and lookup signed URL
     image = request_payload.get("image")
     if not image:
-        logger.error("Missing image in request payload")
         raise ValueError("'image' is required for property classification")
     
     logger.info(f"Fetching signed URL for image: {image}")
@@ -628,7 +648,6 @@ def _classify_property(category: str, target: str, request_payload: dict):
 
     text_dump = request_payload.get("text_dump")
     if not text_dump:
-        logger.error("Missing text_dump in request payload")
         raise ValueError("'text_dump' is required for property classification")
 
     logger.debug(f"Text dump length: {len(text_dump)} chars")
@@ -735,7 +754,6 @@ def _classify_item(payload: dict):
     property_name = payload.get("property")
     root_type_id = payload.get("root_type_id")
     if not property_name or root_type_id is None:
-        logger.error(f"Missing required fields - property: {property_name}, root_type_id: {root_type_id}")
         raise ValueError("'property' and 'root_type_id' are required fields")
 
     input_mode = payload.get("input_mode", "auto")
@@ -1005,7 +1023,8 @@ def lambda_handler(event, context):
             logger.info(f"Parsed payload keys: {list(payload.keys())}")
 
             if category not in CATEGORY_CONFIG:
-                logger.error(f"Unsupported category: {category}")
+                error = ValueError(f"Unsupported category '{category}'")
+                structured_logger.log_error(req_ctx, error, status_code=404)
                 response = _response(404, {"error": f"Unsupported category '{category}'"})
                 structured_logger.log_response(req_ctx, status_code=404)
                 return response
@@ -1015,12 +1034,10 @@ def lambda_handler(event, context):
                     logger.info("Processing model classification request")
                     image = payload.get("image")
                     if not image:
-                        logger.error("Missing image in model classification request")
                         raise ValueError("'image' is required for model classification")
 
                     brand = payload.get("brand") or CATEGORY_CONFIG[category].get("default_brand")
                     if not brand:
-                        logger.error("Missing brand in model classification request")
                         raise ValueError("'brand' is required for model classification")
 
                     logger.info(f"Model classification - image: {image}, brand: {brand}, category: {category}")
@@ -1099,17 +1116,16 @@ def lambda_handler(event, context):
             structured_logger.log_response(req_ctx, status_code=200)
             return response
 
-        logger.warning(f"Endpoint not found - path: {path}, method: {method}")
+        structured_logger.log_warning(req_ctx, f"Endpoint not found - path: {path}, method: {method}", {
+            "path": path,
+            "method": method,
+        })
         response = _response(404, {"error": "Endpoint not found"})
         structured_logger.log_response(req_ctx, status_code=404)
         return response
 
     except Exception as e:
         elapsed = time.time() - request_start_time
-        logger.error(f"Unhandled exception after {elapsed:.2f}s: {str(e)}")
-        logger.error(f"Exception type: {type(e).__name__}")
-        logger.error(f"Traceback:\n{traceback.format_exc()}")
-        traceback.print_exc()
         # Log structured error for metrics (captures duration, error details)
         structured_logger.log_error(req_ctx, e, status_code=500)
         return _response(500, {"error": str(e)})

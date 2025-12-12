@@ -4,12 +4,24 @@
  */
 
 const AWS = require("aws-sdk");
-console.log("🔍 AWS SDK version:", AWS.VERSION);
-console.log("🔍 AWS SDK available:", typeof AWS !== "undefined");
-
-// Import BigQuery at the top - this will fail fast if not available
 const { BigQuery } = require("@google-cloud/bigquery");
-console.log("✅ BigQuery module loaded successfully");
+const { createLogger } = require("./structured-logger");
+
+// Create fallback logger for initialization (no request context)
+const initLogger = createLogger({
+  serviceName: "bigquery-init",
+  layer: "annotation-ifl",
+});
+const initContext = {
+  requestId: "init",
+  layer: "annotation-ifl",
+  serviceName: "bigquery-init",
+  route: "MODULE_INIT",
+  routeNormalized: "MODULE_INIT",
+};
+
+initLogger.debug("AWS SDK version", { version: AWS.VERSION }, initContext);
+initLogger.debug("BigQuery module loaded successfully", {}, initContext);
 
 let secretsClient = null;
 
@@ -26,19 +38,26 @@ function getBigQuery() {
 function getSecretsClient() {
   if (!secretsClient) {
     try {
-      console.log("🔍 Creating AWS Secrets Manager client...");
-      console.log("🔍 AWS Region:", process.env.AWS_REGION || "us-east-1");
-      console.log("🔍 AWS SDK available:", typeof AWS !== "undefined");
+      initLogger.debug(
+        "Creating AWS Secrets Manager client",
+        {
+          region: process.env.AWS_REGION || "us-east-1",
+        },
+        initContext
+      );
 
       secretsClient = new AWS.SecretsManager({
         region: process.env.AWS_REGION || "us-east-1",
       });
-      console.log("✅ AWS Secrets Manager client created successfully");
+      initLogger.debug(
+        "AWS Secrets Manager client created successfully",
+        {},
+        initContext
+      );
     } catch (error) {
-      console.error("❌ AWS Secrets Manager not available:", error.message);
-      console.error("❌ Error name:", error.name);
-      console.error("❌ Error code:", error.code);
-      console.error("❌ Full error:", JSON.stringify(error, null, 2));
+      initLogger.logError(initContext, error, {
+        statusCode: 500,
+      });
       return null;
     }
   }
@@ -52,34 +71,40 @@ function getSecretsClient() {
  */
 async function getBigQueryClient(secretName = "bigquery-service-account") {
   try {
-    console.log("🔍 Getting AWS Secrets Manager client...");
+    initLogger.debug("Getting AWS Secrets Manager client", {}, initContext);
     const secretsClient = getSecretsClient();
     if (!secretsClient) {
       throw new Error("AWS Secrets Manager client not available");
     }
-    console.log("✅ AWS Secrets Manager client obtained");
+    initLogger.debug("AWS Secrets Manager client obtained", {}, initContext);
 
-    console.log("🔍 Retrieving secret from AWS Secrets Manager...");
-    console.log("🔍 Secret ID:", secretName);
-    console.log("🔍 AWS Region:", process.env.AWS_REGION || "us-east-1");
+    initLogger.debug(
+      "Retrieving secret from AWS Secrets Manager",
+      {
+        secretId: secretName,
+        region: process.env.AWS_REGION || "us-east-1",
+      },
+      initContext
+    );
 
     const response = await secretsClient
       .getSecretValue({ SecretId: secretName })
       .promise();
-    console.log("✅ Secret retrieved from AWS Secrets Manager");
-    console.log("🔍 Secret ARN:", response.ARN);
-    console.log("🔍 Secret name:", response.Name);
-    console.log("🔍 Secret version ID:", response.VersionId);
+    initLogger.debug(
+      "Secret retrieved from AWS Secrets Manager",
+      {
+        arn: response.ARN,
+        name: response.Name,
+        versionId: response.VersionId,
+      },
+      initContext
+    );
 
-    console.log("🔍 Parsing credentials JSON...");
+    initLogger.debug("Parsing credentials JSON", {}, initContext);
     const credentialsJson = JSON.parse(response.SecretString);
-    console.log("✅ Credentials JSON parsed successfully");
+    initLogger.debug("Credentials JSON parsed successfully", {}, initContext);
 
-    console.log("🔍 Getting BigQuery module...");
-    // BigQuery is already imported at the top of the file
-    console.log("✅ BigQuery module obtained");
-
-    console.log("🔍 Creating credentials object...");
+    initLogger.debug("Creating credentials object", {}, initContext);
     const credentials = {
       type: "service_account",
       project_id: credentialsJson.project_id,
@@ -92,9 +117,9 @@ async function getBigQueryClient(secretName = "bigquery-service-account") {
       auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
       client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${credentialsJson.client_email}`,
     };
-    console.log("✅ Credentials object created");
+    initLogger.debug("Credentials object created", {}, initContext);
 
-    console.log("🔍 Creating BigQuery client...");
+    initLogger.debug("Creating BigQuery client", {}, initContext);
     const client = new BigQuery({
       credentials: credentials,
       projectId: credentialsJson.project_id,
@@ -102,17 +127,18 @@ async function getBigQueryClient(secretName = "bigquery-service-account") {
       // Add timeout settings
       timeout: 30000, // 30 seconds
     });
-    console.log("✅ BigQuery client created");
+    initLogger.debug("BigQuery client created", {}, initContext);
 
-    console.log("BigQuery client initialized successfully");
+    initLogger.debug(
+      "BigQuery client initialized successfully",
+      {},
+      initContext
+    );
     return client;
   } catch (error) {
-    console.error("❌ Error initializing BigQuery client:", error);
-    console.error("❌ Error name:", error.name);
-    console.error("❌ Error message:", error.message);
-    console.error("❌ Error code:", error.code);
-    console.error("❌ Error stack:", error.stack);
-    console.error("❌ Full error object:", JSON.stringify(error, null, 2));
+    initLogger.logError(initContext, error, {
+      statusCode: 500,
+    });
     throw error;
   }
 }
@@ -129,11 +155,11 @@ let clientCache = null;
  */
 async function initBigQueryClient(config) {
   if (clientCache) {
-    console.log("🔍 Using cached BigQuery client");
+    initLogger.debug("Using cached BigQuery client", {}, initContext);
     return clientCache;
   }
 
-  console.log("🔍 Initializing new BigQuery client...");
+  initLogger.debug("Initializing new BigQuery client", {}, initContext);
   // Extract secret name from ARN if it's a full ARN
   let secretName =
     process.env.BIGQUERY_SECRET_ARN ||
@@ -146,19 +172,29 @@ async function initBigQueryClient(config) {
     secretName = arnParts[arnParts.length - 1].replace(/-\w+$/, ""); // Remove the random suffix
   }
 
-  console.log("🔍 Secret name:", secretName);
-  console.log("🔍 Environment variables:", {
-    BIGQUERY_SECRET_ARN: process.env.BIGQUERY_SECRET_ARN,
-    GCP_SECRET_NAME: process.env.GCP_SECRET_NAME,
-    AWS_REGION: process.env.AWS_REGION,
-  });
+  initLogger.debug(
+    "Secret name extracted",
+    {
+      secretName,
+      bigquerySecretArn: process.env.BIGQUERY_SECRET_ARN,
+      gcpSecretName: process.env.GCP_SECRET_NAME,
+      awsRegion: process.env.AWS_REGION,
+    },
+    initContext
+  );
 
   try {
     clientCache = await getBigQueryClient(secretName);
-    console.log("✅ BigQuery client initialized successfully");
+    initLogger.debug(
+      "BigQuery client initialized successfully",
+      {},
+      initContext
+    );
     return clientCache;
   } catch (error) {
-    console.error("❌ Failed to initialize BigQuery client:", error);
+    initLogger.logError(initContext, error, {
+      statusCode: 500,
+    });
     throw error;
   }
 }
@@ -198,7 +234,7 @@ async function query(sql, args = [], config, options = {}, maxRetries = 3) {
         Number(options.limit) > 0
           ? Number(options.limit)
           : undefined;
-      
+
       const queryConfig = {
         query: sql,
         useQueryCache: options.useCache !== false,
@@ -206,7 +242,7 @@ async function query(sql, args = [], config, options = {}, maxRetries = 3) {
         dryRun: options.dryRun || false,
         jobTimeoutMs: options.timeout || 30000,
       };
-      
+
       // Only include maxResults if we have a valid positive number
       if (normalizedLimit !== undefined) {
         queryConfig.maxResults = normalizedLimit;
@@ -221,11 +257,25 @@ async function query(sql, args = [], config, options = {}, maxRetries = 3) {
         }));
       }
 
-      console.log("Executing BigQuery:", {
-        query: sql.substring(0, 200) + (sql.length > 200 ? "..." : ""),
-        parameters: args.length,
-        attempt: attempt,
-      });
+      // Log query execution (debug level)
+      const serviceName = config?.service?.name || "unknown";
+      const logger = createLogger({ serviceName, layer: "annotation-ifl" });
+      const queryContext = {
+        requestId: null,
+        serviceName,
+        layer: "annotation-ifl",
+        route: "BIGQUERY_QUERY",
+        routeNormalized: "BIGQUERY_QUERY",
+      };
+      logger.debug(
+        "Executing BigQuery query",
+        {
+          query: sql.substring(0, 200) + (sql.length > 200 ? "..." : ""),
+          parameters: args.length,
+          attempt: attempt,
+        },
+        queryContext
+      );
 
       const [job] = await client.createQueryJob(queryConfig);
       const [rows] = await job.getQueryResults();
@@ -240,33 +290,69 @@ async function query(sql, args = [], config, options = {}, maxRetries = 3) {
       });
 
       if (attempt > 1) {
-        console.log(
-          `✅ BigQuery succeeded on attempt ${attempt} (${queryTime}ms)`
+        logger.debug(
+          `BigQuery succeeded on attempt ${attempt} (${queryTime}ms)`,
+          {
+            attempt,
+            durationMs: queryTime,
+          },
+          queryContext
         );
       }
 
-      console.log(
-        `BigQuery query completed: ${results.length} rows, ${queryTime}ms`
+      logger.debug(
+        `BigQuery query completed: ${results.length} rows, ${queryTime}ms`,
+        {
+          rowCount: results.length,
+          durationMs: queryTime,
+        },
+        queryContext
       );
       return results;
     } catch (error) {
       const isLastAttempt = attempt === maxRetries;
       const isRetryableError = isRetryableBigQueryError(error);
 
-      console.warn(`BigQuery attempt ${attempt} failed:`, {
-        error: error.message,
-        code: error.code,
-        isRetryable: isRetryableError,
-        isLastAttempt,
-      });
+      const serviceName = config?.service?.name || "unknown";
+      const logger = createLogger({ serviceName, layer: "annotation-ifl" });
+      const errorContext = {
+        requestId: null,
+        serviceName,
+        layer: "annotation-ifl",
+        route: "BIGQUERY_QUERY",
+        routeNormalized: "BIGQUERY_QUERY",
+      };
 
       if (isLastAttempt || !isRetryableError) {
+        // Log error for final attempt or non-retryable errors
+        logger.logError(errorContext, error, {
+          statusCode: 500,
+          bigquery: {
+            queryPreview:
+              sql.substring(0, 200) + (sql.length > 200 ? "..." : ""),
+            parametersCount: args.length,
+            errorCode: error.code,
+            attempt,
+            isRetryable: isRetryableError,
+            isLastAttempt,
+          },
+        });
         throw error;
       }
 
-      // Exponential backoff for retryable errors
+      // Log warning for retryable errors
       const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
-      console.log(`Retrying BigQuery in ${delay}ms...`);
+      logger.logWarning(
+        errorContext,
+        `BigQuery attempt ${attempt} failed, retrying in ${delay}ms`,
+        {
+          attempt,
+          maxRetries,
+          retryDelayMs: delay,
+          errorCode: error.code,
+          isRetryable: isRetryableError,
+        }
+      );
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
@@ -393,16 +479,30 @@ async function getTableSchema(datasetId, tableId, config) {
  * @returns {Promise<object>} Health status object
  */
 async function checkConnectionHealth(config) {
+  const serviceName = config?.service?.name || "unknown";
+  const logger = createLogger({ serviceName, layer: "annotation-ifl" });
+  const healthContext = {
+    requestId: null,
+    serviceName,
+    layer: "annotation-ifl",
+    route: "BIGQUERY_HEALTH_CHECK",
+    routeNormalized: "BIGQUERY_HEALTH_CHECK",
+  };
+
   try {
-    console.log("🔍 Starting BigQuery health check...");
+    logger.debug("Starting BigQuery health check", {}, healthContext);
     const client = await initBigQueryClient(config);
-    console.log("✅ BigQuery client obtained for health check");
+    logger.debug(
+      "BigQuery client obtained for health check",
+      {},
+      healthContext
+    );
 
     // Test connection with a simple query
-    console.log("🔍 Executing test query...");
+    logger.debug("Executing test query", {}, healthContext);
     const testQuery = "SELECT 1 as test_value";
     const [rows] = await client.query(testQuery);
-    console.log("✅ Test query executed successfully");
+    logger.debug("Test query executed successfully", {}, healthContext);
 
     return {
       status: "healthy",
@@ -412,7 +512,9 @@ async function checkConnectionHealth(config) {
       timestamp: new Date().toISOString(),
     };
   } catch (error) {
-    console.error("❌ BigQuery health check failed:", error);
+    logger.logError(healthContext, error, {
+      statusCode: 500,
+    });
     return {
       status: "unhealthy",
       connectionType: "bigquery",
@@ -428,7 +530,7 @@ async function checkConnectionHealth(config) {
  */
 function closeConnection() {
   clientCache = null;
-  console.log("BigQuery client cache cleared");
+  initLogger.debug("BigQuery client cache cleared", {}, initContext);
 }
 
 module.exports = {
