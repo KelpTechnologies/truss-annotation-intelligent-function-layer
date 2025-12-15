@@ -73,16 +73,27 @@ The processed image is sent to a GPU-powered vectorization API:
 
 | Step    | Description                                        |
 | ------- | -------------------------------------------------- |
-| Convert | WebP → JPEG (for API compatibility)                |
+| Normalize | Create unified RGB buffer (768x768, sRGB, no alpha) |
+| Create JPEG | Generate JPEG from normalized buffer (single lossy conversion) |
 | Send    | POST to vectorization API with multipart form-data |
 | Receive | Embedding vector + dimension                       |
 | Store   | Save vector to DynamoDB                            |
+
+**Important:** Both WebP (for storage) and JPEG (for vectorization) are created from the same normalized RGB buffer, ensuring consistent embeddings regardless of source format.
 
 **Vectorization API:** Google Cloud Run (GPU-enabled)
 
 ```
 https://image-vectorization-api-gpu-*.us-central1.run.app/vectorize
 ```
+
+**⚠️ CRITICAL: All production image processing MUST use this Lambda function.**
+
+Do NOT use alternative processing paths (e.g., `temp.py` in annotation-data-service-layer) as they will produce inconsistent results. This Lambda ensures:
+- Consistent color space normalization (sRGB)
+- Identical resize/crop behavior (768x768, cover fit, centered)
+- EXIF orientation handling
+- Single lossy JPEG conversion for vectorization
 
 ### 5. Status Tracking
 

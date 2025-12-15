@@ -167,6 +167,7 @@ jobs:
           LAMBDA_ARN=$(aws lambda get-function --function-name "truss-image-processing-${STAGE}" --query 'Configuration.FunctionArn' --output text)
 
           # Configure S3 bucket notification to trigger Lambda on image upload
+          # Only trigger on files in uploads/ prefix to avoid processing other files
           aws s3api put-bucket-notification-configuration \
             --bucket "truss-annotation-image-source-${STAGE}" \
             --notification-configuration '{
@@ -174,7 +175,17 @@ jobs:
                 {
                   "Id": "ImageProcessingTrigger",
                   "LambdaFunctionArn": "'${LAMBDA_ARN}'",
-                  "Events": ["s3:ObjectCreated:*"]
+                  "Events": ["s3:ObjectCreated:*"],
+                  "Filter": {
+                    "Key": {
+                      "FilterRules": [
+                        {
+                          "Name": "prefix",
+                          "Value": "uploads/"
+                        }
+                      ]
+                    }
+                  }
                 }
               ]
             }'
