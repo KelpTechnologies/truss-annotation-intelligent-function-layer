@@ -55,11 +55,53 @@ exports.handler = async (event) => {
   console.log("Full event:", JSON.stringify(event, null, 2));
   console.log("=".repeat(80));
 
+  // Validate event structure
+  if (
+    !event.Records ||
+    !Array.isArray(event.Records) ||
+    event.Records.length === 0
+  ) {
+    console.warn(
+      "Invalid event: No Records found. Event:",
+      JSON.stringify(event, null, 2)
+    );
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        message: "Invalid event: No S3 records found",
+        event: event,
+      }),
+    };
+  }
+
+  // Filter and validate S3 records
+  const s3Records = event.Records.filter((record) => {
+    const isValid = record.eventSource === "aws:s3" && record.s3;
+    if (!isValid) {
+      console.warn("Skipping non-S3 record:", {
+        eventSource: record.eventSource,
+        eventName: record.eventName,
+      });
+    }
+    return isValid;
+  });
+
+  if (s3Records.length === 0) {
+    console.warn("No valid S3 records found in event");
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        message: "No valid S3 records found",
+        totalRecords: event.Records.length,
+      }),
+    };
+  }
+
   try {
     // Process each S3 record
     const results = await Promise.all(
-      event.Records.map((record, index) => {
-        console.log(`Processing record ${index + 1}/${event.Records.length}`);
+      s3Records.map((record, index) => {
+        console.log(`Processing record ${index + 1}/${s3Records.length}`);
         return processImageRecord(record);
       })
     );
@@ -68,11 +110,11 @@ exports.handler = async (event) => {
     console.log("=".repeat(80));
     console.log("Processing completed successfully");
     console.log("Summary:", {
-      totalRecords: event.Records.length,
+      totalRecords: s3Records.length,
       successfulRecords: results.filter((r) => r.status === "completed").length,
       failedRecords: results.filter((r) => r.status !== "completed").length,
       totalProcessingTimeMs: processingTime,
-      averageTimePerRecordMs: Math.round(processingTime / event.Records.length),
+      averageTimePerRecordMs: Math.round(processingTime / s3Records.length),
     });
     console.log("Results:", JSON.stringify(results, null, 2));
     console.log("=".repeat(80));
@@ -83,7 +125,7 @@ exports.handler = async (event) => {
         message: "Image processing completed",
         results: results,
         summary: {
-          totalRecords: event.Records.length,
+          totalRecords: s3Records.length,
           processingTimeMs: processingTime,
         },
       }),
@@ -149,10 +191,8 @@ async function processImageRecord(record) {
     // Process the image
     console.log(`Starting image processing with Sharp`);
     const processStartTime = Date.now();
-    const { processedImage, metadata, baseName } = await processImage(
-      imageData,
-      key
-    );
+    const { processedImage, vectorizationBuffer, metadata, baseName } =
+      await processImage(imageData, key);
     const processTime = Date.now() - processStartTime;
     console.log(`Image processing completed in ${processTime}ms`);
 
@@ -166,12 +206,16 @@ async function processImageRecord(record) {
       uploadResult
     );
 
-    // Vectorize the processed image (WebP format)
-    console.log(`Starting image vectorization using processed WebP image`);
+    // Vectorize the image using dedicated JPEG buffer (single lossy conversion)
+    console.log(`Starting image vectorization using dedicated JPEG buffer`);
     const vectorStartTime = Date.now();
     let vectorResult = null;
     try {
-      vectorResult = await vectorizeImage(processedImage, key, processingId);
+      vectorResult = await vectorizeImage(
+        vectorizationBuffer,
+        key,
+        processingId
+      );
       const vectorTime = Date.now() - vectorStartTime;
       if (vectorResult.success) {
         console.log(
@@ -331,12 +375,19 @@ async function processImage(imageBuffer, originalKey) {
       height: metadata.height,
       channels: metadata.channels,
       hasAlpha: metadata.hasAlpha,
-      space: metadata.space,
+      space: metadata.space, // Original color space (will be normalized to sRGB)
       size: metadata.size,
       density: metadata.density,
       orientation: metadata.orientation, // EXIF orientation (1-8, undefined if not set)
       extensionHint: extension,
     });
+
+    // Log color space normalization
+    if (metadata.space && metadata.space !== "srgb") {
+      console.log(`Color space normalization: ${metadata.space} → srgb`);
+    } else {
+      console.log("Color space: srgb (no normalization needed)");
+    }
 
     // Validate that format was detected
     if (!metadata.format) {
@@ -366,23 +417,75 @@ async function processImage(imageBuffer, originalKey) {
       inputFormat: metadata.format || extension || "unknown",
     });
 
-    // Process image: rotate based on EXIF, resize, and convert to WebP
+    // Process image: rotate based on EXIF, resize, normalize color space
     // .rotate() without arguments auto-rotates based on EXIF Orientation tag
     // This MUST happen before resize to ensure correct orientation for vectorization
-    const processedImage = await sharpInstance
+    // Normalize to sRGB color space to ensure consistent color representation
+    // regardless of source format (PNG, JPEG, AVIF may have different color spaces)
+    // Create normalized RGB buffer first to ensure both outputs use identical pixel data
+    const normalizedBuffer = await sharpInstance
       .rotate() // Apply EXIF orientation correction (fixes flipped images)
       .resize(768, 768, {
         fit: "cover", // Crop to fill exact dimensions
         position: "center", // Center the crop
       })
+      .toColorspace("srgb") // Normalize to sRGB for consistent color representation
+      .removeAlpha() // Remove alpha channel for consistent RGB output
+      .toFormat("raw") // Get raw RGB pixel data
+      .toBuffer();
+
+    // Create WebP for storage (compressed) from normalized buffer
+    const processedImage = await sharp(normalizedBuffer, {
+      raw: {
+        width: 768,
+        height: 768,
+        channels: 3, // RGB
+      },
+    })
       .webp({
         quality: 90, // High quality for Gemini
         effort: 6, // Maximum compression effort
       })
       .toBuffer();
 
+    // Create JPEG for vectorization from the same normalized buffer
+    // This ensures identical pixel data regardless of source format
+    // Use deterministic JPEG settings to ensure consistent encoding
+    const vectorizationBuffer = await sharp(normalizedBuffer, {
+      raw: {
+        width: 768,
+        height: 768,
+        channels: 3, // RGB
+      },
+    })
+      .jpeg({
+        quality: 90, // High quality to preserve image details for vectorization
+        mozjpeg: true, // Use mozjpeg for better compression
+        progressive: false, // Disable progressive encoding for consistency
+      })
+      .toBuffer();
+
+    // Log JPEG buffer hash for debugging consistency (same pixels should produce same hash)
+    const crypto = require("crypto");
+    const jpegHash = crypto
+      .createHash("md5")
+      .update(vectorizationBuffer)
+      .digest("hex");
+    console.log(
+      "JPEG buffer hash (for consistency verification):",
+      jpegHash.substring(0, 8)
+    );
+    console.log("Normalized buffer info:", {
+      width: 768,
+      height: 768,
+      channels: 3,
+      expectedSize: 768 * 768 * 3,
+      actualSize: normalizedBuffer.length,
+    });
+
     console.log("Sharp processing completed:", {
-      outputSize: processedImage.length,
+      webpSize: processedImage.length,
+      jpegSize: vectorizationBuffer.length,
       compressionRatio:
         ((1 - processedImage.length / imageBuffer.length) * 100).toFixed(2) +
         "%",
@@ -391,6 +494,7 @@ async function processImage(imageBuffer, originalKey) {
 
     return {
       processedImage,
+      vectorizationBuffer,
       metadata,
       baseName,
     };
@@ -445,7 +549,8 @@ async function processImage(imageBuffer, originalKey) {
       try {
         console.log("Attempting AVIF fallback: direct format conversion");
         // Try to decode AVIF and convert directly without intermediate steps
-        const fallbackImage = await sharp(imageBuffer, {
+        // Create normalized RGB buffer first to ensure both outputs use identical pixel data
+        const fallbackNormalizedBuffer = await sharp(imageBuffer, {
           failOn: "none",
           limitInputPixels: false, // Allow large images
         })
@@ -454,9 +559,40 @@ async function processImage(imageBuffer, originalKey) {
             fit: "cover",
             position: "center",
           })
+          .toColorspace("srgb") // Normalize to sRGB for consistent color representation
+          .removeAlpha() // Remove alpha channel for consistent RGB output
+          .toFormat("raw") // Get raw RGB pixel data
+          .toBuffer();
+
+        // Create WebP for storage from normalized buffer
+        const fallbackImage = await sharp(fallbackNormalizedBuffer, {
+          raw: {
+            width: 768,
+            height: 768,
+            channels: 3, // RGB
+          },
+        })
           .webp({
             quality: 90,
             effort: 6,
+          })
+          .toBuffer();
+
+        // Create JPEG for vectorization from the same normalized buffer
+        const fallbackVectorizationBuffer = await sharp(
+          fallbackNormalizedBuffer,
+          {
+            raw: {
+              width: 768,
+              height: 768,
+              channels: 3, // RGB
+            },
+          }
+        )
+          .jpeg({
+            quality: 90,
+            mozjpeg: true,
+            progressive: false, // Disable progressive encoding for consistency
           })
           .toBuffer();
 
@@ -469,6 +605,7 @@ async function processImage(imageBuffer, originalKey) {
 
         return {
           processedImage: fallbackImage,
+          vectorizationBuffer: fallbackVectorizationBuffer,
           metadata: fallbackMetadata,
           baseName: originalKey.replace(/\.[^/.]+$/, ""),
         };
@@ -546,14 +683,13 @@ async function uploadProcessedImage(processedImage, originalKey) {
 
 /**
  * Vectorize image using the vectorization API
- * Uses the processed WebP image and converts it to JPEG for API compatibility.
- * The vectorization API prefers JPEG format for consistent processing.
- * - Converts processed WebP to JPEG format
- * - Ensures RGB format (no alpha channel)
+ * Receives a pre-processed JPEG buffer (single lossy conversion from original).
+ * This ensures consistent embeddings regardless of source format.
+ * - Buffer is already JPEG format (no conversion needed)
  * - Properly formats multipart form-data with content-type
  * - Handles errors gracefully
  */
-async function vectorizeImage(processedImageBuffer, originalKey, processingId) {
+async function vectorizeImage(jpegBuffer, originalKey, processingId) {
   const vectorStartTime = Date.now();
   try {
     console.log(
@@ -569,38 +705,19 @@ async function vectorizeImage(processedImageBuffer, originalKey, processingId) {
       throw new Error("VECTORIZATION_API_URL environment variable is not set");
     }
 
-    // Get image metadata to determine format
-    console.log("Extracting image metadata for vectorization preprocessing");
-    const metadata = await sharp(processedImageBuffer).metadata();
-    console.log("Processed image metadata for vectorization:", {
+    // Get image metadata for logging
+    console.log("Extracting image metadata for vectorization");
+    const metadata = await sharp(jpegBuffer).metadata();
+    console.log("JPEG buffer metadata for vectorization:", {
       format: metadata.format,
       width: metadata.width,
       height: metadata.height,
       channels: metadata.channels,
-      size: processedImageBuffer.length,
+      size: jpegBuffer.length,
       hasAlpha: metadata.hasAlpha,
     });
 
-    // Convert processed image (WebP) to JPEG format for vectorization API
-    // The API prefers JPEG format for consistent processing across all image types
-    console.log(
-      "Converting processed image to JPEG format for vectorization API"
-    );
-    const vectorizationBuffer = await sharp(processedImageBuffer)
-      .removeAlpha() // Remove alpha channel if present (JPEG doesn't support alpha)
-      .jpeg({
-        quality: 90, // High quality to preserve image details for vectorization
-        mozjpeg: true, // Use mozjpeg for better compression
-      })
-      .toBuffer();
-
-    console.log("Image conversion completed:", {
-      originalFormat: metadata.format,
-      originalSize: processedImageBuffer.length,
-      convertedSize: vectorizationBuffer.length,
-      targetFormat: "jpeg",
-    });
-
+    // Buffer is already JPEG format - use directly
     // Use JPEG content type and filename for the vectorization API
     const contentType = "image/jpeg";
     const baseName = originalKey.replace(/\.[^/.]+$/, "");
@@ -609,14 +726,13 @@ async function vectorizeImage(processedImageBuffer, originalKey, processingId) {
     console.log("Preparing multipart form-data:", {
       filename,
       contentType,
-      vectorizationBufferSize: vectorizationBuffer.length,
-      processedImageSize: processedImageBuffer.length,
+      bufferSize: jpegBuffer.length,
     });
 
     // Create multipart form-data with proper 3-tuple format: (filename, buffer, content-type)
     // This is CRITICAL to avoid the 500 error from the API
     const formData = new FormData();
-    formData.append("file", vectorizationBuffer, {
+    formData.append("file", jpegBuffer, {
       filename: filename,
       contentType: contentType,
     });
@@ -638,7 +754,7 @@ async function vectorizeImage(processedImageBuffer, originalKey, processingId) {
       hasAuth: !!VECTORIZATION_API_KEY,
       timeout: 30000,
       contentType: headers["content-type"],
-      contentLength: vectorizationBuffer.length,
+      contentLength: jpegBuffer.length,
     });
 
     const requestStartTime = Date.now();
