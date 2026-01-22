@@ -4,23 +4,21 @@ This document outlines the required AWS permissions, environment variables, and 
 
 > The model classification flow now uses the pre-computed vectors stored by the image processing pipeline. The Lambda no longer uploads the image or calls the vectorization API during classification.
 
-> The Python Lambda requires the `pinecone-client` dependency (available in a Lambda layer or vendored into the package).
+> Model metadata is now fetched from BigQuery (`model_knowledge_display` table) instead of DynamoDB.
+
+> The Python Lambda requires the `pinecone-client` and `google-cloud-bigquery` dependencies (available in a Lambda layer or vendored into the package).
 
 ## AWS IAM Permissions
 
 The Lambda function requires the following permissions:
 
-### DynamoDB Permissions
+### DynamoDB Permissions (for image vectors only)
 
 - `dynamodb:GetItem` - Read individual items by ID
-- `dynamodb:Query` - Query items (for GSI queries if needed)
-- `dynamodb:Scan` - Scan table (if needed for namespace queries)
 
 **Resource ARN:**
 
 ```
-arn:aws:dynamodb:eu-west-2:193757560043:table/model_visual_classifier_nodes
-arn:aws:dynamodb:eu-west-2:193757560043:table/model_visual_classifier_nodes/index/*
 arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-<stage>
 arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-<stage>/index/*
 ```
@@ -29,11 +27,12 @@ arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-<stage>/ind
 
 ### Secrets Manager Permissions
 
-- `secretsmanager:GetSecretValue` - Retrieve Pinecone API key
+- `secretsmanager:GetSecretValue` - Retrieve Pinecone API key and BigQuery credentials
 
 **Resource ARN:**
 
 ```
+arn:aws:secretsmanager:eu-west-2:193757560043:secret:truss-platform-secrets-*
 arn:aws:secretsmanager:eu-west-2:193757560043:secret:PineconeAPI-*
 ```
 
@@ -45,47 +44,86 @@ The following environment variables are configured in the CloudFormation templat
 
 | Variable                 | Description                                               | Default/Example                                                           |
 | ------------------------ | --------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `DYNAMODB_MODEL_TABLE`   | DynamoDB table name for model metadata                    | `model_visual_classifier_nodes`                                           |
 | `IMAGE_PROCESSING_TABLE` | DynamoDB table containing processed images + vectors      | `truss-image-processing-<stage>`                                          |
-| `PINECONE_SECRET_ARN`    | ARN of Secrets Manager secret containing Pinecone API key | `arn:aws:secretsmanager:eu-west-2:193757560043:secret:PineconeAPI-qcy3De` |
+| `TRUSS_SECRETS_ARN`      | ARN of Secrets Manager secret containing platform secrets | `arn:aws:secretsmanager:eu-west-2:193757560043:secret:truss-platform-secrets` |
 
 ### Optional Variables
 
 | Variable                | Description                                                                                | Default                                                                         |
 | ----------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| `PINECONE_INDEX_NAME`   | Pinecone index name for model classification                                               | `mfc-classifier-bags-models-userdatanamespace`                                  |
 | `VECTORIZATION_API_URL` | Legacy fallback for direct vectorization API calls (not used when vectors are precomputed) | `https://image-vectorization-api-gpu-94434742359.us-central1.run.app/vectorize` |
 | `VECTORIZATION_API_KEY` | API key for vectorization API (if required for legacy usage)                               | `""` (empty string)                                                             |
 
 ## AWS Secrets Manager Setup
 
-### 1. Pinecone API Key Secret
+### 1. Platform Secrets (truss-platform-secrets)
 
-The Pinecone API key is stored in AWS Secrets Manager.
+The centralized platform secrets contain both Pinecone and BigQuery credentials.
 
-**Secret Name:** `PineconeAPI-qcy3De`
-
-**Secret ARN:** `arn:aws:secretsmanager:eu-west-2:193757560043:secret:PineconeAPI-qcy3De`
+**Secret ARN:** Set via `TRUSS_SECRETS_ARN` environment variable
 
 **Secret Format:**
 
-The secret should contain the Pinecone API key. It can be stored as:
-
-- Plain text: The API key string directly
-- JSON: `{"api_key": "your-pinecone-api-key-here"}`
-
-**Note:** The secret is already created and configured. The ARN is set in the template.yaml file.
+```json
+{
+  "pinecone": {
+    "api_key": "your-pinecone-api-key"
+  },
+  "bigquery": {
+    "project_id": "truss-data-science",
+    "private_key_id": "...",
+    "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+    "client_email": "...",
+    "client_id": "..."
+  }
+}
+```
 
 ## Pinecone Configuration
 
-The `tds` package (which provides `pinecone_utils`) should be configured to read the Pinecone API key from environment variables or AWS Secrets Manager.
-
 **Expected Pinecone Environment Variables:**
 
-- `PINECONE_API_KEY` - Pinecone API key (retrieved from Secrets Manager)
+- `PINECONE_API_KEY` - Pinecone API key (retrieved from Secrets Manager at runtime)
 - `PINECONE_ENVIRONMENT` - Pinecone environment/region (if required)
-- `PINECONE_INDEX_NAME` - Default index name (defaults to `mfc-classifier-bags-models`)
+- `PINECONE_INDEX_NAME` - Default index name (defaults to `mfc-classifier-bags-models-userdatanamespace`)
 
-**Note:** The `tds.pinecone_utils` package should handle reading from Secrets Manager. If it doesn't, you may need to add code in the handler to retrieve the secret and set `PINECONE_API_KEY` environment variable.
+The pipeline automatically loads the Pinecone API key from the centralized secrets if not already set in the environment.
+
+## BigQuery Configuration
+
+Model metadata is fetched from BigQuery using the following tables:
+
+### Classifier Table (per brand)
+
+**Table Pattern:** `truss-data-science.model_classification.{brand}`
+
+Contains the mapping between `listing_uuid` (Pinecone vector ID) and `model_id`.
+
+### Model Knowledge Display Table
+
+**Table:** `truss-data-science.api.model_knowledge_display`
+
+Contains the model metadata:
+- `id` - Model ID
+- `model` - Model name
+- `root_model` - Root model name
+- `root_model_id` - Root model ID
+
+### Query Used
+
+```sql
+SELECT 
+    classifier_table.listing_uuid,
+    mkd.id as model_id,
+    mkd.model,
+    mkd.root_model,
+    mkd.root_model_id
+FROM `truss-data-science.model_classification.{brand}` classifier_table
+JOIN `truss-data-science.api.model_knowledge_display` mkd 
+    ON mkd.id = classifier_table.model_id
+WHERE classifier_table.listing_uuid IN ({uuid_list})
+```
 
 ## Image Processing Table
 
@@ -108,41 +146,34 @@ Pre-computed image vectors are stored in the image processing DynamoDB table.
 
 > The classification pipeline reads the vector directly from this table. No re-vectorization is performed at request time.
 
-## DynamoDB Table Structure
+## Response Format
 
-**Table Name:** `model_visual_classifier_nodes`
+The classification endpoint returns the following fields:
 
-**Primary Key:**
-
-- `id` (String) - Image identifier
-
-**Attributes:**
-
-- `model` (String) - Specific model name
-- `root_model` (String) - Parent/root model family
-- `brand` (String) - Brand name
-- `namespace` (String) - Brand name (lowercase, for indexing)
-- `index` (String) - Pinecone index identifier
-- `root_type` (String) - Product category
-- `root_type_id` (Number) - Product category ID
-- `initialised_timestamp` (String) - ISO 8601 timestamp
-
-**Global Secondary Index (GSI):**
-
-- Index Name: `namespace-index`
-- Key: `namespace`
+```json
+{
+  "predicted_model_id": 123,
+  "predicted_model": "Le Chiquito",
+  "predicted_model_confidence": 85.7,
+  "predicted_root_model": "Chiquito",
+  "predicted_root_model_id": 45,
+  "predicted_root_model_confidence": 71.4,
+  "confidence": 71.4,
+  "method": "threshold_voting",
+  "message": "Model 'Le Chiquito' (id=123) has 6/7 votes"
+}
+```
 
 ## Verification Checklist
 
-- [ ] DynamoDB table `model_visual_classifier_nodes` exists
 - [ ] DynamoDB table `truss-image-processing-<stage>` exists
-- [ ] DynamoDB GSI `namespace-index` exists
-- [ ] IAM role has DynamoDB permissions (GetItem, Query, Scan)
-- [x] Secrets Manager secret `PineconeAPI-qcy3De` exists
-- [ ] IAM role has Secrets Manager permissions for Pinecone secret
-- [ ] Environment variables configured (`DYNAMODB_MODEL_TABLE`, `IMAGE_PROCESSING_TABLE`, `PINECONE_SECRET_ARN`)
-- [x] `tds` package available via Lambda layer `truss-data-service-layer-nodejs:4`
-- [ ] Pinecone index accessible from Lambda
+- [ ] IAM role has DynamoDB permissions for image processing table
+- [x] Secrets Manager secret with platform secrets exists
+- [ ] IAM role has Secrets Manager permissions
+- [ ] BigQuery service account has access to `model_classification` and `api.model_knowledge_display` tables
+- [ ] `google-cloud-bigquery` package available via Lambda layer
+- [ ] `pinecone-client` package available via Lambda layer
+- [ ] Pinecone index `mfc-classifier-bags-models-userdatanamespace` accessible from Lambda
 
 ## Testing
 
@@ -178,19 +209,19 @@ The service automatically queries 7 nearest neighbors for majority voting.
 ### "No matches found in Pinecone"
 
 - Verify Pinecone API key is correct
-- Check Pinecone index name matches (`mfc-classifier-bags-models`)
+- Check Pinecone index name matches (`mfc-classifier-bags-models-userdatanamespace`)
 - Verify namespace (brand name) exists in Pinecone
 - Check that vectors are indexed in Pinecone
 
-### "DynamoDB access denied"
+### "BigQuery model lookup failed"
 
-- Verify IAM role has DynamoDB permissions
-- Check table name matches `DYNAMODB_MODEL_TABLE` environment variable
-- Verify table exists in the correct region (eu-west-2)
+- Verify BigQuery credentials are correctly configured in platform secrets
+- Check that the classifier table exists for the brand (`model_classification.{brand}`)
+- Verify the service account has permissions to query both tables
+- Check CloudWatch logs for specific BigQuery error messages
 
 ### "Pinecone authentication failed"
 
-- Verify `PINECONE_SECRET_ARN` points to correct secret
-- Check secret contains valid Pinecone API key
+- Verify `TRUSS_SECRETS_ARN` points to correct secret
+- Check secret contains valid Pinecone API key under `pinecone.api_key`
 - Verify IAM role can access Secrets Manager
-- Check if `tds.pinecone_utils` needs additional configuration

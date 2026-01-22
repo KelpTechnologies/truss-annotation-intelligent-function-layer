@@ -237,62 +237,69 @@ def query_pinecone(vector: list, k: int, namespace: str, index_name: str = pinec
     return matches
 
 
-def query_dynamodb(ids: list, table_name: str = None) -> Dict[str, Dict]:
+def query_bigquery(ids: list, brand: str) -> Dict[str, Dict]:
     """
-    Query DynamoDB for model and root_model metadata for given IDs.
+    Query BigQuery for model metadata using listing UUIDs.
+    
+    Uses the model_classification and model_knowledge_display tables:
+    SELECT 
+        mkd.id as model_id,
+        mkd.model,
+        mkd.root_model,
+        mkd.root_model_id
+    FROM `truss-data-science.model_classification.{brand}` classifier_table
+    JOIN `truss-data-science.api.model_knowledge_display` mkd 
+        ON mkd.id = classifier_table.model_id
+    WHERE classifier_table.listing_uuid IN ({uuid_list})
     
     Args:
-        ids: List of image IDs
-        table_name: DynamoDB table name (defaults to DYNAMODB_MODEL_TABLE env var or "model_visual_classifier_nodes")
+        ids: List of listing UUIDs (same as Pinecone vector IDs)
+        brand: Brand namespace (e.g., 'jacquemus')
         
     Returns:
-        Dictionary mapping id -> {model, root_model} (root_model may be None)
+        Dictionary mapping id -> {model_id, model, root_model, root_model_id}
     """
-    import os
+    try:
+        from . import bigquery_utils
+    except ImportError:
+        import bigquery_utils
     
-    # Get table name from environment variable or use default
-    if table_name is None:
-        table_name = os.getenv("DYNAMODB_MODEL_TABLE", "model_visual_classifier_nodes")
+    print(f"\n[STEP 3] Querying BigQuery for model metadata")
+    print(f"  Brand: {brand}")
+    print(f"  Querying {len(ids)} listing UUIDs...")
     
-    print(f"\n[STEP 3] Querying DynamoDB for model metadata")
-    print(f"  Table: {table_name}")
-    print(f"  Querying {len(ids)} IDs...")
-    
-    dynamodb = boto3.resource('dynamodb')
-    table = dynamodb.Table(table_name)
-    
-    results = {}
-    
-    for image_id in ids:
-        try:
-            response = table.get_item(Key={'id': str(image_id)})
-            
-            if 'Item' in response:
-                item = response['Item']
-                # Try both snake_case and camelCase field names
-                model = item.get('model') or item.get('Model') or ''
-                root_model = item.get('root_model') or item.get('rootModel') or item.get('RootModel') or None
-                
+    try:
+        results = bigquery_utils.query_model_metadata(
+            listing_uuids=ids,
+            brand=brand,
+        )
+        
+        # Ensure all requested IDs have an entry (even if not found)
+        for image_id in ids:
+            if image_id not in results:
+                print(f"  ⚠️  ID {image_id} not found in BigQuery")
                 results[image_id] = {
-                    'model': model,
-                    'root_model': root_model
-                }
-            else:
-                print(f"  ⚠️  ID {image_id} not found in DynamoDB")
-                results[image_id] = {
+                    'model_id': None,
                     'model': None,
-                    'root_model': None
+                    'root_model': None,
+                    'root_model_id': None,
                 }
-        except Exception as e:
-            print(f"  ✗ Error querying ID {image_id}: {e}")
-            results[image_id] = {
+        
+        print(f"  ✓ Retrieved metadata for {len(results)} items")
+        return results
+        
+    except Exception as e:
+        print(f"  ✗ BigQuery error: {e}")
+        # Return empty metadata for all IDs on error
+        return {
+            image_id: {
+                'model_id': None,
                 'model': None,
-                'root_model': None
+                'root_model': None,
+                'root_model_id': None,
             }
-    
-    print(f"  ✓ Retrieved metadata for {len(results)} items")
-    
-    return results
+            for image_id in ids
+        }
 
 
 def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict[str, Any]:
@@ -301,11 +308,11 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
     
     Args:
         matches: List of Pinecone matches (ordered by similarity)
-        metadata: Dictionary of id -> {model, root_model}
+        metadata: Dictionary of id -> {model_id, model, root_model, root_model_id}
         k: Number of top results to use for voting
         
     Returns:
-        Classification result dictionary
+        Classification result dictionary with model_id, model, root_model, root_model_id
     """
     print(f"\n[STEP 4] Performing majority voting (K={k})")
     # Thresholds: model requires 4 votes, root_model requires 5 votes (was 5/6, then 3/4)
@@ -316,42 +323,59 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
     top_k_matches = matches[:k]
     
     # Extract models and root_models for top K, and build match details
+    # Also track model_id and root_model_id mappings
     models = []
     root_models = []
     match_details = []
+    model_to_id = {}  # Map model name -> model_id
+    root_model_to_id = {}  # Map root_model name -> root_model_id
     
     print(f"\n  Top {k} results:")
     for i, match in enumerate(top_k_matches, 1):
         image_id = match['id']
         score = match['score']
         
-        if image_id in metadata and metadata[image_id]['model']:
+        if image_id in metadata and metadata[image_id].get('model'):
             model = metadata[image_id]['model']
+            model_id = metadata[image_id].get('model_id')
             root_model = metadata[image_id].get('root_model')
+            root_model_id = metadata[image_id].get('root_model_id')
+            
             models.append(model)
+            if model and model_id:
+                model_to_id[model] = model_id
             if root_model:
                 root_models.append(root_model)
-            print(f"    {i}. ID: {image_id}, Score: {score:.4f}, Model: {model}, Root: {root_model or 'N/A'}")
+                if root_model_id:
+                    root_model_to_id[root_model] = root_model_id
+            
+            print(f"    {i}. ID: {image_id}, Score: {score:.4f}, Model: {model} (id={model_id}), Root: {root_model or 'N/A'} (id={root_model_id})")
             match_details.append({
                 "id": image_id,
                 "score": round(score, 4),
+                "model_id": model_id,
                 "model": model,
-                "root_model": root_model
+                "root_model": root_model,
+                "root_model_id": root_model_id,
             })
         else:
             print(f"    {i}. ID: {image_id}, Score: {score:.4f}, Model: MISSING")
             match_details.append({
                 "id": image_id,
                 "score": round(score, 4),
+                "model_id": None,
                 "model": None,
-                "root_model": None
+                "root_model": None,
+                "root_model_id": None,
             })
     
     # Check if we have any valid model data
     if not models:
         return {
+            "predicted_model_id": None,
             "predicted_model": None,
             "predicted_root_model": None,
+            "predicted_root_model_id": None,
             "confidence": 0.0,
             "method": "no_data",
             "message": "No valid model metadata found for top K results",
@@ -364,8 +388,10 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
     model_counts = Counter([m for m in models if m])
     if not model_counts:
         return {
+            "predicted_model_id": None,
             "predicted_model": None,
             "predicted_root_model": None,
+            "predicted_root_model_id": None,
             "confidence": 0.0,
             "method": "no_data",
             "message": "No valid model metadata found for top K results",
@@ -407,8 +433,10 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
             top_excluded_model, top_excluded_model_votes = model_counts.most_common(2)[1]
         
         return {
+            "predicted_model_id": None,
             "predicted_model": None,
             "predicted_root_model": None,
+            "predicted_root_model_id": None,
             "confidence": 0.0,
             "method": "insufficient_consensus",
             "message": (
@@ -419,18 +447,21 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
                 "match_details": match_details,
                 "voting_details": {
                     "top_model": {
+                        "id": model_to_id.get(most_common_model),
                         "name": most_common_model,
                         "votes": model_vote_count,
                         "required_votes": required_model_votes,
                         "confidence_percent": (model_vote_count / k) * 100 if k else 0.0,
                     },
                     "top_excluded_model": {
+                        "id": model_to_id.get(top_excluded_model),
                         "name": top_excluded_model,
                         "votes": top_excluded_model_votes,
                         "confidence_percent": (top_excluded_model_votes / k) * 100 if k and top_excluded_model else 0.0,
                     } if top_excluded_model else None,
                     "all_model_votes": [
                         {
+                            "model_id": model_to_id.get(model),
                             "model": model,
                             "votes": count,
                             "confidence_percent": (count / k) * 100 if k else 0.0,
@@ -452,24 +483,28 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
             "match_details": match_details,
             "voting_details": {
                 "top_model": {
+                    "id": model_to_id.get(most_common_model),
                     "name": most_common_model,
                     "votes": model_vote_count,
                     "required_votes": required_model_votes,
                     "confidence_percent": (model_vote_count / k) * 100 if k else 0.0,
                 },
                 "top_root_model": {
+                    "id": root_model_to_id.get(predicted_root_model),
                     "name": predicted_root_model,
                     "votes": predicted_root_votes,
                     "required_votes": required_root_votes,
                     "confidence_percent": (predicted_root_votes / k) * 100 if k else 0.0,
                 } if root_models else None,
                 "top_excluded_root_model": {
+                    "id": root_model_to_id.get(top_excluded_root_model),
                     "name": top_excluded_root_model,
                     "votes": top_excluded_root_model_votes,
                     "confidence_percent": (top_excluded_root_model_votes / k) * 100 if k and top_excluded_root_model else 0.0,
                 } if top_excluded_root_model else None,
                 "all_model_votes": [
                     {
+                        "model_id": model_to_id.get(model),
                         "model": model,
                         "votes": count,
                         "confidence_percent": (count / k) * 100 if k else 0.0,
@@ -482,6 +517,7 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
         if root_models:
             voting_metadata["voting_details"]["all_root_model_votes"] = [
                 {
+                    "root_model_id": root_model_to_id.get(rm),
                     "root_model": rm,
                     "votes": count,
                     "confidence_percent": (count / k) * 100 if k else 0.0,
@@ -490,8 +526,10 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
             ]
         
         return {
+            "predicted_model_id": None,
             "predicted_model": None,
             "predicted_root_model": None,
+            "predicted_root_model_id": None,
             "confidence": 0.0,
             "method": "insufficient_consensus",
             "message": (
@@ -504,7 +542,11 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
             "metadata": voting_metadata,
         }
     
-    message = f"Model '{most_common_model}' has {model_vote_count}/{len(models)} votes"
+    # Get the IDs for the winning model and root_model
+    predicted_model_id = model_to_id.get(most_common_model)
+    predicted_root_model_id = root_model_to_id.get(predicted_root_model) if predicted_root_model else None
+    
+    message = f"Model '{most_common_model}' (id={predicted_model_id}) has {model_vote_count}/{len(models)} votes"
     
     # Find the top excluded attributes for successful cases too (for completeness)
     top_excluded_model = None
@@ -518,9 +560,11 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
         top_excluded_root_model, top_excluded_root_model_votes = root_model_counts.most_common(2)[1]
     
     result = {
+        "predicted_model_id": predicted_model_id,
         "predicted_model": most_common_model,
         "predicted_model_confidence": model_confidence,
         "predicted_root_model": predicted_root_model,
+        "predicted_root_model_id": predicted_root_model_id,
         "predicted_root_model_confidence": root_confidence,
         "confidence": min(model_confidence, root_confidence),
         "method": "threshold_voting",
@@ -529,29 +573,34 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
             "match_details": match_details,
             "voting_details": {
                 "top_model": {
+                    "id": predicted_model_id,
                     "name": most_common_model,
                     "votes": model_vote_count,
                     "required_votes": required_model_votes,
                     "confidence_percent": model_confidence,
                 },
                 "top_root_model": {
+                    "id": predicted_root_model_id,
                     "name": predicted_root_model,
                     "votes": predicted_root_votes,
                     "required_votes": required_root_votes,
                     "confidence_percent": root_confidence,
                 } if root_models else None,
                 "top_excluded_model": {
+                    "id": model_to_id.get(top_excluded_model),
                     "name": top_excluded_model,
                     "votes": top_excluded_model_votes,
                     "confidence_percent": (top_excluded_model_votes / k) * 100 if k and top_excluded_model else 0.0,
                 } if top_excluded_model else None,
                 "top_excluded_root_model": {
+                    "id": root_model_to_id.get(top_excluded_root_model),
                     "name": top_excluded_root_model,
                     "votes": top_excluded_root_model_votes,
                     "confidence_percent": (top_excluded_root_model_votes / k) * 100 if k and top_excluded_root_model else 0.0,
                 } if top_excluded_root_model else None,
                 "all_model_votes": [
                     {
+                        "model_id": model_to_id.get(model),
                         "model": model,
                         "votes": count,
                         "confidence_percent": (count / k) * 100 if k else 0.0,
@@ -565,6 +614,7 @@ def perform_voting(matches: list, metadata: Dict[str, Dict], k: int = 5) -> Dict
     if root_models:
         result["metadata"]["voting_details"]["all_root_model_votes"] = [
             {
+                "root_model_id": root_model_to_id.get(rm),
                 "root_model": rm,
                 "votes": count,
                 "confidence_percent": (count / k) * 100 if k else 0.0,
@@ -614,8 +664,10 @@ def classify_image(processing_id: str, brand: str, k: int = 7) -> Dict[str, Any]
                 "processing_id": processing_id,
                 "brand": brand,
                 "k": k,
+                "predicted_model_id": None,
                 "predicted_model": None,
                 "predicted_root_model": None,
+                "predicted_root_model_id": None,
                 "confidence": 0.0,
                 "method": "no_matches",
                 "message": "No matches found in Pinecone",
@@ -625,9 +677,9 @@ def classify_image(processing_id: str, brand: str, k: int = 7) -> Dict[str, Any]
                 "metadata": processing_record["metadata"],
             }
 
-        # Step 3: Query DynamoDB for metadata
+        # Step 3: Query BigQuery for metadata (using model_knowledge_display)
         ids = [match["id"] for match in matches]
-        metadata = query_dynamodb(ids)
+        metadata = query_bigquery(ids, namespace)
 
         # Step 4: Perform voting
         classification_result = perform_voting(matches, metadata, k)
@@ -638,10 +690,10 @@ def classify_image(processing_id: str, brand: str, k: int = 7) -> Dict[str, Any]
         print(f"{'=' * 70}")
 
         if classification_result.get("predicted_model"):
-            print(f"✓ Predicted Model: {classification_result['predicted_model']}")
+            print(f"✓ Predicted Model: {classification_result['predicted_model']} (id={classification_result.get('predicted_model_id')})")
             print(f"  Confidence: {classification_result['confidence']:.1f}%")
             if classification_result.get("predicted_root_model"):
-                print(f"  Root Model: {classification_result['predicted_root_model']}")
+                print(f"  Root Model: {classification_result['predicted_root_model']} (id={classification_result.get('predicted_root_model_id')})")
             print(f"  Method: {classification_result['method']}")
         else:
             print(f"✗ {classification_result['message']}")
@@ -656,7 +708,11 @@ def classify_image(processing_id: str, brand: str, k: int = 7) -> Dict[str, Any]
             "vector": processing_record["metadata"],
             "pinecone": {
                 "namespace": namespace,
-                "index_name": "mfc-classifier-bags-models",
+                "index_name": "mfc-classifier-bags-models-userdatanamespace",
+            },
+            "bigquery": {
+                "classifier_table": f"truss-data-science.model_classification.{namespace}",
+                "mkd_table": "truss-data-science.api.model_knowledge_display",
             },
             "model_metadata_count": len(metadata),
         }
@@ -689,9 +745,11 @@ def classify_image(processing_id: str, brand: str, k: int = 7) -> Dict[str, Any]
         # Re-raise the exception with a descriptive message so caller can handle appropriately
         error_message = str(e)
         if "AccessDeniedException" in error_message or "not authorized" in error_message:
-            raise PermissionError(f"Vector classification failed - DynamoDB access denied: {error_message}") from e
+            raise PermissionError(f"Vector classification failed - access denied: {error_message}") from e
         elif "No processing record found" in error_message:
             raise ValueError(f"Image not found for vector classification: {error_message}") from e
+        elif "BigQuery" in error_message:
+            raise RuntimeError(f"Vector classification failed - BigQuery error: {error_message}") from e
         elif "does not contain an image vector" in error_message:
             raise ValueError(f"Image not vectorized: {error_message}") from e
         else:

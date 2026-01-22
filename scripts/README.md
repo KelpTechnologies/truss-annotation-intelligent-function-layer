@@ -235,22 +235,39 @@ node scripts/generate-service-registry.js
 
 ## Workflow Integration
 
+### ⚠️ IMPORTANT: Local vs CI/CD Scripts
+
+**ONLY run these scripts locally:**
+- `copy-utils.js` - Sync shared utilities to services
+- `generate-service-templates.js` - Generate templates from config.json
+
+**DO NOT run these locally (handled by GitHub Actions):**
+- `deploy-service.js` - Service deployment (requires AWS credentials)
+- `deploy-all-services.js` - Bulk deployment (requires AWS credentials)
+- `aggregate-openapi.js` - OpenAPI aggregation (handled in CI/CD)
+- `prepare-api-deployment.js` - API deployment prep (handled in CI/CD)
+
+All deployment is automated via `.github/workflows/deploy-services.yaml` when you push to the repository.
+
 ### New Service Creation Workflow:
 
 ```bash
 # 1. Create new service
 node scripts/create-new-service.js services knowledge --security api_key --database
 
-# 2. Customize config.json as needed
+# 2. Copy utils to the new service
+node scripts/copy-utils.js knowledge
+
+# 3. Customize config.json as needed
 vim services/knowledge/config.json
 
-# 3. Implement business logic
+# 4. Implement business logic
 vim services/knowledge/index.js
 
-# 4. Generate deployment templates
+# 5. Generate deployment templates
 node scripts/generate-service-templates.js services/knowledge
 
-# 5. Deploy via existing pipeline
+# 6. Commit and push - GitHub Actions will deploy automatically
 git add . && git commit -m "Add knowledge service" && git push
 ```
 
@@ -263,7 +280,10 @@ vim services/knowledge/config.json
 # 2. Regenerate templates
 node scripts/generate-service-templates.js services/knowledge
 
-# 3. Deploy changes
+# 3. If you updated shared utilities, sync them
+node scripts/copy-utils.js knowledge
+
+# 4. Commit and push - GitHub Actions will deploy automatically
 git add . && git commit -m "Update knowledge service config" && git push
 ```
 
@@ -314,18 +334,15 @@ graph TD
 
 ## Script Dependencies
 
-**Node.js packages required**:
+**For local development (copy-utils, generate-service-templates):**
 
-```json
-{
-  "js-yaml": "^4.1.0",
-  "glob": "^8.0.0"
-}
-```
+- Node.js packages: `js-yaml`, `glob` (install with `npm install js-yaml glob`)
+- No AWS credentials needed
 
-**AWS CLI**: Required for CloudFormation and S3 operations
+**For CI/CD deployment (handled by GitHub Actions):**
 
-**Environment**: Scripts assume AWS credentials are configured
+- AWS CLI and credentials (configured in GitHub Actions secrets)
+- CloudFormation and S3 access
 
 ## Example Service Types
 
