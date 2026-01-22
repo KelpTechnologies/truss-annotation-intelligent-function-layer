@@ -708,7 +708,7 @@ def classify_image(processing_id: str, brand: str, k: int = 7) -> Dict[str, Any]
             "vector": processing_record["metadata"],
             "pinecone": {
                 "namespace": namespace,
-                "index_name": "mfc-classifier-bags-models-userdatanamespace",
+                "index_name": "mfc-classifier-bags-models-userdata",
             },
             "bigquery": {
                 "classifier_table": f"truss-data-science.model_classification.{namespace}",

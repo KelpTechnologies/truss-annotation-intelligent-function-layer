@@ -51,7 +51,7 @@ The following environment variables are configured in the CloudFormation templat
 
 | Variable                | Description                                                                                | Default                                                                         |
 | ----------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
-| `PINECONE_INDEX_NAME`   | Pinecone index name for model classification                                               | `mfc-classifier-bags-models-userdatanamespace`                                  |
+| `PINECONE_INDEX_NAME`   | Pinecone index name for model classification                                               | `mfc-classifier-bags-models-userdata`                                  |
 | `VECTORIZATION_API_URL` | Legacy fallback for direct vectorization API calls (not used when vectors are precomputed) | `https://image-vectorization-api-gpu-94434742359.us-central1.run.app/vectorize` |
 | `VECTORIZATION_API_KEY` | API key for vectorization API (if required for legacy usage)                               | `""` (empty string)                                                             |
 
@@ -86,7 +86,7 @@ The centralized platform secrets contain both Pinecone and BigQuery credentials.
 
 - `PINECONE_API_KEY` - Pinecone API key (retrieved from Secrets Manager at runtime)
 - `PINECONE_ENVIRONMENT` - Pinecone environment/region (if required)
-- `PINECONE_INDEX_NAME` - Default index name (defaults to `mfc-classifier-bags-models-userdatanamespace`)
+- `PINECONE_INDEX_NAME` - Default index name (defaults to `mfc-classifier-bags-models-userdata`)
 
 The pipeline automatically loads the Pinecone API key from the centralized secrets if not already set in the environment.
 
@@ -173,7 +173,7 @@ The classification endpoint returns the following fields:
 - [ ] BigQuery service account has access to `model_classification` and `api.model_knowledge_display` tables
 - [ ] `google-cloud-bigquery` package available via Lambda layer
 - [ ] `pinecone-client` package available via Lambda layer
-- [ ] Pinecone index `mfc-classifier-bags-models-userdatanamespace` accessible from Lambda
+- [ ] Pinecone index `mfc-classifier-bags-models-userdata` accessible from Lambda
 
 ## Testing
 
@@ -209,7 +209,7 @@ The service automatically queries 7 nearest neighbors for majority voting.
 ### "No matches found in Pinecone"
 
 - Verify Pinecone API key is correct
-- Check Pinecone index name matches (`mfc-classifier-bags-models-userdatanamespace`)
+- Check Pinecone index name matches (`mfc-classifier-bags-models-userdata`)
 - Verify namespace (brand name) exists in Pinecone
 - Check that vectors are indexed in Pinecone
 
