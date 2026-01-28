@@ -11,7 +11,7 @@ services. They provide:
 Environment variables used:
 - ``PINECONE_API_KEY`` (required)
 - ``PINECONE_ENVIRONMENT`` (optional)
-- ``PINECONE_INDEX_NAME`` (optional, default: ``mfc-classifier-bags-models-userdata``)
+- ``PINECONE_INDEX_NAME`` (optional, default: ``mfc-classifier-bags-models``)
 - ``PINECONE_DEFAULT_NAMESPACE`` (optional, default: ``jacquemus``)
 - ``PINECONE_DEFAULT_TOP_K`` (optional, default: ``200``)
 """
@@ -23,7 +23,7 @@ import time
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 
-DEFAULT_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "mfc-classifier-bags-models-userdata")
+DEFAULT_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "mfc-classifier-bags-models")
 DEFAULT_NAMESPACE = os.getenv("PINECONE_DEFAULT_NAMESPACE", "jacquemus")
 DEFAULT_TOP_K = int(os.getenv("PINECONE_DEFAULT_TOP_K", "200"))
 MAX_RETRIES = int(os.getenv("PINECONE_MAX_RETRIES", "3"))
