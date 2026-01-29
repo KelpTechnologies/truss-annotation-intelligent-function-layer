@@ -1,0 +1,47 @@
+# dependencies
+node_modules/
+vendor/
+.venv/
+venv/
+__pycache__/
+
+# build output
+dist/
+build/
+out/
+target/
+coverage/
+.next/
+.nuxt/
+.svelte-kit/
+
+# caches
+.cache/
+.pytest_cache/
+.mypy_cache/
+
+# javascript/typescript caches & build artifacts
+.turbo/
+.vercel/
+.eslintcache
+*.tsbuildinfo
+.parcel-cache/
+.yarn/
+.pnp.*
+.storybook/
+.angular/
+.nx/
+.tmp/
+.temp/
+
+# logs & large data
+*.log
+*.csv
+*.tsv
+*.jsonl
+*.parquet
+
+# ide
+.idea/
+.vscode/
+

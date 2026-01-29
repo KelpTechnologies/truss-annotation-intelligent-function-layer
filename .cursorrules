@@ -1,0 +1,134 @@
+# Cursor Rules for Truss Annotation Intelligent Function Layer
+
+## Core Principle: Config-Driven Development
+
+**IMPORTANT**: This repository uses a **config-driven approach** where `config.json` is the single source of truth for each service. All templates, deployment configurations, and API specifications are generated automatically from this configuration file.
+
+## Local Development Workflow
+
+### ✅ Scripts to Run Locally
+
+**ONLY these two scripts should be run locally:**
+
+1. **`scripts/copy-utils.js`** - Copies shared utilities from `services/utils/` to all service directories
+
+   ```bash
+   node scripts/copy-utils.js                    # Copy to all services
+   node scripts/copy-utils.js <service-name>    # Copy to specific service
+   ```
+
+   - **When to run**: After updating files in `services/utils/` or when creating a new service
+   - **What it does**: Ensures all services have the latest shared utilities (database, logging, validation, etc.)
+
+2. **`scripts/generate-service-templates.js`** - Generates CloudFormation and OpenAPI templates from `config.json`
+   ```bash
+   node scripts/generate-service-templates.js services/<service-name>
+   ```
+   - **When to run**: After modifying a service's `config.json` file
+   - **What it generates**:
+     - `template.yaml` - CloudFormation deployment template
+     - `openapi.yaml` - Unified OpenAPI specification (or `.internal`/`.external` variants)
+     - Updates `service-registry.json` automatically
+
+### ❌ Scripts NOT to Run Locally
+
+**DO NOT run these scripts locally - they are handled by GitHub Actions workflows:**
+
+- `scripts/deploy-service.js` - Service deployment (handled by CI/CD)
+- `scripts/deploy-all-services.js` - Bulk deployment (handled by CI/CD)
+- `scripts/aggregate-openapi.js` - OpenAPI aggregation (handled by CI/CD)
+- `scripts/prepare-api-deployment.js` - API deployment prep (handled by CI/CD)
+
+**Why?** These scripts require AWS credentials, package services, upload to S3, and deploy CloudFormation stacks. All of this is automated in `.github/workflows/` when you push to the repository.
+
+## Understanding config.json
+
+Each service has a `config.json` file that defines:
+
+### Structure
+
+```json
+{
+  "service": {
+    "name": "service-name",
+    "description": "Service description",
+    "version": "1.0.0"
+  },
+  "deployment": {
+    "runtime": "nodejs18.x" | "python3.9",
+    "timeout": 30,
+    "memory": 512,
+    "layers": ["arn:..."],
+    "vpc_config": { "required": true, ... }
+  },
+  "database": {
+    "required": true,
+    "connection_type": "mysql",
+    "permissions": ["read", "write"],
+    "host": "...",
+    "name": "..."
+  },
+  "api": {
+    "base_path": "/service-path",
+    "cors_enabled": true,
+    "endpoints": [
+      {
+        "path": "/",
+        "method": "GET",
+        "description": "...",
+        "parameters": {
+          "query": ["param1", "param2"],
+          "path": ["id"],
+          "body": ["field1", "field2"]
+        }
+      }
+    ]
+  },
+  "access": {
+    "internal": true,
+    "external": true,
+    "auth_config": {
+      "cognito": { ... },
+      "api_key": { ... }
+    }
+  }
+}
+```
+
+### How Scripts Use config.json
+
+1. **`generate-service-templates.js`** reads `config.json` and:
+
+   - Generates `template.yaml` with Lambda function, IAM roles, VPC config, database permissions
+   - Generates OpenAPI specs with endpoints, security schemes, CORS configuration
+   - All based on the `config.json` structure
+
+2. **`copy-utils.js`** uses `config.json` to:
+   - Detect service runtime (Node.js vs Python)
+   - Determine which utils to copy (only Node.js services get JS utils)
+
+## Workflow Example
+
+When modifying a service:
+
+1. **Edit `config.json`** - Update service configuration (endpoints, auth, database, etc.)
+2. **Run `copy-utils.js`** - Ensure utils are synced (if you updated `services/utils/`)
+3. **Run `generate-service-templates.js`** - Regenerate templates from updated config
+4. **Commit and push** - GitHub Actions will handle deployment automatically
+
+## Key Files
+
+- `services/<service-name>/config.json` - Service configuration (single source of truth)
+- `services/<service-name>/index.js` or `index.py` - Service handler code
+- `services/utils/` - Shared utilities (copied to each service by `copy-utils.js`)
+- `scripts/copy-utils.js` - Utility sync script (run locally)
+- `scripts/generate-service-templates.js` - Template generator (run locally)
+- `.github/workflows/deploy-services.yaml` - CI/CD deployment (automatic)
+
+## When Helping with Code
+
+- **Always check `config.json` first** - It defines the service structure
+- **Suggest config changes** when service configuration needs updating
+- **Run `copy-utils.js`** if suggesting changes to shared utilities
+- **Run `generate-service-templates.js`** after any `config.json` changes
+- **Never suggest running deploy scripts locally** - Deployment is CI/CD only
