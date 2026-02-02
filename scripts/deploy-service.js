@@ -266,9 +266,9 @@ async function packageService(
         console.log(`     📄 Copied stage_urls.py`);
       }
       
-      // Copy all Python package directories (dsl, core, agent_*, vector-classifiers)
+      // Copy all Python package directories (core, agent_*, vector-classifiers)
+      // Note: dsl/ is legacy and not used by index.py
       const pythonPackages = [
-        "dsl",
         "core",
         "agent_architecture",
         "agent_orchestration",
