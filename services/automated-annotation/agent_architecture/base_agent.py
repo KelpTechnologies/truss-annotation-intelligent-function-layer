@@ -2,9 +2,11 @@
 LLM Annotation System - Base Agent (API-only mode)
 ==================================================
 
-A generalized LangChain-powered agent for fashion product metadata annotation.
-Supports structured outputs, prompt templating, and retry logic with VertexAI.
+A generalized agent for fashion product metadata annotation using Google GenAI.
+Supports structured outputs, prompt templating, and retry logic with Gemini models.
 Modified for API-only operation - no local file dependencies.
+
+Uses google-genai SDK directly instead of LangChain for minimal dependencies (~5MB vs ~230MB).
 """
 
 import json
@@ -18,8 +20,8 @@ import requests
 from io import BytesIO
 from PIL import Image
 
-from langchain_google_vertexai import ChatVertexAI
-from langchain.schema import HumanMessage
+from google import genai
+from google.genai import types
 from pydantic import BaseModel, Field
 import pandas as pd
 
@@ -148,14 +150,16 @@ class LLMAnnotationAgent:
             'schema_content': self.schema.get('schema_content', {}) if self.schema else {}
         }
         
-        # Initialize LLM
-        vertexai_kwargs = {
-            "model_name": self.model_name,
-            "project": self.project_id,
-            "location": self.location,
-            "temperature": self.model_config.get('temperature', 0.1),
-            "max_output_tokens": self.model_config.get('max_output_tokens', 2048),
-        }
+        # Initialize Google GenAI client (uses VertexAI backend)
+        self.client = genai.Client(
+            vertexai=True,
+            project=self.project_id,
+            location=self.location
+        )
+        
+        # Store generation config parameters
+        self.temperature = self.model_config.get('temperature', 0.1)
+        self.max_output_tokens = self.model_config.get('max_output_tokens', 2048)
         
         # Set model-specific defaults for better performance
         model_defaults = {
@@ -165,9 +169,8 @@ class LLMAnnotationAgent:
         }
         
         if self.model_name in model_defaults:
-            vertexai_kwargs.update(model_defaults[self.model_name])
-        
-        self.llm = ChatVertexAI(**vertexai_kwargs)
+            self.temperature = model_defaults[self.model_name].get("temperature", self.temperature)
+            self.max_output_tokens = model_defaults[self.model_name].get("max_output_tokens", self.max_output_tokens)
         
         logger.info(f"Initialized agent '{self.config_id}' with model {self.model_name}")
 
@@ -207,9 +210,9 @@ class LLMAnnotationAgent:
             logger.error(f"Failed to load prompt template from {template_path}: {e}")
             raise
 
-    def prepare_multimodal_input(self, image_url: str, text_prompt: str, input_mode: str = "auto") -> List[Dict]:
+    def prepare_multimodal_input(self, image_url: str, text_prompt: str, input_mode: str = "auto") -> List[Any]:
         """
-        Prepare multimodal input for VertexAI based on input mode.
+        Prepare multimodal input for Google GenAI based on input mode.
 
         Args:
             image_url: URL of the image to analyze
@@ -217,10 +220,8 @@ class LLMAnnotationAgent:
             input_mode: 'image-only', 'text-only', 'multimodal', or 'auto'
 
         Returns:
-            List of message dictionaries for ChatVertexAI
+            List of content parts for Google GenAI
         """
-        from langchain.schema import HumanMessage
-
         # Determine effective input mode
         if input_mode == "auto":
             # Auto-detect based on available inputs
@@ -238,47 +239,43 @@ class LLMAnnotationAgent:
         else:
             effective_mode = input_mode
 
-        # Build message based on mode
+        # Build content parts based on mode
         if effective_mode == "image-only":
             if not image_url:
                 raise ValueError("Image URL required for image-only mode")
 
-            # Download and encode image
-            image_data = self._download_and_encode_image(image_url)
-
-            message = HumanMessage(content=[
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}},
-                {"type": "text", "text": text_prompt}
-            ])
+            # Download image as bytes
+            image_bytes = self._download_image_bytes(image_url)
+            return [
+                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+                text_prompt
+            ]
 
         elif effective_mode == "text-only":
-            message = HumanMessage(content=text_prompt)
+            return [text_prompt]
 
         elif effective_mode == "multimodal":
             if not image_url:
                 raise ValueError("Image URL required for multimodal mode")
 
-            # Download and encode image
-            image_data = self._download_and_encode_image(image_url)
-
-            message = HumanMessage(content=[
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}},
-                {"type": "text", "text": text_prompt}
-            ])
+            # Download image as bytes
+            image_bytes = self._download_image_bytes(image_url)
+            return [
+                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+                text_prompt
+            ]
         else:
             raise ValueError(f"Unknown input mode: {effective_mode}")
 
-        return [message]
-
-    def _download_and_encode_image(self, image_url: str) -> str:
+    def _download_image_bytes(self, image_url: str) -> bytes:
         """
-        Download image from URL and return base64 encoded string.
+        Download image from URL and return raw bytes.
 
         Args:
             image_url: URL of the image to download
 
         Returns:
-            Base64 encoded image data
+            Raw image bytes (JPEG format)
         """
         try:
             response = requests.get(image_url, timeout=30)
@@ -295,15 +292,27 @@ class LLMAnnotationAgent:
             if img.mode != 'RGB':
                 img = img.convert('RGB')
 
-            # Encode to base64
+            # Save to bytes buffer
             buffer = BytesIO()
             img.save(buffer, format='JPEG')
-            image_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
-
-            return image_data
+            return buffer.getvalue()
 
         except Exception as e:
-            raise ValueError(f"Failed to download/encode image from {image_url}: {e}")
+            raise ValueError(f"Failed to download image from {image_url}: {e}")
+
+    def _download_and_encode_image(self, image_url: str) -> str:
+        """
+        Download image from URL and return base64 encoded string.
+        (Legacy method - kept for backward compatibility)
+
+        Args:
+            image_url: URL of the image to download
+
+        Returns:
+            Base64 encoded image data
+        """
+        image_bytes = self._download_image_bytes(image_url)
+        return base64.b64encode(image_bytes).decode('utf-8')
 
     def _format_schema_for_prompt(self, schema_content: dict) -> str:
         """Format schema content for inclusion in prompt."""
@@ -326,50 +335,59 @@ class LLMAnnotationAgent:
 
     def _get_raw_response_text(self, response) -> str:
         """
-        Extract raw text from various LangChain/Vertex response shapes.
+        Extract raw text from Google GenAI response.
         
-        Important: Avoid using str(response) when it includes input messages,
-        which can make it look like the model echoed the prompt.
+        Handles GenerateContentResponse from google-genai SDK.
         """
-        # Common case: AIMessage / BaseMessage
-        if hasattr(response, 'content'):
-            return response.content
-
-        # Some chat models return a ChatResult-like object
-        if hasattr(response, 'generations'):
+        # Google GenAI response - use .text property
+        if hasattr(response, 'text'):
+            return response.text
+        
+        # Google GenAI response with candidates
+        if hasattr(response, 'candidates') and response.candidates:
             try:
-                gens = response.generations  # type: ignore[attr-defined]
-                if gens and gens[0]:
-                    # generations[0] can be a list of ChatGeneration
-                    first = gens[0][0] if isinstance(gens[0], list) else gens[0]
-                    if hasattr(first, 'message') and hasattr(first.message, 'content'):
-                        return first.message.content
-                    if hasattr(first, 'text'):
-                        return first.text
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'content') and candidate.content:
+                    if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                        # Concatenate all text parts
+                        texts = []
+                        for part in candidate.content.parts:
+                            if hasattr(part, 'text'):
+                                texts.append(part.text)
+                        if texts:
+                            return ''.join(texts)
             except Exception:
                 pass
 
         # Dict-shaped responses
         if isinstance(response, dict):
-            if 'content' in response and isinstance(response['content'], str):
-                return response['content']
             if 'text' in response and isinstance(response['text'], str):
                 return response['text']
+            if 'content' in response and isinstance(response['content'], str):
+                return response['content']
 
         return str(response)
 
     def _call_llm_with_image(self, prompt: str, image_url: str):
-        """Call LLM with image input."""
-        # Download and encode image
-        image_data = self._download_and_encode_image(image_url)
+        """Call LLM with image input using Google GenAI."""
+        # Download image as bytes
+        image_bytes = self._download_image_bytes(image_url)
         
-        # Build multimodal message
-        message = HumanMessage(content=[
-            {"type": "text", "text": prompt},
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
-        ])
+        # Build multimodal content for Google GenAI
+        contents = [
+            types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+            prompt
+        ]
         
-        return self.llm.invoke([message])
+        # Call Google GenAI
+        return self.client.models.generate_content(
+            model=self.model_name,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                temperature=self.temperature,
+                max_output_tokens=self.max_output_tokens,
+            )
+        )
 
     def execute(
         self,
@@ -511,8 +529,15 @@ class LLMAnnotationAgent:
             if image_url:
                 response = self._call_llm_with_image(prompt, image_url)
             else:
-                message = HumanMessage(content=prompt)
-                response = self.llm.invoke([message])
+                # Text-only call using Google GenAI
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=self.temperature,
+                        max_output_tokens=self.max_output_tokens,
+                    )
+                )
         except Exception as e:
             return AgentResult(
                 status=AgentStatus.LLM_ERROR,

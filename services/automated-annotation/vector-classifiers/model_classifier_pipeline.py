@@ -9,7 +9,7 @@ This script:
 5. Returns classification result with confidence
 
 Dependencies:
-    pip install boto3 pinecone-client
+    pip install boto3 pinecone
 """
 
 import os

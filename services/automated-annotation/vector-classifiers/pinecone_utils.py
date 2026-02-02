@@ -40,7 +40,7 @@ def _import_pinecone_client_class():
         from pinecone import Pinecone
     except ImportError as exc:  # pragma: no cover - dependency missing
         raise ImportError(
-            "The 'pinecone' Python package is required. Install 'pinecone-client' or "
+            "The 'pinecone' Python package is required. Install 'pinecone' or "
             "add a Lambda layer that provides the Pinecone SDK."
         ) from exc
 
