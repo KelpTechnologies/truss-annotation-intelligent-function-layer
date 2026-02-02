@@ -49,9 +49,6 @@ Resources:
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
-                  - dynamodb:PutItem
-                  - dynamodb:UpdateItem
-                  - dynamodb:DeleteItem
                   - dynamodb:Query
                   - dynamodb:Scan
                 Resource:
@@ -102,7 +99,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Ref FunctionName
-      Handler: handler.lambda_handler
+      Handler: index.lambda_handler
       Runtime: python3.11
       Role: !GetAtt ServiceRole.Arn
       Code:

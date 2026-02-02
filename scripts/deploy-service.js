@@ -247,14 +247,9 @@ async function packageService(
       }
     }
 
-    // Python: include handler.py, structured_logger.py, stage_urls.py, dsl/ package, and vector-classifiers/ package
+    // Python: include structured_logger.py, stage_urls.py, and all Python packages
+    // Note: index.py is copied via getSourceFiles(), handler.py is legacy and not used
     if (runtime.startsWith("python")) {
-      const handlerPath = path.join(servicePath, "handler.py");
-      if (fs.existsSync(handlerPath)) {
-        const destHandler = path.join(tempDir, "handler.py");
-        fs.copyFileSync(handlerPath, destHandler);
-        console.log(`     📄 Copied handler.py`);
-      }
       const structuredLoggerPath = path.join(
         servicePath,
         "structured_logger.py"
@@ -270,17 +265,24 @@ async function packageService(
         fs.copyFileSync(stageUrlsPath, destStageUrls);
         console.log(`     📄 Copied stage_urls.py`);
       }
-      const dslDir = path.join(servicePath, "dsl");
-      if (fs.existsSync(dslDir)) {
-        const destDsl = path.join(tempDir, "dsl");
-        copyDirectory(dslDir, destDsl);
-        console.log(`     📁 Copied dsl/ package`);
-      }
-      const vectorClassifiersDir = path.join(servicePath, "vector-classifiers");
-      if (fs.existsSync(vectorClassifiersDir)) {
-        const destVectorClassifiers = path.join(tempDir, "vector-classifiers");
-        copyDirectory(vectorClassifiersDir, destVectorClassifiers);
-        console.log(`     📁 Copied vector-classifiers/ package`);
+      
+      // Copy all Python package directories (dsl, core, agent_*, vector-classifiers)
+      const pythonPackages = [
+        "dsl",
+        "core",
+        "agent_architecture",
+        "agent_orchestration",
+        "agent_utils",
+        "vector-classifiers",
+      ];
+      
+      for (const pkgName of pythonPackages) {
+        const pkgDir = path.join(servicePath, pkgName);
+        if (fs.existsSync(pkgDir)) {
+          const destPkg = path.join(tempDir, pkgName);
+          copyDirectory(pkgDir, destPkg);
+          console.log(`     📁 Copied ${pkgName}/ package`);
+        }
       }
     }
 
@@ -364,7 +366,7 @@ function getSourceFiles(servicePath, runtime) {
 
     return files;
   } else if (runtime.startsWith("python")) {
-    // Minimal set; handler.py and dsl/ are copied separately in packageService
+    // Python files - index.py is the main handler, packages copied separately in packageService
     return [
       ...commonFiles,
       "index.py",

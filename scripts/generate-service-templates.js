@@ -57,8 +57,10 @@ function generateCloudFormationTemplate(
     config.database?.connection_type === "dynamodb" && requiresDatabase;
 
   const runtime = config.deployment.runtime;
+  // Use index.lambda_handler for Python (new agent architecture)
+  // handler.py is legacy and should not be used
   const handler = runtime.startsWith("python")
-    ? "handler.lambda_handler"
+    ? "index.lambda_handler"
     : "index.handler";
 
   let template = `AWSTemplateFormatVersion: "2010-09-09"
