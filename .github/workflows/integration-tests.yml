@@ -1,0 +1,160 @@
+# Integration Test Runner
+# 
+# Triggers:
+#   - Manual: Go to Actions tab → "Integration Tests" → "Run workflow"
+#   - API: POST to /repos/{owner}/{repo}/dispatches with event_type "run-tests"
+#
+# To trigger via API:
+#   curl -X POST \
+#     -H "Authorization: token YOUR_GITHUB_TOKEN" \
+#     -H "Accept: application/vnd.github.v3+json" \
+#     https://api.github.com/repos/OWNER/REPO/dispatches \
+#     -d '{"event_type": "run-tests", "client_payload": {"pr_number": "123", "base_url": "https://staging.example.com"}}'
+
+name: Integration Tests
+
+on:
+  # Manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Staging API base URL'
+        required: true
+        default: 'https://staging.example.com'
+      pr_number:
+        description: 'PR number to comment on (optional)'
+        required: false
+        default: ''
+
+  # API trigger
+  repository_dispatch:
+    types: [run-tests]
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Python dependencies (if requirements exist)
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          # Common dependencies for API testing
+          pip install requests
+
+      - name: Install Node dependencies (if package.json exists)
+        run: |
+          if [ -f package.json ]; then
+            npm install
+          fi
+
+      - name: Determine inputs
+        id: inputs
+        run: |
+          # Handle both workflow_dispatch and repository_dispatch
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "base_url=${{ github.event.inputs.base_url }}" >> $GITHUB_OUTPUT
+            echo "pr_number=${{ github.event.inputs.pr_number }}" >> $GITHUB_OUTPUT
+          else
+            # repository_dispatch - get from client_payload
+            echo "base_url=${{ github.event.client_payload.base_url || 'https://staging.example.com' }}" >> $GITHUB_OUTPUT
+            echo "pr_number=${{ github.event.client_payload.pr_number || '' }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run tests
+        id: tests
+        env:
+          STAGING_API_URL: ${{ steps.inputs.outputs.base_url }}
+        run: |
+          # Run the test runner and capture output
+          set +e  # Don't exit on test failure
+          
+          python .github/scripts/runner.py \
+            --base-url "$STAGING_API_URL" \
+            --output markdown \
+            --dir . > test_results.md 2>&1
+          
+          TEST_EXIT_CODE=$?
+          echo "exit_code=$TEST_EXIT_CODE" >> $GITHUB_OUTPUT
+          
+          # Store results for PR comment
+          {
+            echo 'results<<EOF'
+            cat test_results.md
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+          
+          # Also print to logs
+          cat test_results.md
+          
+          exit 0  # Always succeed so we can post comment
+
+      - name: Comment on PR
+        if: steps.inputs.outputs.pr_number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = parseInt('${{ steps.inputs.outputs.pr_number }}');
+            const results = `${{ steps.tests.outputs.results }}`;
+            
+            if (!prNumber || isNaN(prNumber)) {
+              console.log('No valid PR number provided, skipping comment');
+              return;
+            }
+            
+            // Find existing comment from this workflow
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber
+            });
+            
+            const botComment = comments.data.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('## ✅ All Tests Passed') || 
+              comment.body.includes('## ❌ Tests Failed')
+            );
+            
+            const body = results + '\n\n---\n*Updated by Integration Tests workflow*';
+            
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+              console.log('Updated existing comment');
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: body
+              });
+              console.log('Created new comment');
+            }
+
+      - name: Set final status
+        if: steps.tests.outputs.exit_code != '0'
+        run: |
+          echo "::warning::Some tests failed. See PR comment or logs for details."
+          # Non-blocking: we don't fail the workflow
+          # To make it blocking, uncomment the next line:
+          # exit 1

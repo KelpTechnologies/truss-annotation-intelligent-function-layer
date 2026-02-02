@@ -732,9 +732,10 @@ class ConfigLoader:
     
     def find_matching_csv_config(self, csv_columns: List[str], organisation_uuid: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
-        Find a CSV config that matches the given CSV columns.
+        Find a CSV config that matches the given CSV columns exactly.
         
-        A config matches if ALL columns referenced in csv_column_metadata_mappings exist in the CSV.
+        A config matches only if the stored csv_columns are IDENTICAL to the new CSV columns.
+        This ensures configs are only reused when column headers match exactly.
         
         Args:
             csv_columns: List of column names from the CSV
@@ -749,23 +750,30 @@ class ConfigLoader:
         csv_columns_set = set(csv_columns)
         configs = self.load_csv_configs(organisation_uuid=organisation_uuid)
         
-        for config in configs:
-            mappings = config.get('csv_column_metadata_mappings', {})
-            if not mappings:
-                continue
-            
-            # Get all columns referenced in the mappings
-            referenced_columns = set()
-            for key, columns in mappings.items():
-                if isinstance(columns, list):
-                    referenced_columns.update(columns)
-            
-            # Check if all referenced columns exist in CSV
-            if referenced_columns and referenced_columns.issubset(csv_columns_set):
-                logger.info(f"Found matching CSV config: {config.get('csv_config_identifier')}")
-                return config
+        logger.info(f"[CSV Config Match] Searching for config matching {len(csv_columns)} columns")
+        logger.debug(f"[CSV Config Match] New CSV columns: {sorted(csv_columns)}")
         
-        logger.info("No matching CSV config found")
+        for config in configs:
+            stored_columns = config.get('csv_columns', [])
+            stored_columns_set = set(stored_columns)
+            config_id = config.get('csv_config_identifier', 'unknown')
+            
+            # Exact match: column sets must be identical
+            if stored_columns_set == csv_columns_set:
+                logger.info(f"[CSV Config Match] Found exact match: {config_id} ({len(stored_columns)} columns)")
+                return config
+            else:
+                # Log why it didn't match for debugging
+                missing_in_new = stored_columns_set - csv_columns_set
+                extra_in_new = csv_columns_set - stored_columns_set
+                if missing_in_new or extra_in_new:
+                    logger.debug(
+                        f"[CSV Config Match] Config {config_id} not matched: "
+                        f"stored={len(stored_columns)} cols, new={len(csv_columns)} cols, "
+                        f"missing={len(missing_in_new)}, extra={len(extra_in_new)}"
+                    )
+        
+        logger.info(f"[CSV Config Match] No matching config found for {len(csv_columns)} columns - will generate new config")
         return None
     
     def save_csv_config(
