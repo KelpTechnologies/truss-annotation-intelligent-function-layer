@@ -119,6 +119,90 @@ def sample_csv_for_analysis(
     return columns, final_rows, total_chars
 
 
+def _filter_relevant_columns(columns: List[str], sample_rows: List[dict]) -> Tuple[List[str], List[dict]]:
+    """
+    Filter columns to only include relevant ones for product metadata mapping.
+    
+    Removes:
+    - Shopify metafield columns (Metafield: ...)
+    - Variant-specific columns (Variant ...)
+    - Technical/system columns (Command, Row #, etc.)
+    - Empty or mostly-null columns
+    
+    Keeps columns likely to contain: title, brand, image, description, category, ID, price, etc.
+    """
+    # Patterns to exclude (case-insensitive)
+    exclude_patterns = [
+        r'^Metafield:',           # Shopify metafields - rarely useful
+        r'^Variant ',             # Variant-level details
+        r'^Option\d+ ',           # Option columns
+        r'^Row #$',               # Row number
+        r'^Command$',             # Shopify commands
+        r'^Top Row$',             # Shopify structure
+        r'^Published ',           # Publishing metadata
+        r'^Created At$',          # Timestamps
+        r'^Updated At$',          # Timestamps
+        r'^Smart Collections$',   # Shopify collections
+        r'^Custom Collections$',  # Shopify collections
+        r'^Template Suffix$',     # Shopify template
+        r'^Gift Card$',           # Gift card flag
+        r'^Image (Width|Height|Position|Type|Command)$',  # Image metadata (keep Src/Alt)
+    ]
+    
+    import re
+    compiled_patterns = [re.compile(p, re.IGNORECASE) for p in exclude_patterns]
+    
+    # Filter columns
+    filtered_columns = []
+    for col in columns:
+        # Check against exclude patterns
+        excluded = any(p.search(col) for p in compiled_patterns)
+        if not excluded:
+            filtered_columns.append(col)
+    
+    # If we've filtered too aggressively, keep all columns
+    if len(filtered_columns) < 5:
+        filtered_columns = columns
+    
+    # Limit to max 30 columns to keep prompt small
+    if len(filtered_columns) > 30:
+        # Prioritize common useful columns
+        priority_patterns = [
+            r'title|name|product',
+            r'brand|vendor|manufacturer',
+            r'image|img|photo|src',
+            r'description|body|html',
+            r'category|type|collection',
+            r'id|sku|handle',
+            r'price|cost',
+            r'color|colour',
+            r'material|fabric',
+            r'tag',
+        ]
+        priority_cols = []
+        other_cols = []
+        
+        for col in filtered_columns:
+            col_lower = col.lower()
+            is_priority = any(re.search(p, col_lower) for p in priority_patterns)
+            if is_priority:
+                priority_cols.append(col)
+            else:
+                other_cols.append(col)
+        
+        # Take all priority columns + fill remaining slots with others
+        remaining_slots = 30 - len(priority_cols)
+        filtered_columns = priority_cols + other_cols[:remaining_slots]
+    
+    # Filter sample rows to only include filtered columns
+    filtered_rows = []
+    for row in sample_rows:
+        filtered_row = {k: v for k, v in row.items() if k in filtered_columns}
+        filtered_rows.append(filtered_row)
+    
+    return filtered_columns, filtered_rows
+
+
 def format_csv_sample_for_prompt(
     columns: List[str],
     sample_rows: List[dict],
@@ -144,20 +228,26 @@ def format_csv_sample_for_prompt(
     Returns:
         Formatted string
     """
+    # Filter to only relevant columns (removes metafields, variants, etc.)
+    filtered_columns, filtered_rows = _filter_relevant_columns(columns, sample_rows)
+    
     # Format columns as comma-separated list
-    columns_str = ", ".join(columns)
+    columns_str = ", ".join(filtered_columns)
     
     # Format rows as readable JSON-like structure
     rows_formatted = []
-    for i, row in enumerate(sample_rows, 1):
+    for i, row in enumerate(filtered_rows, 1):
         # Clean nulls for readability
         clean_row = {k: v for k, v in row.items() if pd.notna(v)}
         rows_formatted.append(f"Row {i}: {json.dumps(clean_row, default=str)}")
     
     rows_str = "\n".join(rows_formatted)
     
+    # Calculate actual char count after filtering
+    actual_chars = sum(len(json.dumps(r, default=str)) for r in filtered_rows)
+    
     # Format according to specification
-    return f"**CSV Columns:**\n{columns_str}\n\n**Sample Rows ({len(sample_rows)} rows, {total_chars} characters):**\n{rows_str}"
+    return f"**CSV Columns:**\n{columns_str}\n\n**Sample Rows ({len(filtered_rows)} rows, {actual_chars} characters):**\n{rows_str}"
 
 
 def orchestrate_csv_config_generation(

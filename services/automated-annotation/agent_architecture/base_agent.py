@@ -838,7 +838,7 @@ class LLMAnnotationAgent:
                 if in_string:
                     if escape:
                         escape = False
-                    elif ch == '\\\\':
+                    elif ch == '\\':
                         escape = True
                     elif ch == '"':
                         in_string = False
