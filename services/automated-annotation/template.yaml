@@ -51,6 +51,9 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:Query
                   - dynamodb:Scan
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
                 Resource:
                   - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-${StageName}"
                   - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-${StageName}/index/*"

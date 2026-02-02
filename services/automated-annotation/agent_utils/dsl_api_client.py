@@ -384,6 +384,39 @@ class DSLAPIClient:
         except DSLAPIError:
             return False
 
+    # ============================================================================
+    # Taxonomy Lookup Methods
+    # ============================================================================
+
+    def lookup_root(self, property_type: str, value: str, brand: Optional[str] = None,
+                    root_type: Optional[str] = None, partition: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Lookup root taxonomy value from child value for models or materials.
+
+        Args:
+            property_type: "model" or "material"
+            value: The child model/material name to lookup
+            brand: Optional brand filter for models
+            root_type: Optional root_type filter
+            partition: Optional partition path (e.g., "bags", "api", "apparel", "footwear", "all")
+                      If not provided, defaults to "bags"
+
+        Returns:
+            Dictionary with root information
+        """
+        params = {
+            'property_type': property_type,
+            'value': value
+        }
+        if brand:
+            params['brand'] = brand
+        if root_type:
+            params['root_type'] = root_type
+
+        partition_path = partition or "bags"
+        endpoint = f'/{partition_path}/knowledge/lookup-root'
+        return self._make_request('GET', endpoint, params=params)
+
 
 
 

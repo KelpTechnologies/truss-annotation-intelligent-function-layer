@@ -48,7 +48,7 @@ function generateServiceTemplates(servicePath, configFileArg, stageArg) {
 function generateCloudFormationTemplate(
   servicePath,
   config,
-  outputSuffix = ""
+  outputSuffix = "",
 ) {
   const requiresDatabase = config.database?.required || false;
   const requiresVPC = config.deployment?.vpc_config?.required || false;
@@ -146,12 +146,27 @@ Resources:
     config.database.tables &&
     Array.isArray(config.database.tables)
   ) {
+    // Build DynamoDB actions based on permissions array
+    const hasWrite =
+      config.database.permissions &&
+      config.database.permissions.includes("write");
+    const dynamoActions = [
+      "dynamodb:GetItem",
+      "dynamodb:Query",
+      "dynamodb:Scan",
+    ];
+    if (hasWrite) {
+      dynamoActions.push(
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+      );
+    }
+
     template += `
               - Effect: Allow
                 Action:
-                  - dynamodb:GetItem
-                  - dynamodb:Query
-                  - dynamodb:Scan
+${dynamoActions.map((a) => `                  - ${a}`).join("\n")}
                 Resource:`;
     config.database.tables.forEach((table) => {
       if (table.includes("${STAGE}")) {
@@ -276,7 +291,7 @@ Outputs:
 
   fs.writeFileSync(
     path.join(servicePath, `template${outputSuffix}.yaml`),
-    template
+    template,
   );
   console.log(`✅ Generated template${outputSuffix}.yaml`);
 }
@@ -426,7 +441,7 @@ if (require.main === module) {
   const stageArg = args[2] || null;
   if (!servicePath) {
     console.error(
-      "Usage: node generate-service-templates.js <service-directory> [config-file] [stage]"
+      "Usage: node generate-service-templates.js <service-directory> [config-file] [stage]",
     );
     process.exit(1);
   }
