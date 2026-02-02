@@ -554,6 +554,10 @@ class LLMAnnotationAgent:
         # 4. Parse JSON response
         parsed, parse_error = self._parse_json_response(response)
         
+        # 4.5. Clean up "Unknown" values - replace with empty string/null
+        if parsed is not None:
+            parsed = self._strip_unknown_values(parsed)
+        
         if parsed is None:
             # Print parsing failure details + raw prompt input
             print(f"\n[PARSING FAILED] {parse_error or 'Failed to parse JSON from response'}")
@@ -865,6 +869,30 @@ class LLMAnnotationAgent:
                 break
         
         return None, "No valid JSON found in response"
+
+    def _strip_unknown_values(self, data: Any) -> Any:
+        """
+        Recursively strip 'Unknown' values from parsed LLM output.
+        
+        - String "Unknown" (case-insensitive) → empty string ""
+        - String "unknown" → empty string ""
+        - String "N/A", "n/a", "None", "null" → empty string ""
+        - Preserves structure (dicts, lists, nested values)
+        
+        This ensures the LLM doesn't pollute results with placeholder values.
+        """
+        unknown_values = {'unknown', 'n/a', 'none', 'null', 'not available', 'not specified'}
+        
+        if isinstance(data, dict):
+            return {k: self._strip_unknown_values(v) for k, v in data.items()}
+        elif isinstance(data, list):
+            return [self._strip_unknown_values(item) for item in data]
+        elif isinstance(data, str):
+            if data.lower().strip() in unknown_values:
+                return ""
+            return data
+        else:
+            return data
 
     def generate_config(
         self,
