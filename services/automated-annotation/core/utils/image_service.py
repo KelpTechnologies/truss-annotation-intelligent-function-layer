@@ -48,25 +48,30 @@ def get_signed_image_url(image_id: str) -> Optional[str]:
     else:
         logger.warning("No authentication available for image service")
     
-    # Construct API endpoint
-    # Assuming endpoint structure: /images/{image_id}/signed-url
-    # Adjust based on actual API structure
-    url = f"{base_url}/images/{image_id}/signed-url"
+    # Construct API endpoint for processed image lookup
+    # Endpoint: GET /images/processed/{image_id}
+    url = f"{base_url.rstrip('/')}/images/processed/{image_id}"
     
     try:
         logger.info(f"Fetching signed URL for image: {image_id}")
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         
-        data = response.json()
-        signed_url = data.get("signed_url") or data.get("url") or data.get("image_url")
+        result = response.json()
         
-        if signed_url:
-            logger.debug(f"Successfully fetched signed URL for image {image_id}")
-            return signed_url
+        # Unwrap 'data' wrapper if present (API response structure)
+        data = result.get('data', result)
+        
+        # Extract downloadUrl from processedImage object
+        processed_image = data.get('processedImage', {})
+        download_url = processed_image.get('downloadUrl')
+        
+        if download_url:
+            logger.debug(f"Successfully fetched download URL for image {image_id}")
+            return download_url
         else:
-            logger.error(f"Signed URL not found in response for image {image_id}")
-            raise ValueError(f"Signed URL not found in response for image {image_id}")
+            logger.error(f"downloadUrl not found in processedImage response for image {image_id}. Response: {result}")
+            raise ValueError(f"downloadUrl not found in response for image {image_id}")
             
     except requests.exceptions.RequestException as e:
         logger.error(f"Failed to fetch signed URL for image {image_id}: {str(e)}")
