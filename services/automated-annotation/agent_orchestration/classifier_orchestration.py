@@ -196,6 +196,20 @@ def extract_classification_result(result_dict: dict, schema: Optional[Dict] = No
     # Extract reasoning
     reasoning = result_dict.get('reasoning', '')
     
+    # Display-layer output mapping for colour classifier
+    # Maps internal schema names to display names
+    COLOUR_OUTPUT_MAP = {
+        'Beige': 'Neutrals',
+    }
+    
+    if primary_name in COLOUR_OUTPUT_MAP:
+        primary_name = COLOUR_OUTPUT_MAP[primary_name]
+    
+    # Also map alternatives
+    alternative_names = [
+        COLOUR_OUTPUT_MAP.get(name, name) for name in alternative_names
+    ]
+    
     return {
         'primary': primary,
         'primary_id': primary_id,
