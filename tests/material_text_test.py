@@ -5,33 +5,30 @@ Test: material_test - Material classification tests (TEXT-ONLY)
 Simulates Lambda routing: text-only -> classifier-material-bags-text
 
 Usage:
-    python material_test.py --base-url https://... --api-key ...
-    python material_test.py --mode local
+    python material_text_test.py --base-url https://... --api-key ...
+    python material_text_test.py --mode local
+
+Environment variables (loaded from .env):
+    API mode:   STAGING_API_URL, DSL_API_KEY
+    Local mode: AWS_REGION, TRUSS_SECRETS_ARN, VERTEXAI_PROJECT, VERTEXAI_LOCATION
 """
 
 import argparse
 import sys
+import os
 import math
 import json
-import os
 from pathlib import Path
 
-# Load .env from tests folder
-def load_env():
-    env_path = Path(__file__).parent / ".env"
-    if env_path.exists():
-        with open(env_path) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, _, value = line.partition("=")
-                    key, value = key.strip(), value.strip()
-                    if value.startswith('"') and value.endswith('"'):
-                        value = value[1:-1]
-                    if key and key not in os.environ:  # Don't override existing
-                        os.environ[key] = value
+# Load .env at initialization
+from dotenv import load_dotenv
+env_path = Path(__file__).parent / ".env"
+load_dotenv(env_path)
 
-load_env()
+# Set cross-platform temp path for GCP credentials (before lambda imports)
+import tempfile
+if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(tempfile.gettempdir(), "gcp_sa.json")
 
 parser = argparse.ArgumentParser(description="Material classification tests")
 parser.add_argument("--mode", "-m", default="api", choices=["api", "local"], help="Test mode")
@@ -40,10 +37,38 @@ parser.add_argument("--api-key", "-k", help="API key (or set DSL_API_KEY)")
 args = parser.parse_args()
 
 MODE = args.mode
-BASE_URL = args.base_url or os.environ.get("STAGING_API_URL") or os.environ.get("API_BASE_URL")
+BASE_URL = args.base_url or os.getenv("STAGING_API_URL")
 BASE_URL = BASE_URL.rstrip("/") if BASE_URL else None
-API_KEY = args.api_key or os.environ.get("DSL_API_KEY") or os.environ.get("API_KEY") or ""
+API_KEY = args.api_key or os.getenv("DSL_API_KEY") or ""
 RESULTS = []
+
+# === ENV VALIDATION ===
+def validate_env():
+    """Validate required env vars based on mode. Exit early if missing."""
+    missing = []
+
+    if MODE == "api":
+        if not BASE_URL:
+            missing.append("STAGING_API_URL (or --base-url)")
+    else:  # local mode
+        required_local = [
+            ("AWS_REGION", os.getenv("AWS_REGION")),
+            ("TRUSS_SECRETS_ARN", os.getenv("TRUSS_SECRETS_ARN")),
+            ("VERTEXAI_PROJECT", os.getenv("VERTEXAI_PROJECT")),
+            ("VERTEXAI_LOCATION", os.getenv("VERTEXAI_LOCATION")),
+        ]
+        for name, val in required_local:
+            if not val:
+                missing.append(name)
+
+    if missing:
+        print(f"ERROR: Missing required environment variables for {MODE} mode:")
+        for var in missing:
+            print(f"  - {var}")
+        print(f"\nCopy tests/.env.example to tests/.env and fill in values.")
+        sys.exit(1)
+
+validate_env()
 
 # Text-only config (matches Lambda routing: text-only -> classifier-{prop}-bags-text)
 CONFIG_ID = "classifier-material-bags-text"
@@ -53,7 +78,7 @@ def classify_via_api(text_dump: dict) -> dict:
     """Classify via HTTP API - simulates Lambda endpoint."""
     import requests
     if not BASE_URL:
-        raise ValueError("--base-url required or set STAGING_API_URL in .env")
+        raise ValueError("--base-url required for api mode")
     response = requests.post(
         f"{BASE_URL}/automations/annotation/bags/classify/material",
         json={"text_dump": text_dump, "input_mode": "text-only"},
@@ -77,7 +102,7 @@ def classify_via_local(text_dump: dict) -> dict:
     service_path = repo_root / "services" / "automated-annotation"
     sys.path.insert(0, str(service_path))
 
-    # Ensure GCP credentials are set up
+    # Initialize GCP credentials from AWS Secrets Manager
     from core.utils.credentials import ensure_gcp_adc
     ensure_gcp_adc()
 
@@ -110,22 +135,50 @@ def classify(text_dump: dict) -> dict:
 
 
 def is_nan(value):
+    """Check if value represents NaN/null/empty (legacy helper)."""
     if value is None: return True
     if isinstance(value, float) and math.isnan(value): return True
     if isinstance(value, str) and value.lower() in ("nan", ""): return True
     return False
 
 
+def is_unknown(value):
+    """
+    Check if value represents 'unknown' classification result.
+
+    Classifier returns ID 0 + name "Unknown" when material can't be identified.
+    - material_id: 0 (int)
+    - material: "Unknown" (str)
+    - root_material_id: None
+    - root_material: None
+    """
+    if value is None: return True
+    if value == 0: return True
+    if isinstance(value, str) and value.lower() in ("unknown", "nan", ""): return True
+    if isinstance(value, float) and math.isnan(value): return True
+    return False
+
+
 def run_case(name: str, text_dump: dict, exp_mat, exp_id, exp_root, exp_root_id):
+    """
+    Run a test case comparing expected vs actual classification result.
+
+    For unknown cases (exp_mat=None), expects:
+    - material_id: 0 or None
+    - material: "Unknown", "", or None
+    - root_material_id: None
+    - root_material: None
+    """
     try:
         r = classify(text_dump)
         got_mat, got_id = r.get("material"), r.get("material_id")
         got_root, got_root_id = r.get("root_material"), r.get("root_material_id")
 
         if exp_mat is None:
-            passed = is_nan(got_mat) and is_nan(got_id)
-            exp_str = "NaN"
-            got_str = f"{got_mat}({got_id})"
+            # Unknown expected: check ID=0/None and name="Unknown"/None/""
+            passed = is_unknown(got_id) and is_unknown(got_mat)
+            exp_str = "Unknown(0)->None"
+            got_str = f"{got_mat}({got_id})->{got_root}({got_root_id})"
         else:
             passed = (got_mat == exp_mat and got_id == exp_id and got_root == exp_root and got_root_id == exp_root_id)
             exp_str = f"{exp_mat}({exp_id})->{exp_root}({exp_root_id})"

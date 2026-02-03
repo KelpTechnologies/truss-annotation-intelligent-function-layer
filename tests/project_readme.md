@@ -39,15 +39,39 @@ Classification endpoints accept `text_dump` containing product fields:
 }
 ```
 
-### NaN/Null Handling
+### Unknown/Unidentified Classification Handling
 
-API may return various null representations. Use a helper:
+When classifier cannot identify a property (e.g., no material indicators in text), it returns:
+- `{property}_id`: `0` (ID 0 = "unknown" convention in schema)
+- `{property}`: `"Unknown"` (name lookup for ID 0)
+- `root_{property}_id`: `None` (root lookup skipped for ID 0)
+- `root_{property}`: `None`
+
+Use helper to check for unknown state:
 
 ```python
 import math
 
+def is_unknown(value):
+    """
+    Check if value represents 'unknown' classification result.
+
+    Classifier returns ID 0 + name "Unknown" when property can't be identified.
+    """
+    if value is None: return True
+    if value == 0: return True
+    if isinstance(value, str) and value.lower() in ("unknown", "nan", ""): return True
+    if isinstance(value, float) and math.isnan(value): return True
+    return False
+```
+
+### Legacy NaN/Null Handling (deprecated)
+
+Older code may use various null representations:
+
+```python
 def is_nan_equivalent(value):
-    """Check if value represents NaN/null/empty."""
+    """Check if value represents NaN/null/empty (legacy)."""
     if value is None:
         return True
     if isinstance(value, float) and math.isnan(value):
@@ -66,13 +90,19 @@ TEST_CASES = [
     # (text_dump, expected_field1, expected_field2, ...)
     ({"material": "Canvas"}, "Canvas", 2, "Canvas", 2),
     ({"material": "Calfskin"}, "Calfskin", 47, "Leather", 1),
-    ({"material": ""}, None, None, None, None),  # NaN expected
+    ({"material": ""}, None, None, None, None),  # Unknown expected: ID=0, name="Unknown"
 ]
 
-def run_test_case(case_num, text_dump, exp1, exp2, exp3, exp4):
+def run_test_case(case_num, text_dump, exp_mat, exp_id, exp_root, exp_root_id):
     response = requests.post(f"{BASE_URL}{ENDPOINT}", json={"text_dump": text_dump, "input_mode": "text-only"})
     result = response.json()["data"][0]
-    # assertions...
+    if exp_mat is None:
+        # Unknown case: check for ID=0 or name="Unknown"
+        assert is_unknown(result.get("material_id"))
+        assert is_unknown(result.get("material"))
+    else:
+        assert result.get("material") == exp_mat
+        assert result.get("material_id") == exp_id
 
 for i, args in enumerate(TEST_CASES, 1):
     run_test_case(i, *args)
@@ -89,12 +119,25 @@ for i, args in enumerate(TEST_CASES, 1):
 
 | Field | Description |
 |-------|-------------|
-| `material` | Classified material name |
-| `material_id` | Material taxonomy ID |
-| `root_material` | Root/parent material name |
-| `root_material_id` | Root material taxonomy ID |
+| `material` | Classified material name (`"Unknown"` if unidentifiable) |
+| `material_id` | Material taxonomy ID (`0` if unidentifiable) |
+| `root_material` | Root/parent material name (`None` if unidentifiable) |
+| `root_material_id` | Root material taxonomy ID (`None` if unidentifiable) |
 | `confidence` | Classification confidence (0-1) |
 | `success`, `validation_passed` | Error detection fields |
+
+### Unknown State Convention
+
+When classifier cannot identify a property:
+
+| Field | Value |
+|-------|-------|
+| `{property}_id` | `0` |
+| `{property}` | `"Unknown"` |
+| `root_{property}_id` | `None` |
+| `root_{property}` | `None` |
+
+This is distinct from API errors (`success: false`). Unknown means classification succeeded but no match found.
 
 ---
 
@@ -130,24 +173,96 @@ See `tests/material_test.py` for the complete implementation using:
 
 ## Environment Variables (Project-Specific)
 
+### API Mode
 | Variable | Description |
 |----------|-------------|
-| `STAGING_API_URL` | Base URL for staging API (e.g., `https://staging-api.truss.com`) |
-| `API_BASE_URL` | Alternative to STAGING_API_URL |
-| `X_API_KEY` | API key for `x-api-key` header authentication |
+| `STAGING_API_URL` | Base URL for staging API |
+| `DSL_API_KEY` | API key for `x-api-key` header |
+
+### Local Mode (Direct Lambda Invocation)
+| Variable | Description |
+|----------|-------------|
+| `AWS_REGION` | AWS region for Secrets Manager |
+| `TRUSS_SECRETS_ARN` | ARN containing GCP service account JSON |
+| `VERTEXAI_PROJECT` | GCP project ID for Gemini models |
+| `VERTEXAI_LOCATION` | GCP region (e.g., `us-central1`) |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to GCP SA JSON (auto-set if missing) |
+
+---
+
+## BigQuery/GCP Connection (Local Mode)
+
+Local tests need GCP credentials for BigQuery taxonomy lookups and Vertex AI (Gemini) models.
+
+### How It Works
+
+1. **Credentials stored in AWS Secrets Manager** under `TRUSS_SECRETS_ARN`
+2. **Test sets cross-platform temp path** before lambda imports:
+   ```python
+   import tempfile
+   if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+       os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(tempfile.gettempdir(), "gcp_sa.json")
+   ```
+3. **`ensure_gcp_adc()` fetches and writes credentials**:
+   ```python
+   from core.utils.credentials import ensure_gcp_adc
+   ensure_gcp_adc()  # Fetches from Secrets Manager, writes to temp path
+   ```
+
+### Credential Flow
+
+```
+TRUSS_SECRETS_ARN (AWS)
+        │
+        ▼
+ensure_gcp_adc() fetches GCP SA JSON
+        │
+        ▼
+Writes to GOOGLE_APPLICATION_CREDENTIALS path
+        │
+        ▼
+BigQuery client uses ADC (Application Default Credentials)
+```
+
+### Platform Paths
+
+| Platform | GOOGLE_APPLICATION_CREDENTIALS |
+|----------|-------------------------------|
+| Linux/Lambda | `/tmp/gcp_sa.json` |
+| Windows | `C:\Users\<user>\AppData\Local\Temp\gcp_sa.json` |
+| macOS | `/var/folders/.../gcp_sa.json` |
+
+### Required AWS Permissions
+
+Test runner needs IAM permissions to read from Secrets Manager:
+- `secretsmanager:GetSecretValue` on `TRUSS_SECRETS_ARN`
 
 ---
 
 ## Running Tests Locally
 
+### Setup
 ```bash
-# Set environment variables
-export STAGING_API_URL=https://staging-api.example.com
-export X_API_KEY=your-api-key
+# Copy and fill in environment variables
+cp tests/.env.example tests/.env
+# Edit tests/.env with your values
+```
 
-# Run all tests
-python .github/scripts/runner.py
+### API Mode (calls staging endpoint)
+```bash
+# Requires: STAGING_API_URL, DSL_API_KEY
+conda run -n pyds python tests/material_test.py -m api
+```
 
-# Run a specific test
-python tests/material_test.py
+### Local Mode (direct lambda invocation)
+```bash
+# Requires: AWS_REGION, TRUSS_SECRETS_ARN, VERTEXAI_PROJECT, VERTEXAI_LOCATION
+# Also needs AWS credentials configured (aws configure)
+conda run -n pyds python tests/material_test.py -m local
+conda run -n pyds python tests/material_text_test.py -m local
+```
+
+### Run All Tests
+```bash
+STAGING_API_URL=https://staging.example.com python .github/scripts/runner.py
 ```

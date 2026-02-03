@@ -188,6 +188,45 @@ Describe the business rules:
 | `STAGING_API_URL` | Base URL for the staging API |
 | `API_BASE_URL` | Alternative to STAGING_API_URL |
 | `TEST_AUTH_TOKEN` | Auth token for protected endpoints (optional) |
+| `DSL_API_KEY` | API key for authenticated endpoints |
+
+### Local Mode Variables
+
+For tests that run locally (bypassing API), additional env vars may be required:
+
+| Variable | Description |
+|----------|-------------|
+| `AWS_REGION` | AWS region for Secrets Manager |
+| `TRUSS_SECRETS_ARN` | ARN for secrets (GCP creds, etc.) |
+| `VERTEXAI_PROJECT` | GCP project ID for Vertex AI |
+| `VERTEXAI_LOCATION` | GCP region for Vertex AI |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to GCP service account JSON (auto-set if missing) |
+
+### Environment Validation Pattern
+
+**All test scripts MUST validate required env vars at startup and fail early:**
+
+```python
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
+
+def validate_env():
+    missing = []
+    if MODE == "api":
+        if not os.getenv("STAGING_API_URL"):
+            missing.append("STAGING_API_URL")
+    else:  # local mode
+        for var in ["AWS_REGION", "TRUSS_SECRETS_ARN", "VERTEXAI_PROJECT"]:
+            if not os.getenv(var):
+                missing.append(var)
+
+    if missing:
+        print(f"ERROR: Missing env vars: {', '.join(missing)}")
+        print("Copy tests/.env.example to tests/.env and fill in values.")
+        sys.exit(1)
+
+validate_env()  # Call BEFORE any imports that need these vars
+```
 
 ---
 

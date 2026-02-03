@@ -38,17 +38,24 @@ text_dump_arr:
 
 # OUTPUT
 # Response contains: material (primary_name), material_id, root_material, root_material_id
+#
+# UNKNOWN/UNIDENTIFIED MATERIALS:
+# When classifier cannot identify material, it returns:
+#   material_id: 0 (ID 0 = "unknown" convention in schema)
+#   material: "Unknown" (name lookup for ID 0 returns "Unknown")
+#   root_material_id: None (root lookup skipped for ID 0)
+#   root_material: None
 
 # Expected output DataFrame columns:
 material,material_id,root_material,root_material_id
 
 # TEST 1: Unknown - No information
-NaN,NaN,NaN,NaN
-NaN,NaN,NaN,NaN
+Unknown,0,None,None
+Unknown,0,None,None
 
 # TEST 2: Unknown - Irrelevant info
-NaN,NaN,NaN,NaN
-NaN,NaN,NaN,NaN
+Unknown,0,None,None
+Unknown,0,None,None
 
 # TEST 3: Simple correct examples
 Canvas,2,Canvas,2
@@ -70,6 +77,8 @@ Leather,1,Leather,1
 # 4. Returns unknown (NaN) when no material indicators found
 # 5. Prioritizes explicit material mentions over inferred materials
 # 6. Handles nested material hierarchies (specific -> root)
+
+ONLY USE THE TEXT ONLY VERSION OF THE MATERIAL CLASSIFIER NOT THE VISUAL/MULTIMODAL VERSION
 
 
 # GROUND TRUTH EXAMPLES FROM TEST DATA

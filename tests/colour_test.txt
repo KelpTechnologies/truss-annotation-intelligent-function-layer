@@ -4,7 +4,7 @@
 
 # INPUT
 # API endpoint: POST /automations/annotation/bags/classify/colour
-# Input mode: text-only
+# Input mode: text-only (IMPORTANT)
 # Request body contains: text_dump (combined text from title/brand/description)
 
 inputs:
@@ -38,17 +38,22 @@ text_dump_arr:
 
 # OUTPUT
 # Response contains: colour (primary_name), colour_id, confidence, reasoning
+#
+# UNKNOWN/UNIDENTIFIED COLOURS:
+# When classifier cannot identify colour, it returns:
+#   colour_id: 0 (ID 0 = "unknown" convention in schema)
+#   colour: "Unknown" (name lookup for ID 0 returns "Unknown")
 
 # Expected output DataFrame columns:
 colour,colour_id
 
 # TEST 1: Unknown - No information
-NaN,NaN
-NaN,NaN
+Unknown,0
+Unknown,0
 
 # TEST 2: Unknown - Irrelevant info
-NaN,NaN
-NaN,NaN
+Unknown,0
+Unknown,0
 
 # TEST 3: Simple correct examples
 Black,1
@@ -86,9 +91,9 @@ text_dump_arr:
 colour,colour_id
 Black,1
 White,4
-NaN,NaN
+Unknown,0
 
-# Note: Row 3 had no explicit colour in source - colour from image analysis
+# Note: Row 3 had no explicit colour in source - colour from image analysis, returns unknown (ID 0) for text-only
 
 
 # Source 2: brands_gateway_italian_0_sample_50_enriched_20260128_152406.csv

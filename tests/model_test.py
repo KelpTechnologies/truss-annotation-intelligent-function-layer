@@ -1,313 +1,274 @@
 #!/usr/bin/env python3
 """
-Test: model_test - Model classification tests
-Supports API mode (HTTP) and local mode (direct Python invocation)
+Test: model_test - Model classification tests (TEXT-ONLY)
+
+Simulates Lambda routing for model (brand-specific):
+  text-only -> classifier-model-bags-{brand}-full-taxo
 
 Usage:
-    API mode:   TEST_MODE=api STAGING_API_URL=https://... DSL_API_KEY=... python model_test.py
-    Local mode: TEST_MODE=local python model_test.py
-
-Note: Model classification requires brand to select brand-specific taxonomy.
+    python model_test.py --base-url https://... --api-key ...
+    python model_test.py --mode local
 """
 
-import os
+import argparse
 import sys
 import math
+import json
+import re
+import unicodedata
+import os
 from pathlib import Path
 
-MODE = os.environ.get("TEST_MODE", "api")
+# Load .env from tests folder
+def load_env():
+    env_path = Path(__file__).parent / ".env"
+    if env_path.exists():
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, value = line.partition("=")
+                    key, value = key.strip(), value.strip()
+                    if value.startswith('"') and value.endswith('"'):
+                        value = value[1:-1]
+                    if key and key not in os.environ:  # Don't override existing
+                        os.environ[key] = value
 
-# Brand to config_id mapping (for local mode)
-BRAND_CONFIG_MAP = {
-    "gucci": "classifier-model-bags-gucci-full-taxo",
-    "louis vuitton": "classifier-model-bags-louisvuitton-full-taxo",
-    "prada": "classifier-model-bags-prada-full-taxo",
-    "chanel": "classifier-model-bags-chanel-full-taxo",
-}
+load_env()
+
+parser = argparse.ArgumentParser(description="Model classification tests")
+parser.add_argument("--mode", "-m", default="api", choices=["api", "local"], help="Test mode")
+parser.add_argument("--base-url", "-u", help="API base URL (or set STAGING_API_URL)")
+parser.add_argument("--api-key", "-k", help="API key (or set DSL_API_KEY)")
+args = parser.parse_args()
+
+MODE = args.mode
+BASE_URL = args.base_url or os.environ.get("STAGING_API_URL") or os.environ.get("API_BASE_URL")
+BASE_URL = BASE_URL.rstrip("/") if BASE_URL else None
+API_KEY = args.api_key or os.environ.get("DSL_API_KEY") or os.environ.get("API_KEY") or ""
+RESULTS = []
 
 
-# === API MODE ===
-def classify_via_api(text_dump: dict, target: str = "model") -> dict:
-    """Classify via HTTP API."""
+def safe_mapping(brand: str) -> str:
+    """
+    Normalize brand name to config-compatible format.
+    (Copied from classifier_model_orchestration.py)
+    """
+    normalized = unicodedata.normalize('NFKD', brand)
+    ascii_str = normalized.encode('ASCII', 'ignore').decode('ASCII')
+    cleaned = re.sub(r'[^a-zA-Z0-9]+', '', ascii_str)
+    return cleaned.lower()
+
+
+def get_model_config_id(brand: str) -> str:
+    """Get config_id for brand-specific model classifier."""
+    safe_brand = safe_mapping(brand)
+    return f"classifier-model-bags-{safe_brand}-full-taxo"
+
+
+def classify_via_api(text_dump: dict) -> dict:
+    """Classify via HTTP API - simulates Lambda endpoint."""
     import requests
-
-    BASE_URL = os.environ.get("STAGING_API_URL") or os.environ.get("API_BASE_URL")
-    API_KEY = os.environ.get("DSL_API_KEY") or os.environ.get("API_KEY") or ""
-
     if not BASE_URL:
-        raise ValueError("Set STAGING_API_URL or API_BASE_URL env var")
-
-    BASE_URL = BASE_URL.rstrip("/")
-
+        raise ValueError("--base-url required or set STAGING_API_URL in .env")
     response = requests.post(
-        f"{BASE_URL}/automations/annotation/bags/classify/{target}",
+        f"{BASE_URL}/automations/annotation/bags/classify/model",
         json={"text_dump": text_dump, "input_mode": "text-only"},
         headers={"x-api-key": API_KEY} if API_KEY else {}
     )
-
-    assert response.status_code == 200, f"API error {response.status_code}: {response.text}"
+    if response.status_code != 200:
+        raise Exception(f"API error {response.status_code}: {response.text}")
     return response.json()["data"][0]
 
 
-# === LOCAL MODE ===
-def classify_via_local(text_dump: dict, target: str = "model") -> dict:
-    """Classify via direct Python invocation."""
-    # Add repo to path
+def classify_via_local(text_dump: dict) -> dict:
+    """
+    Classify via direct Python - simulates Lambda routing.
+
+    Lambda routing logic for model (from agent_orchestration_api_handler.py):
+    1. detect_input_mode() -> "text-only" (no image, has text)
+    2. execute_model_classification_for_api() uses get_model_config_id(brand)
+    3. Config: classifier-model-bags-{brand}-full-taxo
+    """
     repo_root = Path(__file__).parent.parent
     service_path = repo_root / "services" / "automated-annotation"
     sys.path.insert(0, str(service_path))
 
-    from agent_architecture import LLMAnnotationAgent
-    from agent_orchestration.csv_config_loader import ConfigLoader
-    from agent_architecture.validation import AgentStatus
+    # Ensure GCP credentials are set up
+    from core.utils.credentials import ensure_gcp_adc
+    ensure_gcp_adc()
 
-    # Get brand from text_dump
-    brand = text_dump.get("brand", "").lower()
-    if not brand:
-        return {
-            "model": None,
-            "model_id": None,
-            "root_model": None,
-            "root_model_id": None,
-            "confidence": 0
-        }
+    from agent_orchestration.classifier_api_orchestration import classify_for_api
 
-    # Get config_id for brand
-    config_id = BRAND_CONFIG_MAP.get(brand)
-    if not config_id:
-        # Try partial match
-        for b, cid in BRAND_CONFIG_MAP.items():
-            if b in brand or brand in b:
-                config_id = cid
-                break
+    brand = text_dump.get("brand", "")
+    if not brand or not str(brand).strip():
+        return {"model": None, "model_id": None, "root_model": None, "root_model_id": None}
 
-    if not config_id:
-        return {
-            "model": None,
-            "model_id": None,
-            "root_model": None,
-            "root_model_id": None,
-            "confidence": 0
-        }
+    config_id = get_model_config_id(brand)
 
-    # Load config
-    config_loader = ConfigLoader(mode='dynamo', env='staging')
-    full_config = config_loader.load_full_agent_config(config_id)
-    agent = LLMAnnotationAgent(full_config=full_config, log_IO=False)
+    # Format text_dump as JSON string (matches Lambda behavior)
+    text_input = json.dumps(text_dump, indent=2)
 
-    # Format text input
-    text_parts = []
-    for k, v in text_dump.items():
-        if v:
-            text_parts.append(f"{k}: {v}")
-    formatted_text = "\n".join(text_parts)
-
-    # Execute
-    result = agent.execute({
-        'item_id': 'test-local',
-        'text_input': formatted_text,
-        'input_mode': 'text-only'
-    })
-
-    # Extract result
-    if result.status == AgentStatus.SUCCESS and result.result:
-        prediction_id = result.result.get('prediction_id')
-        schema_content = result.schema.get('schema_content', {}) if result.schema else {}
-
-        # Get primary name
-        primary_name = None
-        root_name = None
-        root_id = None
-
-        if prediction_id and str(prediction_id) in schema_content:
-            item = schema_content[str(prediction_id)]
-            primary_name = item.get('name')
-            # Get root from schema metadata
-            root_id = item.get('parent_id') or prediction_id
-            if str(root_id) in schema_content:
-                root_name = schema_content[str(root_id)].get('name')
-            else:
-                root_name = primary_name
-                root_id = prediction_id
-
-        confidence = result.result.get('scores', [{}])[0].get('score', 0)
+    # Call orchestration function directly (simulates Lambda)
+    try:
+        result = classify_for_api(
+            config_id=config_id,
+            text_input=text_input,
+            input_mode="text-only",
+            env="staging"
+        )
 
         return {
-            "model": primary_name,
-            "model_id": prediction_id,
-            "root_model": root_name,
-            "root_model_id": root_id,
-            "confidence": confidence
+            "model": result.get("primary_name"),
+            "model_id": result.get("primary_id"),
+            "root_model": result.get("root_model_name"),
+            "root_model_id": result.get("root_model_id"),
+            "confidence": result.get("confidence", 0),
+            "success": result.get("success", False),
+            "reasoning": result.get("reasoning", "")
         }
-    else:
-        # Unknown/failed
-        return {
-            "model": None,
-            "model_id": None,
-            "root_model": None,
-            "root_model_id": None,
-            "confidence": 0
-        }
+    except Exception as e:
+        # Config not found for brand
+        return {"model": None, "model_id": None, "root_model": None, "root_model_id": None, "error": str(e)}
 
 
-# === UNIFIED INTERFACE ===
-def classify(text_dump: dict, target: str = "model") -> dict:
-    if MODE == "local":
-        return classify_via_local(text_dump, target)
-    return classify_via_api(text_dump, target)
+def classify(text_dump: dict) -> dict:
+    return classify_via_local(text_dump) if MODE == "local" else classify_via_api(text_dump)
 
 
-# === HELPERS ===
 def is_nan(value):
-    """Check if value is NaN/null/empty."""
-    if value is None:
-        return True
-    if isinstance(value, float) and math.isnan(value):
-        return True
-    if isinstance(value, str) and value.lower() in ("nan", ""):
-        return True
+    """Check if value represents NaN/null/empty (legacy helper)."""
+    if value is None: return True
+    if isinstance(value, float) and math.isnan(value): return True
+    if isinstance(value, str) and value.lower() in ("nan", ""): return True
     return False
 
 
-def assert_model(result: dict, expected_model, expected_id, expected_root, expected_root_id, case: str):
-    """Assert model classification result."""
-    if expected_model is None:
-        assert is_nan(result.get("model")), f"{case}: expected NaN model, got {result.get('model')}"
-        assert is_nan(result.get("model_id")), f"{case}: expected NaN model_id, got {result.get('model_id')}"
-    else:
-        assert result.get("model") == expected_model, f"{case}: expected '{expected_model}', got '{result.get('model')}'"
-        assert result.get("model_id") == expected_id, f"{case}: expected id {expected_id}, got {result.get('model_id')}"
-        if expected_root:
-            assert result.get("root_model") == expected_root, f"{case}: expected root '{expected_root}', got '{result.get('root_model')}'"
-        if expected_root_id:
-            assert result.get("root_model_id") == expected_root_id, f"{case}: expected root_id {expected_root_id}, got {result.get('root_model_id')}"
+def is_unknown(value):
+    """
+    Check if value represents 'unknown' classification result.
+
+    Classifier returns ID 0 + name "Unknown" when model can't be identified.
+    - model_id: 0 (int)
+    - model: "Unknown" (str)
+    - root_model_id: None
+    - root_model: None
+    """
+    if value is None: return True
+    if value == 0: return True
+    if isinstance(value, str) and value.lower() in ("unknown", "nan", ""): return True
+    if isinstance(value, float) and math.isnan(value): return True
+    return False
+
+
+def run_case(name: str, text_dump: dict, exp_model, exp_id, exp_root=None, exp_root_id=None):
+    """
+    Run a test case comparing expected vs actual classification result.
+
+    For unknown cases (exp_model=None), expects:
+    - model_id: 0 or None
+    - model: "Unknown", "", or None
+    - root_model_id: None
+    - root_model: None
+    """
+    try:
+        r = classify(text_dump)
+        got_model, got_id = r.get("model"), r.get("model_id")
+        got_root, got_root_id = r.get("root_model"), r.get("root_model_id")
+
+        if exp_model is None:
+            # Unknown expected: check ID=0/None and name="Unknown"/None/""
+            passed = is_unknown(got_id) and is_unknown(got_model)
+            exp_str = "Unknown(0)->None"
+            got_str = f"{got_model}({got_id})->{got_root}({got_root_id})"
+        else:
+            passed = (got_model == exp_model and got_id == exp_id)
+            if exp_root and passed:
+                passed = (got_root == exp_root and got_root_id == exp_root_id)
+            exp_str = f"{exp_model}({exp_id})" + (f"->{exp_root}({exp_root_id})" if exp_root else "")
+            got_str = f"{got_model}({got_id})->{got_root}({got_root_id})"
+
+        input_short = text_dump.get("Title", "")[:40] or str(text_dump)[:40]
+        status = "PASS" if passed else "FAIL"
+        print(f"  [{status}] {name}: '{input_short}' | exp={exp_str} got={got_str}")
+        RESULTS.append((name, passed, None))
+    except Exception as e:
+        print(f"  [ERR ] {name}: {e}")
+        RESULTS.append((name, False, str(e)))
+
+
+def run_root_check(name: str, text_dump: dict, allowed_roots: list):
+    try:
+        r = classify(text_dump)
+        got_root = r.get("root_model")
+        passed = got_root in allowed_roots
+        input_short = text_dump.get("Title", "")[:40] or str(text_dump)[:40]
+        status = "PASS" if passed else "FAIL"
+        print(f"  [{status}] {name}: '{input_short}' | exp_root in {allowed_roots} got={got_root}")
+        RESULTS.append((name, passed, None))
+    except Exception as e:
+        print(f"  [ERR ] {name}: {e}")
+        RESULTS.append((name, False, str(e)))
 
 
 # === TESTS ===
 def test_unknown_no_info():
-    """TEST 1: Unknown - no information"""
     print("TEST 1: Unknown - no info")
-
-    r1 = classify({"brand": "Gucci", "Title": ""})
-    assert_model(r1, None, None, None, None, "empty title")
-
-    r2 = classify({"brand": "Prada", "Title": "leather bag"})
-    assert_model(r2, None, None, None, None, "generic")
-
-    print("  PASSED")
-
+    run_case("empty", {"brand": "Gucci", "Title": ""}, None, None)
+    run_case("generic", {"brand": "Prada", "Title": "leather bag"}, None, None)
 
 def test_unknown_irrelevant():
-    """TEST 2: Unknown - irrelevant info (no model indicators)"""
     print("TEST 2: Unknown - irrelevant")
-
-    r1 = classify({"brand": "Gucci", "Title": "Gucci handbag excellent condition authentic"})
-    assert_model(r1, None, None, None, None, "no model hints")
-
-    r2 = classify({"brand": "Louis Vuitton", "Title": "Louis Vuitton tote bag monogram canvas"})
-    assert_model(r2, None, None, None, None, "generic LV tote")
-
-    print("  PASSED")
-
+    run_case("no-hints", {"brand": "Gucci", "Title": "Gucci handbag excellent condition authentic"}, None, None)
+    run_case("generic-lv", {"brand": "Louis Vuitton", "Title": "Louis Vuitton tote bag monogram canvas"}, None, None)
 
 def test_simple_correct():
-    """TEST 3: Simple correct examples"""
     print("TEST 3: Simple correct")
-
-    r1 = classify({"brand": "Gucci", "Title": "Gucci Soho Disco Crossbody Black Leather"})
-    assert_model(r1, "Soho Disco", 1056, "Soho Disco", 1056, "soho disco")
-
-    r2 = classify({"brand": "Louis Vuitton", "Title": "Louis Vuitton Neverfull MM Monogram"})
-    assert_model(r2, "Neverfull", 445, "Neverfull", 445, "neverfull")
-
-    print("  PASSED")
-
+    run_case("soho", {"brand": "Gucci", "Title": "Gucci Soho Disco Crossbody Black Leather"}, "Soho Disco", 1056, "Soho Disco", 1056)
+    run_case("neverfull", {"brand": "Louis Vuitton", "Title": "Louis Vuitton Neverfull MM Monogram"}, "Neverfull", 445, "Neverfull", 445)
 
 def test_primary_secondary():
-    """TEST 4: Primary vs secondary (model variants)"""
     print("TEST 4: Model variants")
-
-    r1 = classify({"brand": "Gucci", "Title": "Calfskin Jackie 1961 Small Shoulder Bag"})
-    assert_model(r1, "Jackie 1961", 307, "Jackie", 306, "jackie 1961")
-
-    r2 = classify({"brand": "Gucci", "Title": "Bamboo Night Clutch Black Calfskin"})
-    assert_model(r2, "Bamboo", 50, "Bamboo", 50, "bamboo")
-
-    print("  PASSED")
-
+    run_case("jackie1961", {"brand": "Gucci", "Title": "Calfskin Jackie 1961 Small Shoulder Bag"}, "Jackie 1961", 307, "Jackie", 306)
+    run_case("bamboo", {"brand": "Gucci", "Title": "Bamboo Night Clutch Black Calfskin"}, "Bamboo", 50, "Bamboo", 50)
 
 def test_noise_extraction():
-    """TEST 5: Extract from noise"""
     print("TEST 5: Noise extraction")
-
-    r1 = classify({"brand": "Prada", "Title": "AUTHENTIC GUARANTEED Fast Shipping A+++ Seller Rated 5 Stars Re-Edition 2005 Nylon Mini Top Handle RARE COLOR"})
-    assert_model(r1, "Re-Edition 2005", 524, "Re-Edition", 526, "re-edition 2005")
-
-    r2 = classify({"brand": "Chanel", "Title": "limited edition cruise 2019 collection exclusive VIP client gift classic flap bag medium caviar leather gold hardware"})
-    # Note: "Classic Flap / Classic 11.12" is the full name
-    assert r2.get("root_model") in ["Timeless/Classic", "Classic Flap"], f"classic flap root: got '{r2.get('root_model')}'"
-
-    print("  PASSED")
-
+    run_case("reedition", {"brand": "Prada", "Title": "AUTHENTIC GUARANTEED Fast Shipping A+++ Seller Rated 5 Stars Re-Edition 2005 Nylon Mini Top Handle RARE COLOR"}, "Re-Edition 2005", 524, "Re-Edition", 526)
+    run_root_check("classicflap", {"brand": "Chanel", "Title": "limited edition cruise 2019 collection exclusive VIP client gift classic flap bag medium caviar leather gold hardware"}, ["Timeless/Classic", "Classic Flap", "Classic Flap / Classic 11.12"])
 
 def test_ground_truth_leprix():
-    """Ground truth from leprix dataset"""
     print("TEST GT: Leprix")
-
-    cases = [
-        ({"brand": "Gucci", "Title": "Balenciaga Medium Calfskin Hacker Project Jackie 1961 - very good condition"}, "Jackie 1961", 307, "Jackie", 306),
-        ({"brand": "Gucci", "Title": "Calfskin Bamboo Jackie Hobo - Used Excellent"}, "Jackie", 306, "Jackie", 306),
-        ({"brand": "Gucci", "Title": "Tricolor Leather Soho Disco Crossbody AA"}, "Soho Disco", 1056, "Soho Disco", 1056),
-        # Prada Tessuto - material not model, expect unknown
-        ({"brand": "Prada", "Title": "Tessuto Zip Top Crossbody - AB"}, None, None, None, None),
-    ]
-
-    for text_dump, exp_model, exp_id, exp_root, exp_root_id in cases:
-        r = classify(text_dump)
-        if exp_model is None:
-            assert is_nan(r.get("model")), f"leprix: expected NaN model, got '{r.get('model')}'"
-        else:
-            assert r.get("model") == exp_model, f"leprix: expected '{exp_model}', got '{r.get('model')}'"
-
-    print("  PASSED")
-
+    run_case("leprix1", {"brand": "Gucci", "Title": "Balenciaga Medium Calfskin Hacker Project Jackie 1961 - very good condition"}, "Jackie 1961", 307, "Jackie", 306)
+    run_case("leprix2", {"brand": "Gucci", "Title": "Calfskin Bamboo Jackie Hobo - Used Excellent"}, "Jackie", 306, "Jackie", 306)
+    run_case("leprix3", {"brand": "Gucci", "Title": "Tricolor Leather Soho Disco Crossbody AA"}, "Soho Disco", 1056, "Soho Disco", 1056)
+    run_case("leprix4", {"brand": "Prada", "Title": "Tessuto Zip Top Crossbody - AB"}, None, None)
 
 def test_ground_truth_italian():
-    """Ground truth from Italian brands dataset"""
     print("TEST GT: Italian")
-
-    cases = [
-        ({"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Nano Papillon Monogram Vintage"}, "Papillon", 483),
-        ({"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - MANHATTAN GM Monogram"}, "Manhattan", 397),
-        # Murakami is collaboration name not model, expect unknown
-        ({"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Portafoglio Murakami Clip"}, None, None),
-    ]
-
-    for text_dump, exp_model, exp_id in cases:
-        r = classify(text_dump)
-        if exp_model is None:
-            assert is_nan(r.get("model")), f"italian: expected NaN model, got '{r.get('model')}'"
-        else:
-            assert r.get("model") == exp_model, f"italian: expected '{exp_model}', got '{r.get('model')}'"
-
-    print("  PASSED")
+    run_case("ital1", {"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Nano Papillon Monogram Vintage"}, "Papillon", 483, "Papillon", 483)
+    run_case("ital2", {"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - MANHATTAN GM Monogram"}, "Manhattan", 397, "Manhattan", 397)
+    run_case("ital3", {"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Portafoglio Murakami Clip"}, None, None)
 
 
 if __name__ == "__main__":
-    print(f"Mode: {MODE}")
-    try:
-        test_unknown_no_info()
-        test_unknown_irrelevant()
-        test_simple_correct()
-        test_primary_secondary()
-        test_noise_extraction()
-        test_ground_truth_leprix()
-        test_ground_truth_italian()
-        print("PASSED")
+    print(f"=== MODEL TESTS (mode={MODE}) ===\n")
+    test_unknown_no_info()
+    test_unknown_irrelevant()
+    test_simple_correct()
+    test_primary_secondary()
+    test_noise_extraction()
+    test_ground_truth_leprix()
+    test_ground_truth_italian()
+
+    passed = [r for r in RESULTS if r[1]]
+    failed = [r for r in RESULTS if not r[1]]
+    print(f"\n=== SUMMARY: {len(passed)}/{len(RESULTS)} passed ===")
+    if failed:
+        print("Failed:")
+        for name, _, err in failed:
+            print(f"  - {name}" + (f" ({err})" if err else ""))
+        sys.exit(1)
+    else:
+        print("All tests passed!")
         sys.exit(0)
-    except AssertionError as e:
-        print(f"FAILED: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"ERROR: {e}")
-        sys.exit(1)

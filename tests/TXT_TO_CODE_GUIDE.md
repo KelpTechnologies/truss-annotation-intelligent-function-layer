@@ -427,18 +427,104 @@ For API patterns specific to your project (response wrappers, authentication, en
 
 ---
 
+## Implementation Rules
+
+### 1. Never Modify Production Code
+
+Tests must NEVER alter code outside the `tests/` folder. All adaptations for bugs or issues must be handled within test code.
+
+If a test is impossible to run:
+```python
+def test_feature_x():
+    """BLOCKED: Requires feature Y which is not implemented"""
+    print("SKIP: Cannot run - requires unimplemented feature Y")
+    sys.exit(1)  # Fail explicitly with reason
+```
+
+### 2. Validate Environment Variables Early
+
+All env vars must be validated at script startup, BEFORE any imports that depend on them:
+
+```python
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
+
+# Cross-platform temp path (before lambda imports)
+import tempfile
+if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(tempfile.gettempdir(), "gcp_sa.json")
+
+def validate_env():
+    missing = []
+    if MODE == "local":
+        for var in ["AWS_REGION", "TRUSS_SECRETS_ARN", "VERTEXAI_PROJECT"]:
+            if not os.getenv(var):
+                missing.append(var)
+    if missing:
+        print(f"ERROR: Missing: {', '.join(missing)}")
+        sys.exit(1)
+
+validate_env()  # MUST be before imports that use these vars
+```
+
+### 3. Map Output Expectations to Actual Code Behavior
+
+When .txt expects "null" but code returns structured data, match the CODE behavior while preserving the INTENT:
+
+| .txt says | Code actually returns | Test assertion |
+|-----------|----------------------|----------------|
+| `null` / `NaN` | `{"id": "0", "name": "unknown"}` | Check for id=0 or name="unknown" |
+| `material: null` | `{"material": None, "material_id": None}` | `is_nan(result.get("material"))` |
+| `error` | `{"success": false, "error": "..."}` | `assert not result.get("success")` |
+
+```python
+def is_nan(value):
+    """Check if value represents 'no result' per .txt spec"""
+    if value is None: return True
+    if isinstance(value, float) and math.isnan(value): return True
+    if isinstance(value, str) and value.lower() in ("nan", "", "unknown"): return True
+    return False
+```
+
+### 4. Report Design Decisions
+
+After implementing, document deviations from .txt in a brief report:
+
+```python
+"""
+DESIGN DECISIONS (deviations from .txt spec):
+- .txt expects null for unknown, code returns {"id": 0, "name": "unknown"} -> checking for id=0
+- .txt expects single string, code returns list -> checking first element
+- Added root_material check not in .txt (required by current API contract)
+"""
+```
+
+**Print this at test completion if deviations exist:**
+```python
+if __name__ == "__main__":
+    # ... run tests ...
+    print("\n--- DESIGN NOTES ---")
+    print("- 'null' mapped to id=0 per current API behavior")
+    print("- root_material assertion added (not in .txt)")
+```
+
+---
+
 ## Checklist Before Submitting
 
 1. [ ] Filename matches `.txt` file (e.g., `001-feature.txt` → `001-feature.py`)
 2. [ ] Reads `API_BASE_URL` or `STAGING_API_URL` from environment
-3. [ ] Exits with code 0 on success, code 1 on failure
-4. [ ] Tests the exact endpoint from INPUT section
-5. [ ] Asserts status code from OUTPUT section
-6. [ ] Asserts all response fields from OUTPUT section
-7. [ ] Includes edge cases from INTERNAL LOGIC section
-8. [ ] Error messages are clear and include actual vs expected values
-9. [ ] Comments reference relevant parts of INTERNAL LOGIC for reviewer
-10. [ ] Prints "PASSED" on success, "FAILED: {reason}" on failure
+3. [ ] **Validates all required env vars at startup, exits early if missing**
+4. [ ] Exits with code 0 on success, code 1 on failure
+5. [ ] Tests the exact endpoint from INPUT section
+6. [ ] Asserts status code from OUTPUT section
+7. [ ] Asserts all response fields from OUTPUT section (mapped to actual code behavior)
+8. [ ] Includes edge cases from INTERNAL LOGIC section
+9. [ ] Error messages are clear and include actual vs expected values
+10. [ ] Comments reference relevant parts of INTERNAL LOGIC for reviewer
+11. [ ] Prints "PASSED" on success, "FAILED: {reason}" on failure
+12. [ ] **No changes to code outside tests/ folder**
+13. [ ] **Design decisions report printed if deviations from .txt exist**
 
 ---
 

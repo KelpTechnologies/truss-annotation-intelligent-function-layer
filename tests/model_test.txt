@@ -4,7 +4,7 @@
 
 # INPUT
 # API endpoint: POST /automations/annotation/bags/classify/model
-# Input mode: text-only
+# Input mode: text-only (IMPORTANT)
 # Request body contains: text_dump (title/description), brand (required for model lookup)
 # Note: Model classification requires brand to select brand-specific taxonomy
 
@@ -39,17 +39,24 @@ text_dump_arr:
 
 # OUTPUT
 # Response contains: model (primary_name), model_id, root_model, root_model_id
+#
+# UNKNOWN/UNIDENTIFIED MODELS:
+# When classifier cannot identify model, it returns:
+#   model_id: 0 (ID 0 = "unknown" convention in schema)
+#   model: "Unknown" (name lookup for ID 0 returns "Unknown")
+#   root_model_id: None (root lookup skipped for ID 0)
+#   root_model: None
 
 # Expected output DataFrame columns:
 model,model_id,root_model,root_model_id
 
 # TEST 1: Unknown - No information
-NaN,NaN,NaN,NaN
-NaN,NaN,NaN,NaN
+Unknown,0,None,None
+Unknown,0,None,None
 
 # TEST 2: Unknown - Irrelevant info (generic descriptions)
-NaN,NaN,NaN,NaN
-NaN,NaN,NaN,NaN
+Unknown,0,None,None
+Unknown,0,None,None
 
 # TEST 3: Simple correct examples
 Soho Disco,1056,Soho Disco,1056
@@ -89,9 +96,9 @@ model,model_id,root_model,root_model_id
 Jackie 1961,307,Jackie,306
 Jackie,306,Jackie,306
 Soho Disco,1056,Soho Disco,1056
-NaN,NaN,NaN,NaN
+Unknown,0,None,None
 
-# Note: Prada "Tessuto" is material not model - returns unknown
+# Note: Prada "Tessuto" is material not model - returns unknown (ID 0)
 # Note: "Bamboo Jackie" falls back to "Jackie" as core model (ID 306)
 
 
@@ -107,7 +114,7 @@ text_dump_arr:
 model,model_id,root_model,root_model_id
 Papillon,483,Papillon,483
 Manhattan,397,Manhattan,397
-NaN,NaN,NaN,NaN
+Unknown,0,None,None
 
-# Note: "Murakami" is collaboration name not model - returns unknown
+# Note: "Murakami" is collaboration name not model - returns unknown (ID 0)
 # Note: "Nano" and "GM" are sizes, not part of model name

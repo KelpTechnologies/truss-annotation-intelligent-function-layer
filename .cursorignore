@@ -45,3 +45,8 @@ coverage/
 .idea/
 .vscode/
 
+## env variables
+
+.env
+.env.local
+
