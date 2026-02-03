@@ -8,10 +8,10 @@ An AI-powered service layer for automated product classification and image proce
 
 This repository contains two main services:
 
-| Service | Base Path | Description |
-|---------|-----------|-------------|
+| Service                  | Base Path                 | Description                                                                     |
+| ------------------------ | ------------------------- | ------------------------------------------------------------------------------- |
 | **Automated Annotation** | `/automations/annotation` | Agent-based classification for models, materials, colours, and other properties |
-| **Image Service** | `/images` | Image upload, processing, and management |
+| **Image Service**        | `/images`                 | Image upload, processing, and management                                        |
 
 ---
 
@@ -34,12 +34,12 @@ AI-powered classification service using agent architecture with vector similarit
 
 ### Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/{category}/classify/model` | POST | Vector-based model classification using image embeddings |
-| `/{category}/classify/{property}` | POST | LLM-based property classification (material, colour, condition, type) |
-| `/csv-config` | POST | Generate CSV column mapping configuration |
-| `/health` | GET | Service health check |
+| Endpoint                          | Method | Description                                                           |
+| --------------------------------- | ------ | --------------------------------------------------------------------- |
+| `/{category}/classify/model`      | POST   | Vector-based model classification using image embeddings              |
+| `/{category}/classify/{property}` | POST   | LLM-based property classification (material, colour, condition, type) |
+| `/csv-config`                     | POST   | Generate CSV column mapping configuration                             |
+| `/health`                         | GET    | Service health check                                                  |
 
 ### Model Classification (Vector-Based)
 
@@ -58,6 +58,7 @@ x-api-key: <your-api-key>
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -90,6 +91,7 @@ x-api-key: <your-api-key>
 ```
 
 **Parameters:**
+
 - `image` - Processing ID from image service (signed URL auto-resolved)
 - `image_url` - Direct image URL (alternative to `image`)
 - `text_input` - Pre-formatted text string
@@ -97,6 +99,7 @@ x-api-key: <your-api-key>
 - `input_mode` - `auto`, `image-only`, `text-only`, or `multimodal`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -137,15 +140,15 @@ Handles image uploads, processing, and retrieval with presigned URLs.
 
 ### Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/upload-url` | POST/GET | Generate presigned URL for image upload |
-| `/status/{processingId}` | GET | Get processing status for an image |
-| `/processed/{uniqueId}` | GET | Get processed image URLs |
-| `/process/{uniqueId}` | POST | Manually trigger image processing |
-| `/list` | GET | List images with optional filtering |
-| `/image/{uniqueId}` | DELETE | Delete an image and processed versions |
-| `/health` | GET | Service health check |
+| Endpoint                 | Method   | Description                             |
+| ------------------------ | -------- | --------------------------------------- |
+| `/upload-url`            | POST/GET | Generate presigned URL for image upload |
+| `/status/{processingId}` | GET      | Get processing status for an image      |
+| `/processed/{uniqueId}`  | GET      | Get processed image URLs                |
+| `/process/{uniqueId}`    | POST     | Manually trigger image processing       |
+| `/list`                  | GET      | List images with optional filtering     |
+| `/image/{uniqueId}`      | DELETE   | Delete an image and processed versions  |
+| `/health`                | GET      | Service health check                    |
 
 ### Upload Image
 
@@ -186,6 +189,7 @@ This repository uses a **config-driven approach** where `config.json` is the sin
 **Only run these scripts locally:**
 
 1. **Copy Utilities** - Sync shared utils to all services
+
    ```bash
    node scripts/copy-utils.js                     # All services
    node scripts/copy-utils.js <service-name>      # Specific service
