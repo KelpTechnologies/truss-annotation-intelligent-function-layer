@@ -1,12 +1,12 @@
 # Generated OpenAPI spec with HybridAuth - DO NOT EDIT DIRECTLY
 # Service: automated-annotation
 # Layer: aifl
-# Generated: 2025-12-04T12:06:22.990Z
+# Generated: 2026-02-02T14:10:38.396Z
 openapi: 3.0.1
 info:
   title: automated-annotation
-  version: 1.0.0
-  description: Automated annotation service using LangChain for knowledge extraction and text annotation
+  version: 2.0.0
+  description: Automated annotation service using agent architecture for classification tasks. Supports vector-based model classification and LLM-based property classification via orchestration handlers.
 components:
   securitySchemes:
     HybridAuth:
@@ -19,10 +19,10 @@ components:
         authorizerUri: arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/${stageVariables.hybridAuthorizerArn}/invocations
         authorizerResultTtlInSeconds: 0
 paths:
-  /automations/annotation/bags/classify/model:
+  /automations/annotation/{category}/classify/model:
     post:
-      summary: Classify bag model using vector-based similarity search (image vector from image). Returns model, model_id, root_model, root_model_id, and confidence.
-      description: Classify bag model using vector-based similarity search (image vector from image). Returns model, model_id, root_model, root_model_id, and confidence.
+      summary: Classify model using vector-based similarity search via model_vector_classifier_api_handler. Uses pre-computed image vectors from image-processing table, queries Pinecone for similar images, and performs majority voting. Returns model, model_id, root_model, root_model_id, and confidence.
+      description: Classify model using vector-based similarity search via model_vector_classifier_api_handler. Uses pre-computed image vectors from image-processing table, queries Pinecone for similar images, and performs majority voting. Returns model, model_id, root_model, root_model_id, and confidence.
       security:
         - HybridAuth: []
       responses:
@@ -84,10 +84,75 @@ paths:
               method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Api-Key,X-Amz-Date,X-Amz-Security-Token'"
               method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
               method.response.header.Access-Control-Allow-Origin: "'*'"
-  /automations/annotation/bags/classify/{property}:
+  /automations/annotation/{category}/classify/{property}:
     post:
-      summary: Classify a bag property (type, material, colour, etc.) using the DSL orchestrator. For model/material, returns simplified response with only essential fields.
-      description: Classify a bag property (type, material, colour, etc.) using the DSL orchestrator. For model/material, returns simplified response with only essential fields.
+      summary: Classify a property (type, material, colour, etc.) using the new agent architecture system via agent_orchestration_api_handler. Maps category/property to config_id, calls orchestration function, and returns formatted result with IDs and names.
+      description: Classify a property (type, material, colour, etc.) using the new agent architecture system via agent_orchestration_api_handler. Maps category/property to config_id, calls orchestration function, and returns formatted result with IDs and names.
+      security:
+        - HybridAuth: []
+      responses:
+        "200":
+          description: Success
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Bad request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+        "500":
+          description: Internal server error
+      x-amazon-apigateway-integration:
+        uri: arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/${stageVariables.automated-annotationFunctionArn}/invocations
+        passthroughBehavior: when_no_match
+        httpMethod: POST
+        type: aws_proxy
+    options:
+      summary: CORS support
+      security: []
+      responses:
+        "200":
+          description: CORS enabled
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: "{\"statusCode\": 200}"
+        responses:
+          default:
+            statusCode: "200"
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Api-Key,X-Amz-Date,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+  /automations/annotation/automations/agents:
+    post:
+      summary: "Direct agent execution endpoint (INTERNAL USE ONLY - called by external orchestration scripts). ARCHITECTURE EXCEPTION: Directly calls agent_architecture (violates normal pattern). DEPRECATED: Will be removed once legacy systems are migrated. New code should use orchestration functions via agent_orchestration_api_handler."
+      description: "Direct agent execution endpoint (INTERNAL USE ONLY - called by external orchestration scripts). ARCHITECTURE EXCEPTION: Directly calls agent_architecture (violates normal pattern). DEPRECATED: Will be removed once legacy systems are migrated. New code should use orchestration functions via agent_orchestration_api_handler."
       security:
         - HybridAuth: []
       responses:
@@ -151,8 +216,8 @@ paths:
               method.response.header.Access-Control-Allow-Origin: "'*'"
   /automations/annotation/health:
     get:
-      summary: Health check endpoint for the automated annotation service
-      description: Health check endpoint for the automated annotation service
+      summary: Health check endpoint for the automated annotation service. Returns service status and stage information.
+      description: Health check endpoint for the automated annotation service. Returns service status and stage information.
       security: []
       responses:
         "200":
@@ -212,4 +277,69 @@ paths:
             responseParameters:
               method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Api-Key,X-Amz-Date,X-Amz-Security-Token'"
               method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+  /automations/annotation/csv-config:
+    post:
+      summary: Generate CSV column mapping configuration using LLM analysis. Analyzes sample rows from a CSV file and produces a mapping that identifies brand, title, description, and image columns. Configs are cached in DynamoDB for reuse.
+      description: Generate CSV column mapping configuration using LLM analysis. Analyzes sample rows from a CSV file and produces a mapping that identifies brand, title, description, and image columns. Configs are cached in DynamoDB for reuse.
+      security:
+        - HybridAuth: []
+      responses:
+        "200":
+          description: Success
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Bad request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+        "500":
+          description: Internal server error
+      x-amazon-apigateway-integration:
+        uri: arn:aws:apigateway:eu-west-2:lambda:path/2015-03-31/functions/${stageVariables.automated-annotationFunctionArn}/invocations
+        passthroughBehavior: when_no_match
+        httpMethod: POST
+        type: aws_proxy
+    options:
+      summary: CORS support
+      security: []
+      responses:
+        "200":
+          description: CORS enabled
+          headers:
+            Access-Control-Allow-Origin:
+              schema:
+                type: string
+            Access-Control-Allow-Methods:
+              schema:
+                type: string
+            Access-Control-Allow-Headers:
+              schema:
+                type: string
+      x-amazon-apigateway-integration:
+        type: mock
+        requestTemplates:
+          application/json: "{\"statusCode\": 200}"
+        responses:
+          default:
+            statusCode: "200"
+            responseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Api-Key,X-Amz-Date,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
               method.response.header.Access-Control-Allow-Origin: "'*'"

@@ -1,12 +1,23 @@
-# Truss Automated Annotation Service
+# Truss Annotation Intelligent Function Layer
 
-A LangChain-powered AI service for automated knowledge extraction and text annotation, designed for intelligent processing of fashion and luxury goods data.
+An AI-powered service layer for automated product classification and image processing, using agent architecture with vector similarity search and LLM-based extraction.
+
+---
+
+## Services Overview
+
+This repository contains two main services:
+
+| Service                  | Base Path                 | Description                                                                     |
+| ------------------------ | ------------------------- | ------------------------------------------------------------------------------- |
+| **Automated Annotation** | `/automations/annotation` | Agent-based classification for models, materials, colours, and other properties |
+| **Image Service**        | `/images`                 | Image upload, processing, and management                                        |
 
 ---
 
 ## Authentication
 
-All endpoints require an API key:
+All endpoints require authentication:
 
 ```
 x-api-key: <your-api-key>
@@ -19,123 +30,230 @@ x-api-key: <your-api-key>
 
 ## Automated Annotation Service
 
-The service provides AI-powered text processing capabilities using LangChain:
+AI-powered classification service using agent architecture with vector similarity (Pinecone) and LLM-based extraction (OpenAI GPT-4).
 
-### Core Features
+### Endpoints
 
-- **Knowledge Extraction**: Extract entities, relationships, and attributes from text
-- **Text Annotation**: Annotate text with structured data and confidence scores
-- **Domain-Specific Processing**: Support for fashion, luxury, and specialized domains
-- **LangChain Integration**: Modern AI framework for reliable LLM interactions
+| Endpoint                          | Method | Description                                                           |
+| --------------------------------- | ------ | --------------------------------------------------------------------- |
+| `/{category}/classify/model`      | POST   | Vector-based model classification using image embeddings              |
+| `/{category}/classify/{property}` | POST   | LLM-based property classification (material, colour, condition, type) |
+| `/csv-config`                     | POST   | Generate CSV column mapping configuration                             |
+| `/health`                         | GET    | Service health check                                                  |
 
-### API Endpoints
+### Model Classification (Vector-Based)
 
-| Endpoint                                    | Method | Description                        |
-| ------------------------------------------- | ------ | ---------------------------------- |
-| `/automations/annotation/extract-knowledge` | POST   | Extract knowledge from text        |
-| `/automations/annotation/annotate`          | POST   | Annotate text with structured data |
-| `/automations/annotation/health`            | GET    | Service health check               |
-
----
-
-## Example Usage
-
-**Extract knowledge from product description:**
+Classifies product models using pre-computed image vectors and Pinecone similarity search.
 
 ```http
-POST /automations/annotation/extract-knowledge
+POST /automations/annotation/bags/classify/model
 Content-Type: application/json
 x-api-key: <your-api-key>
 
 {
-  "text": "The Chanel handbag features black leather with gold hardware",
-  "extraction_type": "entities",
-  "domain": "fashion"
+  "image": "processing-id-from-image-service",
+  "brand": "louis-vuitton",
+  "category": "bags"
 }
 ```
 
-**Annotate text with structured data:**
-
-```http
-POST /automations/annotation/annotate
-Content-Type: application/json
-x-api-key: <your-api-key>
-
-{
-  "text": "Vintage Rolex Submariner in mint condition",
-  "confidence_threshold": 0.9
-}
-```
-
----
-
-## Request & Response Structure
-
-**Request Headers:**
-
-```
-x-api-key: <your-api-key>
-Content-Type: application/json
-```
-
-**Typical Response:**
+**Response:**
 
 ```json
 {
   "success": true,
   "data": {
-    "extraction_type": "entities",
-    "data": {
-      "entities": [
-        {
-          "name": "Chanel",
-          "type": "brand",
-          "confidence": 0.95
-        }
-      ]
-    },
-    "timestamp": "2024-01-15T10:30:00Z"
-  },
-  "metadata": {
-    "service": "automated-annotation",
-    "endpoint": "extract-knowledge",
-    "timestamp": "2024-01-15T10:30:00Z",
-    "component_type": "knowledge_extraction"
+    "model": "Speedy 25",
+    "model_id": 12345,
+    "root_model": "Speedy",
+    "root_model_id": 100,
+    "confidence": 0.92
   }
+}
+```
+
+### Property Classification (LLM-Based)
+
+Classifies properties like material, colour, condition using the agent architecture.
+
+```http
+POST /automations/annotation/bags/classify/material
+Content-Type: application/json
+x-api-key: <your-api-key>
+
+{
+  "image": "processing-id-from-image-service",
+  "brand": "Chanel",
+  "title": "Classic Flap Bag",
+  "description": "Black caviar leather with gold hardware",
+  "input_mode": "auto"
+}
+```
+
+**Parameters:**
+
+- `image` - Processing ID from image service (signed URL auto-resolved)
+- `image_url` - Direct image URL (alternative to `image`)
+- `text_input` - Pre-formatted text string
+- `text_metadata` - JSON object with brand, title, description
+- `input_mode` - `auto`, `image-only`, `text-only`, or `multimodal`
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "material": "Caviar Leather",
+    "material_id": 456,
+    "root_material": "Leather",
+    "root_material_id": 10,
+    "confidence": 0.95
+  }
+}
+```
+
+### CSV Config Generation
+
+Analyzes CSV columns using LLM to generate column mapping configuration.
+
+```http
+POST /automations/annotation/csv-config
+Content-Type: application/json
+x-api-key: <your-api-key>
+
+{
+  "CSV_uuid": "unique-csv-identifier",
+  "sample_rows": [
+    {"Product Name": "Speedy 25", "Brand": "LV", "Image": "http://..."},
+    {"Product Name": "Boy Bag", "Brand": "Chanel", "Image": "http://..."}
+  ],
+  "organisation_uuid": "org-123"
 }
 ```
 
 ---
 
-## Best Practices
+## Image Service
 
-- Use appropriate `extraction_type` for your use case (`entities`, `relationships`, `attributes`)
-- Set `confidence_threshold` to filter low-confidence annotations
-- Use `domain` parameter for domain-specific processing (fashion, luxury, etc.)
-- Always include your API key in the request header
-- Test with the health endpoint before processing large volumes
+Handles image uploads, processing, and retrieval with presigned URLs.
+
+### Endpoints
+
+| Endpoint                 | Method   | Description                             |
+| ------------------------ | -------- | --------------------------------------- |
+| `/upload-url`            | POST/GET | Generate presigned URL for image upload |
+| `/status/{processingId}` | GET      | Get processing status for an image      |
+| `/processed/{uniqueId}`  | GET      | Get processed image URLs                |
+| `/process/{uniqueId}`    | POST     | Manually trigger image processing       |
+| `/list`                  | GET      | List images with optional filtering     |
+| `/image/{uniqueId}`      | DELETE   | Delete an image and processed versions  |
+| `/health`                | GET      | Service health check                    |
+
+### Upload Image
+
+```http
+POST /images/upload-url
+Content-Type: application/json
+x-api-key: <your-api-key>
+
+{
+  "filename": "product-image.jpg",
+  "contentType": "image/jpeg",
+  "expiresIn": 3600
+}
+```
+
+### Check Processing Status
+
+```http
+GET /images/status/{processingId}
+x-api-key: <your-api-key>
+```
+
+### Get Processed Images
+
+```http
+GET /images/processed/{uniqueId}
+x-api-key: <your-api-key>
+```
 
 ---
 
-## Health Monitoring
+## Development Workflow
 
-- **Check service health:**
+This repository uses a **config-driven approach** where `config.json` is the single source of truth for each service.
 
-  ```http
-  GET /automations/annotation/health
-  ```
+### Local Scripts
 
-  _Returns the health status of the automated annotation service, including LLM connectivity and service availability._
+**Only run these scripts locally:**
+
+1. **Copy Utilities** - Sync shared utils to all services
+
+   ```bash
+   node scripts/copy-utils.js                     # All services
+   node scripts/copy-utils.js <service-name>      # Specific service
+   ```
+
+2. **Generate Templates** - Generate CloudFormation and OpenAPI from config
+   ```bash
+   node scripts/generate-service-templates.js services/<service-name>
+   ```
+
+### Deployment
+
+Deployment is handled automatically by GitHub Actions when you push to the repository. Do not run deployment scripts locally.
+
+### Workflow
+
+1. Edit `services/<service-name>/config.json`
+2. Run `node scripts/copy-utils.js` (if utils changed)
+3. Run `node scripts/generate-service-templates.js services/<service-name>`
+4. Commit and push - CI/CD handles deployment
+
+---
+
+## Project Structure
+
+```
+├── services/
+│   ├── automated-annotation/    # Agent architecture and LLM orchestration
+│   │   ├── agent_architecture/  # Base agent, validation, Pydantic models
+│   │   ├── agent_orchestration/ # Classification orchestration handlers
+│   │   ├── vector-classifiers/  # Pinecone vector similarity
+│   │   ├── config.json          # Service configuration
+│   │   └── index.py             # Lambda handler
+│   ├── image-service/           # Image upload and processing
+│   │   ├── config.json
+│   │   └── index.js
+│   └── utils/                   # Shared utilities
+├── scripts/                     # Development and deployment scripts
+├── api-gateway/                 # OpenAPI specs and API Gateway configs
+└── .github/workflows/           # CI/CD pipelines
+```
 
 ---
 
 ## Technology Stack
 
-- **LangChain**: Modern AI framework for reliable LLM interactions
-- **OpenAI GPT-4**: Advanced language model for text processing
-- **AWS Lambda**: Serverless compute for scalable processing
-- **AWS Secrets Manager**: Secure API key management
+- **LangChain + OpenAI GPT-4** - Agent architecture for LLM interactions
+- **Pinecone** - Vector similarity search for model classification
+- **AWS Lambda** - Serverless compute
+- **AWS DynamoDB** - Agent configs and image processing records
+- **AWS S3** - Image storage
+- **BigQuery** - Taxonomy and knowledge base lookups
 
 ---
 
-**For further support, contact your Truss Automated Annotation Service representative.**
+## Health Monitoring
+
+Check service health:
+
+```http
+GET /automations/annotation/health
+GET /images/health
+```
+
+---
+
+**For further support, contact your Truss representative.**

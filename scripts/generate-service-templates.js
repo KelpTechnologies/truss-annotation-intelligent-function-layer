@@ -48,7 +48,7 @@ function generateServiceTemplates(servicePath, configFileArg, stageArg) {
 function generateCloudFormationTemplate(
   servicePath,
   config,
-  outputSuffix = ""
+  outputSuffix = "",
 ) {
   const requiresDatabase = config.database?.required || false;
   const requiresVPC = config.deployment?.vpc_config?.required || false;
@@ -57,8 +57,10 @@ function generateCloudFormationTemplate(
     config.database?.connection_type === "dynamodb" && requiresDatabase;
 
   const runtime = config.deployment.runtime;
+  // Use index.lambda_handler for Python (new agent architecture)
+  // handler.py is legacy and should not be used
   const handler = runtime.startsWith("python")
-    ? "handler.lambda_handler"
+    ? "index.lambda_handler"
     : "index.handler";
 
   let template = `AWSTemplateFormatVersion: "2010-09-09"
@@ -144,12 +146,27 @@ Resources:
     config.database.tables &&
     Array.isArray(config.database.tables)
   ) {
+    // Build DynamoDB actions based on permissions array
+    const hasWrite =
+      config.database.permissions &&
+      config.database.permissions.includes("write");
+    const dynamoActions = [
+      "dynamodb:GetItem",
+      "dynamodb:Query",
+      "dynamodb:Scan",
+    ];
+    if (hasWrite) {
+      dynamoActions.push(
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+      );
+    }
+
     template += `
               - Effect: Allow
                 Action:
-                  - dynamodb:GetItem
-                  - dynamodb:Query
-                  - dynamodb:Scan
+${dynamoActions.map((a) => `                  - ${a}`).join("\n")}
                 Resource:`;
     config.database.tables.forEach((table) => {
       if (table.includes("${STAGE}")) {
@@ -274,7 +291,7 @@ Outputs:
 
   fs.writeFileSync(
     path.join(servicePath, `template${outputSuffix}.yaml`),
-    template
+    template,
   );
   console.log(`✅ Generated template${outputSuffix}.yaml`);
 }
@@ -424,7 +441,7 @@ if (require.main === module) {
   const stageArg = args[2] || null;
   if (!servicePath) {
     console.error(
-      "Usage: node generate-service-templates.js <service-directory> [config-file] [stage]"
+      "Usage: node generate-service-templates.js <service-directory> [config-file] [stage]",
     );
     process.exit(1);
   }

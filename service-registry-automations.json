@@ -1,48 +1,85 @@
 {
-  "generated_at": "2025-12-09T17:51:27.881Z",
+  "generated_at": "2026-02-02T14:10:38.425Z",
   "generator_version": "3.1.0",
   "total_services": 1,
   "services": [
     {
       "name": "automated-annotation",
-      "description": "Automated annotation service using LangChain for knowledge extraction and text annotation",
+      "description": "Automated annotation service using agent architecture for classification tasks. Supports vector-based model classification and LLM-based property classification via orchestration handlers.",
       "base_path": "/automations/annotation",
       "endpoints": [
         {
-          "path": "/bags/classify/model",
+          "path": "/{category}/classify/model",
           "method": "POST",
-          "description": "Classify bag model using vector-based similarity search (image vector from image). Returns model, model_id, root_model, root_model_id, and confidence.",
+          "description": "Classify model using vector-based similarity search via model_vector_classifier_api_handler. Uses pre-computed image vectors from image-processing table, queries Pinecone for similar images, and performs majority voting. Returns model, model_id, root_model, root_model_id, and confidence.",
           "parameters": {
+            "path": {
+              "category": "string (required) - Category (e.g., 'bags')"
+            },
             "body": {
-              "image": "string (required) - Processing/Image ID stored in the image-processing DynamoDB table. Signed image URL will be looked up automatically.",
-              "brand": "string (required) - Brand namespace for Pinecone (e.g., 'jacquemus'). Uses 7 nearest neighbors by default"
+              "image": "string (required) - Processing/Image ID (processing_id) stored in the image-processing DynamoDB table. Signed image URL will be looked up automatically.",
+              "processing_id": "string (optional) - Alternative to 'image' field",
+              "brand": "string (required) - Brand namespace for Pinecone (e.g., 'jacquemus'). Uses 7 nearest neighbors by default",
+              "category": "string (optional) - Category for root lookup (default: 'bags')"
             }
           }
         },
         {
-          "path": "/bags/classify/{property}",
+          "path": "/{category}/classify/{property}",
           "method": "POST",
-          "description": "Classify a bag property (type, material, colour, etc.) using the DSL orchestrator. For model/material, returns simplified response with only essential fields.",
+          "description": "Classify a property (type, material, colour, etc.) using the new agent architecture system via agent_orchestration_api_handler. Maps category/property to config_id, calls orchestration function, and returns formatted result with IDs and names.",
+          "parameters": {
+            "path": {
+              "category": "string (required) - Category (e.g., 'bags')",
+              "property": "string (required) - Property to classify (e.g., 'material', 'colour', 'type', 'condition')"
+            },
+            "body": {
+              "image": "string (optional) - Processing/Image ID. Signed image URL will be looked up automatically from annotation-data-service-layer.",
+              "image_url": "string (optional) - Direct image URL (if already signed, takes precedence over image)",
+              "text_input": "string (optional) - Pre-formatted text string (takes precedence if provided)",
+              "text_metadata": "object (optional) - Text metadata as JSON dict (e.g., {\"brand\": \"...\", \"title\": \"...\", \"description\": \"...\"}). Allows column filtering before passing to agent.",
+              "text_dump": "string (optional) - Legacy field - treated as text_input if provided (for backward compatibility)",
+              "brand": "string (optional) - Brand name (used to build text_metadata dict if text_metadata not provided)",
+              "title": "string (optional) - Title (used to build text_metadata dict if text_metadata not provided)",
+              "description": "string (optional) - Description (used to build text_metadata dict if text_metadata not provided)",
+              "input_mode": "string (optional) - Input mode: 'auto', 'image-only', 'text-only', 'multimodal' (default: 'auto')"
+            }
+          }
+        },
+        {
+          "path": "/automations/agents",
+          "method": "POST",
+          "description": "Direct agent execution endpoint (INTERNAL USE ONLY - called by external orchestration scripts). ARCHITECTURE EXCEPTION: Directly calls agent_architecture (violates normal pattern). DEPRECATED: Will be removed once legacy systems are migrated. New code should use orchestration functions via agent_orchestration_api_handler.",
           "parameters": {
             "body": {
-              "image": "string (required) - Processing/Image ID. Signed image URL will be looked up automatically from annotation-data-service-layer.",
-              "text_dump": "string (required) - Textual description/context used for classification",
-              "brand": "string (optional) - Brand context passed to the classifier",
-              "input_mode": "string (optional) - Input mode (default: auto)",
-              "resolve_names": "boolean (optional) - Include resolved names in response"
+              "config_id": "string (required) - Agent configuration ID from DynamoDB (e.g., 'material-30', 'classifier-material-bags')",
+              "input_data": "object (required) - Task-specific input data: {item_id: string (required), image_url: string (optional), text_input: string (optional), input_mode: string (optional, default: 'auto')}"
             }
           }
         },
         {
           "path": "/health",
           "method": "GET",
-          "description": "Health check endpoint for the automated annotation service",
+          "description": "Health check endpoint for the automated annotation service. Returns service status and stage information.",
           "parameters": {}
+        },
+        {
+          "path": "/csv-config",
+          "method": "POST",
+          "description": "Generate CSV column mapping configuration using LLM analysis. Analyzes sample rows from a CSV file and produces a mapping that identifies brand, title, description, and image columns. Configs are cached in DynamoDB for reuse.",
+          "parameters": {
+            "body": {
+              "CSV_uuid": "string (required) - Unique identifier for the CSV file",
+              "sample_rows": "array (required) - List of 5-10 sample row dicts from the CSV",
+              "organisation_uuid": "string (optional) - Organization scope for config lookup/storage",
+              "max_chars": "integer (optional) - Maximum characters for sample data (default: 25000)"
+            }
+          }
         }
       ]
     }
   ],
   "summary": {
-    "total_endpoints": 3
+    "total_endpoints": 5
   }
 }

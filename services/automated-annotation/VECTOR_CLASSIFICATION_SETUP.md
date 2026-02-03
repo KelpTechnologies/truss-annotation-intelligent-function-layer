@@ -6,7 +6,9 @@ This document outlines the required AWS permissions, environment variables, and 
 
 > Model metadata is now fetched from BigQuery (`model_knowledge_display` table) instead of DynamoDB.
 
-> The Python Lambda requires the `pinecone-client` and `google-cloud-bigquery` dependencies (available in a Lambda layer or vendored into the package).
+> The Python Lambda requires the `pinecone`, `google-genai`, and `google-cloud-bigquery` dependencies (available in a Lambda layer or vendored into the package).
+>
+> **Note:** As of 2026-02, we migrated from `langchain-google-vertexai` (~230MB) to `google-genai` (~5MB) for significant layer size reduction.
 
 ## AWS IAM Permissions
 
@@ -172,7 +174,8 @@ The classification endpoint returns the following fields:
 - [ ] IAM role has Secrets Manager permissions
 - [ ] BigQuery service account has access to `model_classification` and `api.model_knowledge_display` tables
 - [ ] `google-cloud-bigquery` package available via Lambda layer
-- [ ] `pinecone-client` package available via Lambda layer
+- [ ] `pinecone` package available via Lambda layer
+- [ ] `google-genai` package available via Lambda layer (replaced langchain-google-vertexai)
 - [ ] Pinecone index `mfc-classifier-bags-models-userdata` accessible from Lambda
 
 ## Testing

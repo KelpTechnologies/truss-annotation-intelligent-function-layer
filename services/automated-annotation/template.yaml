@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: "Automated annotation service using LangChain for knowledge extraction and text annotation"
+Description: "Automated annotation service using agent architecture for classification tasks. Supports vector-based model classification and LLM-based property classification via orchestration handlers."
 
 Parameters:
   StageName:
@@ -51,6 +51,9 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:Query
                   - dynamodb:Scan
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
                 Resource:
                   - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-${StageName}"
                   - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-${StageName}/index/*"
@@ -62,12 +65,44 @@ Resources:
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-prod/index/*"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/model_visual_classifier_nodes"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/model_visual_classifier_nodes/index/*"
+                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-${StageName}"
+                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-${StageName}/index/*"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-dev"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-dev/index/*"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-staging"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-staging/index/*"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-prod"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-prod/index/*"
+                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-${StageName}"
+                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-${StageName}/index/*"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-dev"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-dev/index/*"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-staging"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-staging/index/*"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-prod"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-prod/index/*"
+                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-${StageName}"
+                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-${StageName}/index/*"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-dev"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-dev/index/*"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-staging"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-staging/index/*"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-prod"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-prod/index/*"
+                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-prompt-templates-${StageName}"
+                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-prompt-templates-${StageName}/index/*"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-prompt-templates-dev"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-prompt-templates-dev/index/*"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-prompt-templates-staging"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-prompt-templates-staging/index/*"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-prompt-templates-prod"
+                  - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-prompt-templates-prod/index/*"
 
   ServiceLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Ref FunctionName
-      Handler: handler.lambda_handler
+      Handler: index.lambda_handler
       Runtime: python3.11
       Role: !GetAtt ServiceRole.Arn
       Code:

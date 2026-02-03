@@ -1,0 +1,31 @@
+# Lambda Layer Requirements for automated-annotation service
+# Layer: intelligent-functions-python
+#
+# Updated 2026-02: Migrated from langchain-google-vertexai (~230MB) to google-genai (~5MB)
+# This significantly reduces the layer size from ~400MB to ~50MB
+#
+# To build the layer:
+#   pip install -r layer-requirements.txt -t python/
+#   zip -r layer.zip python/
+
+# Google GenAI SDK - lightweight Gemini API client (~5MB)
+# Replaces langchain-google-vertexai which pulled google-cloud-aiplatform (177MB)
+google-genai>=0.1.0
+
+# BigQuery client for model metadata lookup
+google-cloud-bigquery>=3.0.0
+
+# Pinecone for vector similarity search
+pinecone-client>=2.0.0
+
+# Pydantic for structured validation
+pydantic>=2.0.0
+
+# Pandas for data processing
+pandas>=2.0.0
+
+# Pillow for image processing
+Pillow>=10.0.0
+
+# Requests for HTTP calls
+requests>=2.28.0
