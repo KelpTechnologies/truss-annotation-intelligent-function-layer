@@ -1,0 +1,113 @@
+# Model Classification Tests
+# API: POST /automations/annotation/bags/classify/model
+# Tests text-only classification path (requires brand)
+
+# INPUT
+# API endpoint: POST /automations/annotation/bags/classify/model
+# Input mode: text-only
+# Request body contains: text_dump (title/description), brand (required for model lookup)
+# Note: Model classification requires brand to select brand-specific taxonomy
+
+inputs:
+text_dump_arr:
+
+# TEST 1: Unknown - No information at all
+# Expected: Return unknown when input has no model name
+[{"brand": "Gucci", "Title": ""},
+{"brand": "Prada", "Title": "leather bag"},
+
+# TEST 2: Unknown - Irrelevant information (no model indicators)
+# Expected: Return unknown when text has brand but no recognizable model
+{"brand": "Gucci", "Title": "Gucci handbag excellent condition authentic"},
+{"brand": "Louis Vuitton", "Title": "Louis Vuitton tote bag monogram canvas"},
+
+# TEST 3: Simple correct example - explicit model mention
+# Expected: Direct model match from title
+{"brand": "Gucci", "Title": "Gucci Soho Disco Crossbody Black Leather"},
+{"brand": "Louis Vuitton", "Title": "Louis Vuitton Neverfull MM Monogram"},
+
+# TEST 4: Primary vs secondary - subtle distinction (model variants)
+# Expected: Pick most specific model. "1961" distinguishes from base "Jackie"
+{"brand": "Gucci", "Title": "Calfskin Jackie 1961 Small Shoulder Bag"},
+{"brand": "Gucci", "Title": "Bamboo Night Clutch Black Calfskin"},
+
+# TEST 5: Lots of irrelevant info but model is there
+# Expected: Extract model despite noise
+{"brand": "Prada", "Title": "AUTHENTIC GUARANTEED Fast Shipping A+++ Seller Rated 5 Stars Re-Edition 2005 Nylon Mini Top Handle RARE COLOR"},
+{"brand": "Chanel", "Title": "limited edition cruise 2019 collection exclusive VIP client gift classic flap bag medium caviar leather gold hardware"}]
+
+
+# OUTPUT
+# Response contains: model (primary_name), model_id, root_model, root_model_id
+
+# Expected output DataFrame columns:
+model,model_id,root_model,root_model_id
+
+# TEST 1: Unknown - No information
+NaN,NaN,NaN,NaN
+NaN,NaN,NaN,NaN
+
+# TEST 2: Unknown - Irrelevant info (generic descriptions)
+NaN,NaN,NaN,NaN
+NaN,NaN,NaN,NaN
+
+# TEST 3: Simple correct examples
+Soho Disco,1056,Soho Disco,1056
+Neverfull,445,Neverfull,445
+
+# TEST 4: Primary vs secondary (model variants)
+Jackie 1961,307,Jackie,306
+Bamboo,50,Bamboo,50
+
+# TEST 5: Model in noise
+Re-Edition 2005,524,Re-Edition,526
+Classic Flap / Classic 11.12,157,Timeless/Classic,603
+
+
+# INTERNAL LOGIC
+# 1. Model classifier requires brand to load brand-specific taxonomy
+# 2. Extracts core model name from text (ignores size, material, colour descriptors)
+# 3. Maps to taxonomy ID using brand-specific schema
+# 4. Falls back to parent model if specific variant not found
+# 5. Returns unknown (NaN) when no model indicators found
+# 6. Follows "Hard Match" rule - model name must be present in text
+
+
+# GROUND TRUTH EXAMPLES FROM TEST DATA
+
+# Source 1: leprix_5_mixed_sample_enriched_20260127_103218.csv
+inputs_ground_truth_leprix:
+text_dump_arr:
+
+[{"brand": "Gucci", "Title": "Balenciaga Medium Calfskin Hacker Project Jackie 1961 - very good condition"},
+{"brand": "Gucci", "Title": "Calfskin Bamboo Jackie Hobo - Used Excellent"},
+{"brand": "Gucci", "Title": "Tricolor Leather Soho Disco Crossbody AA"},
+{"brand": "Prada", "Title": "Tessuto Zip Top Crossbody - AB"}]
+
+# OUTPUT - Ground truth from TRUSS_model columns
+model,model_id,root_model,root_model_id
+Jackie 1961,307,Jackie,306
+Jackie,306,Jackie,306
+Soho Disco,1056,Soho Disco,1056
+NaN,NaN,NaN,NaN
+
+# Note: Prada "Tessuto" is material not model - returns unknown
+# Note: "Bamboo Jackie" falls back to "Jackie" as core model (ID 306)
+
+
+# Source 2: brands_gateway_italian_0_sample_50_enriched_20260128_152406.csv
+inputs_ground_truth_italian:
+text_dump_arr:
+
+[{"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Nano Papillon Monogram Vintage"},
+{"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - MANHATTAN GM Monogram"},
+{"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Portafoglio Murakami Clip"}]
+
+# OUTPUT - Ground truth from TRUSS_model columns
+model,model_id,root_model,root_model_id
+Papillon,483,Papillon,483
+Manhattan,397,Manhattan,397
+NaN,NaN,NaN,NaN
+
+# Note: "Murakami" is collaboration name not model - returns unknown
+# Note: "Nano" and "GM" are sizes, not part of model name

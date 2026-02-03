@@ -1,0 +1,108 @@
+# Colour Classification Tests
+# API: POST /automations/annotation/bags/classify/colour
+# Tests text-only classification path
+
+# INPUT
+# API endpoint: POST /automations/annotation/bags/classify/colour
+# Input mode: text-only
+# Request body contains: text_dump (combined text from title/brand/description)
+
+inputs:
+text_dump_arr:
+
+# TEST 1: Unknown - No information at all
+# Expected: Return unknown when input is empty or has no useful content
+[{"colour": "", "Title": ""},
+{"colour": "", "Title": "handbag"},
+
+# TEST 2: Unknown - Irrelevant information (no colour indicators)
+# Expected: Return unknown when text has no colour-related information
+{"colour": "", "Title": "Designer leather crossbody excellent condition"},
+{"colour": "", "Title": "Vintage authentic luxury tote bag with dust cover"},
+
+# TEST 3: Simple correct example - explicit colour mention
+# Expected: Direct colour match from title
+{"colour": "Black", "Title": "Gucci Black Leather Soho Disco Crossbody"},
+{"colour": "Red", "Title": "Prada Red Saffiano Galleria Tote"},
+
+# TEST 4: Primary vs secondary - subtle distinction (bicolor/tricolor)
+# Expected: First colour is primary. "accent" or secondary position suggests alternative
+{"colour": "White", "Title": "White leather bag with black trim accents"},
+{"colour": "neutrals", "Title": "Chanel Beige and Black Bicolor Flap Bag"},
+
+# TEST 5: Lots of irrelevant info but colour is there
+# Expected: Extract colour despite marketing noise
+{"colour": "Navy", "Title": "SUPER RARE 2020 Cruise Collection Runway Edition Celebrity Favorite Must-Have Statement Piece Navy Blue Shoulder Bag LIMITED - buy now 100% authentic used good condition, made in italy"},
+{"colour": "Pink", "Title": "authentic guaranteed 100% original with receipt certificate included dustbag box ribbon pink leather wallet gift ready. 100% authenic contanct me to buy"}]
+
+
+# OUTPUT
+# Response contains: colour (primary_name), colour_id, confidence, reasoning
+
+# Expected output DataFrame columns:
+colour,colour_id
+
+# TEST 1: Unknown - No information
+NaN,NaN
+NaN,NaN
+
+# TEST 2: Unknown - Irrelevant info
+NaN,NaN
+NaN,NaN
+
+# TEST 3: Simple correct examples
+Black,1
+Red,7
+
+# TEST 4: Primary vs secondary (subtle - bicolor cases)
+White,4
+Neutrals,5
+
+# TEST 5: Colour in noise
+Blue,11
+Pink,2
+
+
+# INTERNAL LOGIC
+# 1. Colour classifier parses text_dump for colour keywords
+# 2. Maps to taxonomy ID using schema (e.g., Black -> ID 1)
+# 3. Returns unknown (NaN) when no colour indicators found
+# 4. For bicolor items, first mentioned colour is primary
+# 5. Handles colour synonyms (e.g., Navy -> Blue family)
+# 6. Ignores marketing/promotional text noise
+
+
+# GROUND TRUTH EXAMPLES FROM TEST DATA
+
+# Source 1: leprix_5_mixed_sample_enriched_20260127_103218.csv
+inputs_ground_truth_leprix:
+text_dump_arr:
+
+[{"brand": "Gucci", "Title": "Balenciaga Medium Calfskin Hacker Project Jackie 1961 - very good condition", "Colour": "Black"},
+{"brand": "Gucci", "Title": "Bicolor Calfskin Jackie 1961 Wallet On Chain - new with tags", "Colour": "White"},
+{"brand": "Gucci", "Title": "Tricolor Leather Soho Disco Crossbody AA"}]
+
+# OUTPUT - Ground truth from test data (TRUSS_colour_id column)
+colour,colour_id
+Black,1
+White,4
+NaN,NaN
+
+# Note: Row 3 had no explicit colour in source - colour from image analysis
+
+
+# Source 2: brands_gateway_italian_0_sample_50_enriched_20260128_152406.csv
+inputs_ground_truth_italian:
+text_dump_arr:
+
+[{"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Nano Papillon Monogram Vintage"},
+{"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - MANHATTAN GM Monogram"},
+{"brand": "Prada", "Title": "PRADA - Occhiale da sole lente a specchio rosa"}]
+
+# OUTPUT - Ground truth from TRUSS_colour columns
+colour,colour_id
+Brown,3
+Brown,3
+Pink,2
+
+# Note: "Monogram" pattern typically brown/tan. "rosa" = pink in Italian

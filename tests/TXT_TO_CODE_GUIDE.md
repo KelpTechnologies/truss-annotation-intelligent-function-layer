@@ -2,6 +2,10 @@
 
 This document explains how to convert natural language test definitions (`.txt` files) into executable test code (`.py` or `.js` files).
 
+**Related docs:**
+- [README.md](./README.md) - Framework overview and workflow
+- [project_readme.md](./project_readme.md) - Project-specific API patterns (if exists)
+
 ---
 
 ## Overview
@@ -417,125 +421,9 @@ def test_zero_quantity_returns_error():
 
 ---
 
-## Lambda Classification API Patterns
+## Project-Specific Patterns
 
-This section covers patterns specific to this repo's classification endpoints.
-
-### Response Wrapper Format
-
-All classification endpoints return a wrapped response:
-
-```json
-{
-  "component_type": "classification_result",
-  "data": [{ /* actual result */ }],
-  "metadata": {"category": "bags", "target": "material"}
-}
-```
-
-Extract the result via `response["data"][0]`.
-
-### Input Format (text_dump)
-
-Classification endpoints accept `text_dump` containing product fields:
-
-```python
-{
-    "text_dump": {
-        "material": "Calfskin",
-        "Title": "Louis Vuitton Neverfull",
-        "description": "..."  # optional
-    },
-    "input_mode": "text-only"
-}
-```
-
-### NaN/Null Handling
-
-API may return various null representations. Use a helper:
-
-```python
-import math
-
-def is_nan_equivalent(value):
-    """Check if value represents NaN/null/empty."""
-    if value is None:
-        return True
-    if isinstance(value, float) and math.isnan(value):
-        return True
-    if isinstance(value, str) and value.lower() in ("nan", ""):
-        return True
-    return False
-```
-
-### Data-Driven Test Pattern
-
-For multiple test cases, use a list of tuples:
-
-```python
-TEST_CASES = [
-    # (text_dump, expected_field1, expected_field2, ...)
-    ({"material": "Canvas"}, "Canvas", 2, "Canvas", 2),
-    ({"material": "Calfskin"}, "Calfskin", 47, "Leather", 1),
-    ({"material": ""}, None, None, None, None),  # NaN expected
-]
-
-def run_test_case(case_num, text_dump, exp1, exp2, exp3, exp4):
-    response = requests.post(f"{BASE_URL}{ENDPOINT}", json={"text_dump": text_dump, "input_mode": "text-only"})
-    result = response.json()["data"][0]
-    # assertions...
-
-for i, args in enumerate(TEST_CASES, 1):
-    run_test_case(i, *args)
-```
-
-### Classification Endpoint Reference
-
-| Endpoint Pattern | Description |
-|------------------|-------------|
-| `POST /automations/annotation/{category}/classify/{property}` | Generic classification |
-| Examples: `/bags/classify/material`, `/bags/classify/colour`, `/watches/classify/model` | |
-
-### Common Response Fields (material example)
-
-| Field | Description |
-|-------|-------------|
-| `material` | Classified material name |
-| `material_id` | Material taxonomy ID |
-| `root_material` | Root/parent material name |
-| `root_material_id` | Root material taxonomy ID |
-| `confidence` | Classification confidence (0-1) |
-| `success`, `validation_passed` | Error detection fields |
-
----
-
-## Complete Classification Test Example
-
-### Input: `material_test.txt`
-
-```
-inputs:
-text_dump_arr:
-[{"material": "Canvas", "Title": "..."},
- {"material": "Calfskin", "Title": "..."},
- {"material": "", "Title": ""},
- {"material": "", "Title": "Louis vuitton bag"}]
-
-expected output:
-material,material_id,root_material,root_material_id
-Canvas,2,Canvas,2
-Calfskin,47,Leather,1
-NaN,NaN,NaN,NaN
-NaN,NaN,NaN,NaN
-```
-
-### Output: `material_test.py`
-
-See `tests/material_test.py` for the complete implementation using:
-- Data-driven `TEST_CASES` array
-- `is_nan_equivalent()` helper for null checking
-- Response wrapper extraction `data["data"][0]`
-- x-api-key header for authentication
+For API patterns specific to your project (response wrappers, authentication, endpoint structures), create a `project_readme.md` file in your tests directory.
 
 ---
 

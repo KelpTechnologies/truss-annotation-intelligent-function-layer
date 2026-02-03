@@ -2,6 +2,10 @@
 
 A minimal testing framework for validating API contracts across multiple repos. Tests are defined in natural language (`.txt`) and implemented in Python or JavaScript.
 
+**Related docs:**
+- [TXT_TO_CODE_GUIDE.md](./TXT_TO_CODE_GUIDE.md) - Detailed guide for converting .txt specs to test code
+- [project_readme.md](./project_readme.md) - Project-specific API patterns and examples (if exists)
+
 ## Quick Start
 
 ### 1. Copy files to your repo
@@ -104,18 +108,17 @@ your-repo/
 │   │   └── integration-tests.yml    # GitHub Action
 │   └── scripts/
 │       └── runner.py                # Test runner
-├── lambda-1/
-│   ├── handler.py
-│   └── tests/
-│       ├── 001-feature-a.txt        # Test intent (data team)
-│       ├── 001-feature-a.py         # Test code (dev team)
-│       ├── 002-feature-b.txt
-│       └── 002-feature-b.js         # Can mix Python and JS
-└── lambda-2/
-    ├── handler.js
-    └── tests/
-        ├── 001-other-feature.txt
-        └── 001-other-feature.js
+├── tests/
+│   ├── README.md                    # This file (generic)
+│   ├── TXT_TO_CODE_GUIDE.md         # Conversion guide (generic)
+│   ├── project_readme.md            # Project-specific patterns (optional)
+│   ├── 001-feature-a.txt            # Test intent (data team)
+│   ├── 001-feature-a.py             # Test code (dev team)
+│   └── test_input_data/             # Test fixtures
+├── services/
+│   └── my-service/
+│       └── handler.py
+└── ...
 ```
 
 ---

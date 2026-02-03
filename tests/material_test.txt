@@ -1,23 +1,105 @@
+# Material Classification Tests
+# API: POST /automations/annotation/bags/classify/material
+# Tests text-only classification path
+
+# INPUT
+# API endpoint: POST /automations/annotation/bags/classify/material
+# Input mode: text-only
+# Request body contains: text_dump (combined text from title/brand/description)
 
 inputs:
-text_dump_arr: 
+text_dump_arr:
 
-[{"material": "Canvas", "Title": "Crossbody Louis Vuitton Neverfull"},
-{"material": "Calfskin", "Title": "Crossbody Louis Vuitton Neverfull"},
-{"material": "", "Title: ""},
-{"material": "", "Title: "Louis vuitton bag"}]
+# TEST 1: Unknown - No information at all
+# Expected: Return unknown when input is empty or has no useful content
+[{"material": "", "Title": ""},
+{"material": "", "Title": "item"},
+
+# TEST 2: Unknown - Irrelevant information (no material indicators)
+# Expected: Return unknown when text has no material-related information
+{"material": "", "Title": "Beautiful vintage accessory great condition"},
+{"material": "", "Title": "Perfect gift for her birthday present idea"},
+
+# TEST 3: Simple correct example - explicit material mention
+# Expected: Direct material match from title
+{"material": "Canvas", "Title": "Louis Vuitton Monogram Canvas Neverfull"},
+{"material": "Calfskin", "Title": "Crossbody Louis Vuitton Neverfull Calfskin"},
+
+# TEST 4: Primary vs secondary - subtle distinction
+# Expected: Calfskin is primary (more specific), Leather is root. "trim" suggests secondary
+{"material": "Calfskin", "Title": "Canvas tote bag with calfskin leather trim"},
+{"material": "Patent Leather", "Title": "Patent leather clutch with Cotton interior lining"},
+
+# TEST 5: Lots of irrelevant info but material is there
+# Expected: Extract material despite noise
+{"material": "Nylon", "Title": "RARE 2019 Limited Edition Holiday Collection Exclusive VIP Gift Set Premium Quality Designer Fashion Accessory Nylon Crossbody Excellent Condition"},
+{"material": "Saffiano Leather", "Title": "authentic guaranteed 100% real deal fast shipping free returns great seller A+++ saffiano leather wallet brand new with tags"}]
 
 
+# OUTPUT
+# Response contains: material (primary_name), material_id, root_material, root_material_id
 
-Run eahc
-
-
-Run each of the inputs into the test set, return a dataframe of the outputs with columns material, material_id, root_material, root_material_id they should have the following values:
-
-
-
+# Expected output DataFrame columns:
 material,material_id,root_material,root_material_id
+
+# TEST 1: Unknown - No information
+NaN,NaN,NaN,NaN
+NaN,NaN,NaN,NaN
+
+# TEST 2: Unknown - Irrelevant info
+NaN,NaN,NaN,NaN
+NaN,NaN,NaN,NaN
+
+# TEST 3: Simple correct examples
 Canvas,2,Canvas,2
 Calfskin,47,Leather,1
-NaN,NaN,NaN,NaN
-NaN,NaN,NaN,NaN
+
+# TEST 4: Primary vs secondary (subtle)
+Calfskin,47,Leather,1
+Patent Leather,10,Leather,1
+
+# TEST 5: Material in noise
+Nylon,5,Nylon,5
+Leather,1,Leather,1
+
+
+# INTERNAL LOGIC
+# 1. Material classifier parses text_dump for material keywords
+# 2. Maps to taxonomy ID using schema (e.g., Calfskin -> ID 47)
+# 3. Determines root material category (e.g., Calfskin -> Leather)
+# 4. Returns unknown (NaN) when no material indicators found
+# 5. Prioritizes explicit material mentions over inferred materials
+# 6. Handles nested material hierarchies (specific -> root)
+
+
+# GROUND TRUTH EXAMPLES FROM TEST DATA
+
+# Source 1: leprix_5_mixed_sample_enriched_20260127_103218.csv
+inputs_ground_truth_leprix:
+text_dump_arr:
+
+[{"brand": "Gucci", "Title": "Balenciaga Medium Calfskin Hacker Project Jackie 1961 - very good condition"},
+{"brand": "Gucci", "Title": "Bicolor Calfskin Jackie 1961 Wallet On Chain - new with tags"},
+{"brand": "Prada", "Title": "Tessuto Zip Top Crossbody - AB"}]
+
+# OUTPUT - Ground truth from TRUSS_material columns
+material,material_id,root_material,root_material_id
+Leather,1,Leather,1
+Leather,1,Leather,1
+Leather,1,Leather,1
+
+
+# Source 2: brands_gateway_italian_0_sample_50_enriched_20260128_152406.csv
+inputs_ground_truth_italian:
+text_dump_arr:
+
+[{"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Nano Papillon Monogram Vintage", "Tags": "bauletto, borsa di lusso, borsa marrone, borsa ottime condizioni, borsa second-hand, borsa tela, borsa usata, Louis vuitton, Monogram, nano, Nanopapillon, Papillon, papillon monogram, Papillon vintage"},
+{"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - MANHATTAN GM Monogram", "Tags": "bauletto, borsa di lusso, borsa marrone, borsa ottime condizioni, Borsa pelle, borsa second-hand, borsa tela, borsa usata, Louis vuitton, manhattan gm, Monogram"},
+{"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Portafoglio Murakami Clip", "Tags": "limited-edition, Louis vuitton, Monogram, Multicolor Monogram, Murakami, Murakami Monogram, Portafoglio, Portafoglio Clip, portafoglio di lusso, takeshi Murakami, unisex"}]
+
+# OUTPUT - Ground truth from TRUSS_material columns
+# Note: LV Monogram is  coated canvas in test data
+material,material_id,root_material,root_material_id
+Canvas,2,Canvas,2
+Leather,1,Leather,1
+Leather,1,Leather,1
