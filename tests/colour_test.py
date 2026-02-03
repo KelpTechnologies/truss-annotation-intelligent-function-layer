@@ -14,24 +14,17 @@ import sys
 import math
 import json
 import os
+import tempfile
 from pathlib import Path
 
-# Load .env from tests folder
-def load_env():
-    env_path = Path(__file__).parent / ".env"
-    if env_path.exists():
-        with open(env_path) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, _, value = line.partition("=")
-                    key, value = key.strip(), value.strip()
-                    if value.startswith('"') and value.endswith('"'):
-                        value = value[1:-1]
-                    if key and key not in os.environ:  # Don't override existing
-                        os.environ[key] = value
+# Load .env at initialization
+from dotenv import load_dotenv
+env_path = Path(__file__).parent / ".env"
+load_dotenv(env_path)
 
-load_env()
+# Set cross-platform temp path for GCP credentials (before lambda imports)
+if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(tempfile.gettempdir(), "gcp_sa.json")
 
 parser = argparse.ArgumentParser(description="Colour classification tests")
 parser.add_argument("--mode", "-m", default="api", choices=["api", "local"], help="Test mode")

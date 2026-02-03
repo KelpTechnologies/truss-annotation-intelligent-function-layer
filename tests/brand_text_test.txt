@@ -1,0 +1,138 @@
+# Brand Classification Tests
+# API: POST /automations/annotation/bags/classify/brand
+# Tests text-only classification path
+
+# INPUT
+# API endpoint: POST /automations/annotation/bags/classify/brand
+# Input mode: text-only
+# Request body contains: text_dump (combined text from title/brand/description)
+
+inputs:
+text_dump_arr:
+
+# TEST 1: Unknown - No information at all
+# Expected: Return unknown when input is empty or has no useful content
+[{"brand": "", "Title": ""},
+{"brand": "", "Title": "bag"},
+
+# TEST 2: Unknown - Irrelevant information (no brand indicators)
+# Expected: Return unknown when text has no brand-related information
+{"brand": "", "Title": "Beautiful vintage leather handbag great condition"},
+{"brand": "", "Title": "Designer crossbody purse authentic luxury item"},
+
+# TEST 3: Simple correct example - explicit brand mention
+# Expected: Direct brand match from title
+{"brand": "Louis Vuitton", "Title": "Louis Vuitton Neverfull MM Monogram Canvas"},
+{"brand": "Coach", "Title": "Coach Tabby Shoulder Bag in Signature Canvas"},
+
+# TEST 4: Brand in title vs brand field mismatch
+# Expected: Prioritize actual brand mention in text content
+{"brand": "Unknown", "Title": "Hermès Birkin 35 Togo Leather Gold Hardware"},
+{"brand": "", "Title": "Chloé Marcie Medium Saddle Bag Tan Calfskin"},
+
+# TEST 5: Accented characters - without accents
+# Expected: Classifier should normalize and identify brands despite missing accents
+{"brand": "", "Title": "Hermes Kelly 28 Epsom Leather Palladium Hardware"},
+{"brand": "", "Title": "Chloe Woody Medium Tote Canvas and Leather"},
+
+# TEST 6: Accented characters - with accents
+# Expected: Direct match with proper accent characters
+{"brand": "", "Title": "Hermès Constance 24 Evercolor Leather"},
+{"brand": "", "Title": "Chloé Faye Small Shoulder Bag Motty Grey"},
+
+# TEST 7: Lots of irrelevant info but brand is there
+# Expected: Extract brand despite noise
+{"brand": "", "Title": "RARE 2019 Limited Edition Holiday Collection Exclusive VIP Gift Set Premium Quality Louis Vuitton Speedy 25 Excellent Condition Fast Ship"},
+{"brand": "", "Title": "authentic guaranteed 100% real deal fast shipping free returns great seller A+++ Coach Chelsea Crossbody brand new with tags NWT"},
+
+# TEST 8: Brand abbreviations and variations
+# Expected: Recognize common brand abbreviations/variations
+{"brand": "", "Title": "LV Pochette Accessoires Monogram"},
+{"brand": "", "Title": "HERMES Garden Party 36 Negonda Leather"}]
+
+
+# OUTPUT
+# Response contains: brand, brand_id
+#
+# UNKNOWN/UNIDENTIFIED BRANDS:
+# When classifier cannot identify brand, it returns:
+#   brand_id: 0 (ID 0 = "unknown" convention in schema)
+#   brand: "Unknown" (name lookup for ID 0 returns "Unknown")
+
+# Expected output DataFrame columns:
+brand,brand_id
+
+# TEST 1: Unknown - No information
+Unknown,0
+Unknown,0
+
+# TEST 2: Unknown - Irrelevant info
+Unknown,0
+Unknown,0
+
+# TEST 3: Simple correct examples
+Louis Vuitton,4210
+Coach,1555
+
+# TEST 4: Brand in title (brand field mismatch)
+Hermès,3074
+Chloé,1462
+
+# TEST 5: Without accents (normalization test)
+Hermès,3074
+Chloé,1462
+
+# TEST 6: With accents (direct match)
+Hermès,3074
+Chloé,1462
+
+# TEST 7: Brand in noise
+Louis Vuitton,4210
+Coach,1555
+
+# TEST 8: Abbreviations and variations
+Louis Vuitton,4210
+Hermès,3074
+
+
+# INTERNAL LOGIC
+# 1. Brand classifier parses text_dump for brand keywords
+# 2. Maps to taxonomy ID using schema (e.g., Louis Vuitton -> ID 4210)
+# 3. Returns unknown (ID 0) when no brand indicators found
+# 4. Prioritizes explicit brand mentions over inferred brands
+# 5. Normalizes accented characters (Hermès = Hermes, Chloé = Chloe)
+# 6. Handles common abbreviations (LV -> Louis Vuitton)
+
+ONLY USE THE TEXT ONLY VERSION OF THE BRAND CLASSIFIER NOT THE VISUAL/MULTIMODAL VERSION
+
+
+# GROUND TRUTH EXAMPLES FROM TEST DATA
+
+# Source 1: leprix_5_mixed_sample_enriched_20260127_103218.csv
+inputs_ground_truth_leprix:
+text_dump_arr:
+
+[{"brand": "Louis Vuitton", "Title": "Louis Vuitton Neverfull GM Damier Ebene - excellent condition"},
+{"brand": "Hermès", "Title": "Hermes Evelyne III PM Clemence Gold - very good condition"},
+{"brand": "Coach", "Title": "Coach Willow Tote Colorblock Signature Canvas - new with tags"}]
+
+# OUTPUT - Ground truth from TRUSS_brand columns
+brand,brand_id
+Louis Vuitton,4210
+Hermès,3074
+Coach,1555
+
+
+# Source 2: brands_gateway_italian_0_sample_50_enriched_20260128_152406.csv
+inputs_ground_truth_italian:
+text_dump_arr:
+
+[{"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Nano Papillon Monogram Vintage", "Tags": "bauletto, borsa di lusso, Louis vuitton, Monogram, nano, Nanopapillon, Papillon"},
+{"brand": "Chloé", "Title": "CHLOE - Marcie Small Crossbody Tan", "Tags": "borsa di lusso, borsa pelle, Chloe, crossbody, marcie, tan"},
+{"brand": "Hermès", "Title": "HERMES - Picotin Lock 18 Clemence Noir", "Tags": "borsa di lusso, borsa pelle, Hermes, picotin, picotin lock, noir"}]
+
+# OUTPUT - Ground truth from TRUSS_brand columns
+brand,brand_id
+Louis Vuitton,4210
+Chloé,1462
+Hermès,3074

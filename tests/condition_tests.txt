@@ -1,0 +1,198 @@
+# Condition Classification Tests
+# API: POST /automations/annotation/bags/classify/condition
+# Tests text-only classification path
+
+# INPUT
+# API endpoint: POST /automations/annotation/bags/classify/condition
+# Input mode: text-only
+# Request body contains: text_dump (combined text from title/brand/description)
+
+inputs:
+text_dump_arr:
+
+# TEST 1: Unknown - No information at all
+# Expected: Return unknown when input is empty or has no useful content
+[{"condition": "", "Title": ""},
+{"condition": "", "Title": "Louis Vuitton Neverfull"},
+
+# TEST 2: Unknown - Irrelevant information (no condition indicators)
+# Expected: Return unknown when text has no condition-related information
+{"condition": "", "Title": "Beautiful vintage Chanel flap bag black caviar"},
+{"condition": "", "Title": "Hermès Birkin 35 Togo Gold Hardware"},
+
+# TEST 3: Simple correct example - explicit condition mention
+# Expected: Direct condition match from title
+{"condition": "", "Title": "Louis Vuitton Speedy 25 - excellent condition"},
+{"condition": "", "Title": "Coach Tabby Shoulder Bag very good condition"},
+{"condition": "", "Title": "Prada Galleria Saffiano - good condition"},
+
+# TEST 4: Brand new variations
+# Expected: Recognize various "new" terminology
+{"condition": "", "Title": "Chloé Marcie Bag - brand new with tags"},
+{"condition": "", "Title": "Hermès Kelly 28 NWT never used"},
+{"condition": "", "Title": "Louis Vuitton Pochette BNWT sealed"},
+{"condition": "", "Title": "Coach Crossbody new in box NIB"},
+
+# TEST 5: Japanese/Resale grade codes - AA and AB
+# Expected: Classifier should recognize common grading abbreviations
+{"condition": "", "Title": "Louis Vuitton Neverfull MM Monogram - AA"},
+{"condition": "", "Title": "Hermès Evelyne III PM Clemence - AB"},
+{"condition": "", "Title": "Chanel Classic Flap Medium Caviar grade AA"},
+{"condition": "", "Title": "Gucci Marmont Camera Bag grade AB"},
+
+# TEST 6: Extended grade scale (S, A, B, C, D)
+# Expected: Map letter grades to condition taxonomy
+{"condition": "", "Title": "Prada Re-Edition 2005 Nylon - grade S"},
+{"condition": "", "Title": "Balenciaga City Bag Lambskin - grade A"},
+{"condition": "", "Title": "Celine Luggage Nano - grade B"},
+{"condition": "", "Title": "Fendi Baguette - grade C"},
+
+# TEST 7: Descriptive condition language
+# Expected: Parse natural language condition descriptions
+{"condition": "", "Title": "Dior Saddle Bag - mint condition like new"},
+{"condition": "", "Title": "Bottega Veneta Pouch - shows minor signs of wear"},
+{"condition": "", "Title": "Givenchy Antigona - visible scratches and wear on corners"},
+{"condition": "", "Title": "YSL Loulou - heavy wear needs restoration"},
+
+# TEST 8: Condition in noisy text
+# Expected: Extract condition despite surrounding noise
+{"condition": "", "Title": "RARE LIMITED 2020 Holiday Louis Vuitton Speedy Bandouliere 25 EXCELLENT CONDITION fast shipping A+++ seller authentic guaranteed"},
+{"condition": "", "Title": "100% authentic real Hermès Constance 24 AB very good great deal free returns trusted seller"},
+
+# TEST 9: Poor/Fair condition indicators
+# Expected: Recognize lower condition grades
+{"condition": "", "Title": "Chanel Boy Bag - fair condition visible patina"},
+{"condition": "", "Title": "Louis Vuitton Keepall 55 - poor condition for repair/parts"},
+{"condition": "", "Title": "Coach Legacy Bag well loved showing age"}]
+
+
+# OUTPUT
+# Response contains: condition, condition_id
+#
+# UNKNOWN/UNIDENTIFIED CONDITIONS:
+# When classifier cannot identify condition, it returns:
+#   condition_id: 0 (ID 0 = "unknown" convention in schema)
+#   condition: "Unknown" (name lookup for ID 0 returns "Unknown")
+
+# Expected output DataFrame columns:
+condition,condition_id
+
+# TEST 1: Unknown - No information
+Unknown,0
+Unknown,0
+
+# TEST 2: Unknown - Irrelevant info (no condition mentioned)
+Unknown,0
+Unknown,0
+
+# TEST 3: Simple correct examples
+Used Excellent,2
+Used Very Good,3
+Used Good,4
+
+# TEST 4: Brand new variations
+Brand New,1
+Brand New,1
+Brand New,1
+Brand New,1
+
+# TEST 5: Japanese/Resale grade codes (AA = Used Excellent, AB = Used Very Good)
+Used Excellent,2
+Used Very Good,3
+Used Excellent,2
+Used Very Good,3
+
+# TEST 6: Extended grade scale
+Brand New,1
+Used Excellent,2
+Used Very Good,3
+Used Good,4
+
+# TEST 7: Descriptive condition language
+Used Excellent,2
+Used Good,4
+Used Fair,5
+Used Poor,6
+
+# TEST 8: Condition in noise
+Used Excellent,2
+Used Very Good,3
+
+# TEST 9: Poor/Fair condition indicators
+Used Fair,5
+Used Poor,6
+Used Fair,5
+
+
+# INTERNAL LOGIC
+# 1. Condition classifier parses text_dump for condition keywords
+# 2. Maps to taxonomy ID using schema (e.g., Used Excellent -> ID 2)
+# 3. Returns unknown (ID 0) when no condition indicators found
+# 4. Prioritizes explicit condition mentions over inferred conditions
+# 5. Normalizes grade codes:
+#    - S grade -> Brand New (ID 1)
+#    - AA grade -> Used Excellent (ID 2)
+#    - A grade -> Used Excellent (ID 2)
+#    - AB grade -> Used Very Good (ID 3)
+#    - B grade -> Used Very Good (ID 3)
+#    - C grade -> Used Good (ID 4)
+#    - D grade -> Used Fair (ID 5)
+# 6. Handles common abbreviations:
+#    - NWT/BNWT/NIB -> Brand New
+#    - Mint/Like New -> Used Excellent
+# 7. Parses descriptive language:
+#    - "minor signs of wear" -> Used Good
+#    - "visible scratches" -> Used Fair
+#    - "heavy wear/needs restoration" -> Used Poor
+
+ONLY USE THE TEXT ONLY VERSION OF THE CONDITION CLASSIFIER NOT THE VISUAL/MULTIMODAL VERSION
+
+
+# GROUND TRUTH EXAMPLES FROM TEST DATA
+
+# Source 1: leprix_5_mixed_sample_enriched_20260127_103218.csv
+inputs_ground_truth_leprix:
+text_dump_arr:
+
+[{"brand": "Gucci", "Title": "Balenciaga Medium Calfskin Hacker Project Jackie 1961 - very good condition"},
+{"brand": "Gucci", "Title": "Bicolor Calfskin Jackie 1961 Wallet On Chain - new with tags"},
+{"brand": "Prada", "Title": "Tessuto Zip Top Crossbody - AB"}]
+
+# OUTPUT - Ground truth from TRUSS_condition columns
+condition,condition_id
+Used Very Good,3
+Brand New,1
+Used Very Good,3
+
+
+# Source 2: brands_gateway_italian_0_sample_50_enriched_20260128_152406.csv
+inputs_ground_truth_italian:
+text_dump_arr:
+
+[{"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Nano Papillon Monogram Vintage", "Tags": "borsa ottime condizioni, borsa second-hand, borsa usata"},
+{"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - MANHATTAN GM Monogram", "Tags": "borsa ottime condizioni, borsa second-hand, borsa usata"},
+{"brand": "Hermès", "Title": "HERMES - Birkin 30 Togo Gold - AA", "Tags": "borsa di lusso, condizioni eccellenti, Hermes, birkin"}]
+
+# OUTPUT - Ground truth from TRUSS_condition columns
+# Note: "ottime condizioni" (Italian) = excellent condition
+condition,condition_id
+Used Excellent,2
+Used Excellent,2
+Used Excellent,2
+
+
+# Source 3: Additional edge cases for grade codes
+inputs_ground_truth_grades:
+text_dump_arr:
+
+[{"brand": "Chanel", "Title": "Chanel Classic Double Flap Medium - AA grade pristine"},
+{"brand": "Hermès", "Title": "Hermes Picotin Lock 18 Clemence - AB some light marks"},
+{"brand": "Louis Vuitton", "Title": "Louis Vuitton Keepall 50 Monogram - grade B normal wear"},
+{"brand": "Gucci", "Title": "Gucci Dionysus Small GG Supreme - S rank unused"}]
+
+# OUTPUT - Ground truth demonstrating grade code mapping
+condition,condition_id
+Used Excellent,2
+Used Very Good,3
+Used Very Good,3
+Brand New,1
