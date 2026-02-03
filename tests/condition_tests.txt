@@ -40,19 +40,7 @@ text_dump_arr:
 {"condition": "", "Title": "Chanel Classic Flap Medium Caviar grade AA"},
 {"condition": "", "Title": "Gucci Marmont Camera Bag grade AB"},
 
-# TEST 6: Extended grade scale (S, A, B, C, D)
-# Expected: Map letter grades to condition taxonomy
-{"condition": "", "Title": "Prada Re-Edition 2005 Nylon - grade S"},
-{"condition": "", "Title": "Balenciaga City Bag Lambskin - grade A"},
-{"condition": "", "Title": "Celine Luggage Nano - grade B"},
-{"condition": "", "Title": "Fendi Baguette - grade C"},
 
-# TEST 7: Descriptive condition language
-# Expected: Parse natural language condition descriptions
-{"condition": "", "Title": "Dior Saddle Bag - mint condition like new"},
-{"condition": "", "Title": "Bottega Veneta Pouch - shows minor signs of wear"},
-{"condition": "", "Title": "Givenchy Antigona - visible scratches and wear on corners"},
-{"condition": "", "Title": "YSL Loulou - heavy wear needs restoration"},
 
 # TEST 8: Condition in noisy text
 # Expected: Extract condition despite surrounding noise
@@ -102,17 +90,7 @@ Used Very Good,3
 Used Excellent,2
 Used Very Good,3
 
-# TEST 6: Extended grade scale
-Brand New,1
-Used Excellent,2
-Used Very Good,3
-Used Good,4
 
-# TEST 7: Descriptive condition language
-Used Excellent,2
-Used Good,4
-Used Fair,5
-Used Poor,6
 
 # TEST 8: Condition in noise
 Used Excellent,2

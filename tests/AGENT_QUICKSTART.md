@@ -10,6 +10,7 @@
 6. Use parallel subagents per txt file
 7. Output terminal report with changes summary
 8. Print local test commands
+9. Update project context (project_readme.md) with learnings
 
 ---
 
@@ -362,6 +363,92 @@ This is correct for unknown cases. Use `is_unknown()` helper:
 ```python
 def is_unknown(value):
     return value is None or value == 0 or value in ("Unknown", "unknown", "")
+```
+
+---
+
+## Step 8: Update Project Context
+
+After test development/validation complete, update `project_readme.md` with learnings.
+
+### 8.1 Gather context to add
+
+Collect from this session:
+- New patterns discovered (response formats, edge cases)
+- New test-specific context (endpoints, fields, behaviors)
+- Gotchas or workarounds found during implementation
+- Any corrections to existing documentation
+
+### 8.2 Review existing project_readme.md
+
+Read `tests/project_readme.md` and check for:
+- **Outdated info**: patterns that no longer apply
+- **Missing context**: gaps based on current test work
+- **Incorrect examples**: code samples that don't match actual behavior
+- **Incomplete sections**: areas that need expansion
+
+### 8.3 Propose changes (if any)
+
+If issues found, present to user:
+
+```
+=== PROJECT README UPDATES ===
+
+SUGGESTED CHANGES:
+1. [Section: X] - Issue: Y
+   Why: Z
+   Proposed fix: ...
+
+2. [Section: X] - Issue: Y
+   ...
+
+Approve changes? (y/n)
+```
+
+Use AskUserQuestion tool for approval:
+```python
+AskUserQuestion(
+    questions=[{
+        "header": "Doc updates",
+        "question": "Approve these project_readme.md changes?",
+        "options": [
+            {"label": "Yes, apply all", "description": "Apply all suggested changes"},
+            {"label": "No, skip", "description": "Keep current documentation"}
+        ],
+        "multiSelect": False
+    }]
+)
+```
+
+### 8.4 Apply approved updates
+
+On approval, append new context to relevant sections:
+- Add new patterns under "Classification API Patterns"
+- Add new env vars under "Environment Variables"
+- Add new test examples under "Complete Classification Test Example"
+- Add new gotchas under relevant sections
+
+### 8.5 Context template for new tests
+
+When adding context for a new test file, include:
+
+```markdown
+### {Property} Classification Context
+
+**Endpoint**: `POST /automations/annotation/{category}/classify/{property}`
+**Config ID**: `classifier-{property}-{category}-text`
+
+**Response fields**:
+| Field | Description |
+|-------|-------------|
+| `{property}` | Classified value |
+| `{property}_id` | Taxonomy ID |
+
+**Edge cases**:
+- [List any discovered edge cases]
+
+**Notes**:
+- [Any implementation-specific notes]
 ```
 
 ---

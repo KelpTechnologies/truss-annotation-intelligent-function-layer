@@ -177,24 +177,18 @@ def run_case(name: str, text_dump: dict, exp_model, exp_id, exp_root=None, exp_r
         got_root, got_root_id = r.get("root_model"), r.get("root_model_id")
 
         if exp_model is None:
-            # Unknown expected: check ID=0/None and name="Unknown"/None/""
             passed = is_unknown(got_id) and is_unknown(got_model)
             exp_str = "Unknown(0)->None"
-            got_str = f"{got_model}({got_id})->{got_root}({got_root_id})"
         else:
             passed = (got_model == exp_model and got_id == exp_id)
             if exp_root and passed:
                 passed = (got_root == exp_root and got_root_id == exp_root_id)
             exp_str = f"{exp_model}({exp_id})" + (f"->{exp_root}({exp_root_id})" if exp_root else "")
-            got_str = f"{got_model}({got_id})->{got_root}({got_root_id})"
 
-        input_short = text_dump.get("Title", "")[:40] or str(text_dump)[:40]
-        status = "PASS" if passed else "FAIL"
-        print(f"  [{status}] {name}: '{input_short}' | exp={exp_str} got={got_str}")
-        RESULTS.append((name, passed, None))
+        got_str = f"{got_model}({got_id})->{got_root}({got_root_id})"
+        RESULTS.append({"name": name, "passed": passed, "expected": exp_str, "actual": got_str, "error": None})
     except Exception as e:
-        print(f"  [ERR ] {name}: {e}")
-        RESULTS.append((name, False, str(e)))
+        RESULTS.append({"name": name, "passed": False, "expected": f"{exp_model}({exp_id})", "actual": None, "error": str(e)})
 
 
 def run_root_check(name: str, text_dump: dict, allowed_roots: list):
@@ -202,53 +196,72 @@ def run_root_check(name: str, text_dump: dict, allowed_roots: list):
         r = classify(text_dump)
         got_root = r.get("root_model")
         passed = got_root in allowed_roots
-        input_short = text_dump.get("Title", "")[:40] or str(text_dump)[:40]
-        status = "PASS" if passed else "FAIL"
-        print(f"  [{status}] {name}: '{input_short}' | exp_root in {allowed_roots} got={got_root}")
-        RESULTS.append((name, passed, None))
+        exp_str = f"root in {allowed_roots}"
+        got_str = f"root={got_root}"
+        RESULTS.append({"name": name, "passed": passed, "expected": exp_str, "actual": got_str, "error": None})
     except Exception as e:
-        print(f"  [ERR ] {name}: {e}")
-        RESULTS.append((name, False, str(e)))
+        RESULTS.append({"name": name, "passed": False, "expected": f"root in {allowed_roots}", "actual": None, "error": str(e)})
 
 
 # === TESTS ===
 def test_unknown_no_info():
-    print("TEST 1: Unknown - no info")
     run_case("empty", {"brand": "Gucci", "Title": ""}, None, None)
     run_case("generic", {"brand": "Prada", "Title": "leather bag"}, None, None)
 
 def test_unknown_irrelevant():
-    print("TEST 2: Unknown - irrelevant")
     run_case("no-hints", {"brand": "Gucci", "Title": "Gucci handbag excellent condition authentic"}, None, None)
     run_case("generic-lv", {"brand": "Louis Vuitton", "Title": "Louis Vuitton tote bag monogram canvas"}, None, None)
 
 def test_simple_correct():
-    print("TEST 3: Simple correct")
     run_case("soho", {"brand": "Gucci", "Title": "Gucci Soho Disco Crossbody Black Leather"}, "Soho Disco", 1056, "Soho Disco", 1056)
     run_case("neverfull", {"brand": "Louis Vuitton", "Title": "Louis Vuitton Neverfull MM Monogram"}, "Neverfull", 445, "Neverfull", 445)
 
 def test_primary_secondary():
-    print("TEST 4: Model variants")
     run_case("jackie1961", {"brand": "Gucci", "Title": "Calfskin Jackie 1961 Small Shoulder Bag"}, "Jackie 1961", 307, "Jackie", 306)
     run_case("bamboo", {"brand": "Gucci", "Title": "Bamboo Night Clutch Black Calfskin"}, "Bamboo", 50, "Bamboo", 50)
 
 def test_noise_extraction():
-    print("TEST 5: Noise extraction")
     run_case("reedition", {"brand": "Prada", "Title": "AUTHENTIC GUARANTEED Fast Shipping A+++ Seller Rated 5 Stars Re-Edition 2005 Nylon Mini Top Handle RARE COLOR"}, "Re-Edition 2005", 524, "Re-Edition", 526)
     run_root_check("classicflap", {"brand": "Chanel", "Title": "limited edition cruise 2019 collection exclusive VIP client gift classic flap bag medium caviar leather gold hardware"}, ["Timeless/Classic", "Classic Flap", "Classic Flap / Classic 11.12"])
 
 def test_ground_truth_leprix():
-    print("TEST GT: Leprix")
     run_case("leprix1", {"brand": "Gucci", "Title": "Balenciaga Medium Calfskin Hacker Project Jackie 1961 - very good condition"}, "Jackie 1961", 307, "Jackie", 306)
     run_case("leprix2", {"brand": "Gucci", "Title": "Calfskin Bamboo Jackie Hobo - Used Excellent"}, "Jackie", 306, "Jackie", 306)
     run_case("leprix3", {"brand": "Gucci", "Title": "Tricolor Leather Soho Disco Crossbody AA"}, "Soho Disco", 1056, "Soho Disco", 1056)
     run_case("leprix4", {"brand": "Prada", "Title": "Tessuto Zip Top Crossbody - AB"}, None, None)
 
 def test_ground_truth_italian():
-    print("TEST GT: Italian")
     run_case("ital1", {"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Nano Papillon Monogram Vintage"}, "Papillon", 483, "Papillon", 483)
     run_case("ital2", {"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - MANHATTAN GM Monogram"}, "Manhattan", 397, "Manhattan", 397)
     run_case("ital3", {"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Portafoglio Murakami Clip"}, None, None)
+
+
+def print_summary():
+    """Print final test summary with detailed failure info."""
+    passed = [r for r in RESULTS if r["passed"]]
+    failed = [r for r in RESULTS if not r["passed"]]
+
+    print(f"\n{'='*60}")
+    print(f"TEST SUMMARY: {len(passed)}/{len(RESULTS)} passed")
+    print(f"{'='*60}")
+
+    if failed:
+        print("\nFailed tests:")
+        print("-" * 60)
+        for f in failed:
+            print(f"  test_ref: {f['name']}")
+            print(f"  expected: {f['expected']}")
+            print(f"  actual:   {f['actual']}")
+            if f['error']:
+                print(f"  error:    {f['error']}")
+            print("-" * 60)
+
+    if passed:
+        print("\nPassed tests:")
+        for p in passed:
+            print(f"  ✓ {p['name']}")
+
+    return len(failed) == 0
 
 
 if __name__ == "__main__":
@@ -261,14 +274,11 @@ if __name__ == "__main__":
     test_ground_truth_leprix()
     test_ground_truth_italian()
 
-    passed = [r for r in RESULTS if r[1]]
-    failed = [r for r in RESULTS if not r[1]]
-    print(f"\n=== SUMMARY: {len(passed)}/{len(RESULTS)} passed ===")
-    if failed:
-        print("Failed:")
-        for name, _, err in failed:
-            print(f"  - {name}" + (f" ({err})" if err else ""))
-        sys.exit(1)
-    else:
-        print("All tests passed!")
+    all_passed = print_summary()
+
+    if all_passed:
+        print("\nPASSED")
         sys.exit(0)
+    else:
+        print("\nFAILED")
+        sys.exit(1)

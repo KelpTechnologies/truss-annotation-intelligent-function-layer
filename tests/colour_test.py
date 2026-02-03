@@ -136,61 +136,76 @@ def run_case(name: str, text_dump: dict, exp_colour, exp_id):
         got_colour, got_id = r.get("colour"), r.get("colour_id")
 
         if exp_colour is None:
-            # Unknown expected: check ID=0/None and name="Unknown"/None/""
             passed = is_unknown(got_id) and is_unknown(got_colour)
             exp_str = "Unknown(0)"
-            got_str = f"{got_colour}({got_id})"
         else:
             passed = (got_colour == exp_colour and got_id == exp_id)
             exp_str = f"{exp_colour}({exp_id})"
-            got_str = f"{got_colour}({got_id})"
 
-        input_short = text_dump.get("Title", "")[:40] or str(text_dump)[:40]
-        status = "PASS" if passed else "FAIL"
-        print(f"  [{status}] {name}: '{input_short}' | exp={exp_str} got={got_str}")
-        RESULTS.append((name, passed, None))
+        got_str = f"{got_colour}({got_id})"
+        RESULTS.append({"name": name, "passed": passed, "expected": exp_str, "actual": got_str, "error": None})
     except Exception as e:
-        print(f"  [ERR ] {name}: {e}")
-        RESULTS.append((name, False, str(e)))
+        RESULTS.append({"name": name, "passed": False, "expected": f"{exp_colour}({exp_id})", "actual": None, "error": str(e)})
 
 
 # === TESTS ===
 def test_unknown_no_info():
-    print("TEST 1: Unknown - no info")
     run_case("empty", {"colour": "", "Title": ""}, None, None)
     run_case("generic", {"colour": "", "Title": "handbag"}, None, None)
 
 def test_unknown_irrelevant():
-    print("TEST 2: Unknown - irrelevant")
     run_case("no-hints", {"colour": "", "Title": "Designer leather crossbody excellent condition"}, None, None)
     run_case("vintage", {"colour": "", "Title": "Vintage authentic luxury tote bag with dust cover"}, None, None)
 
 def test_simple_correct():
-    print("TEST 3: Simple correct")
     run_case("black", {"colour": "Black", "Title": "Gucci Black Leather Soho Disco Crossbody"}, "Black", 1)
     run_case("red", {"colour": "Red", "Title": "Prada Red Saffiano Galleria Tote"}, "Red", 7)
 
 def test_primary_secondary():
-    print("TEST 4: Primary vs secondary (bicolor)")
     run_case("white", {"colour": "White", "Title": "White leather bag with black trim accents"}, "White", 4)
     run_case("neutrals", {"colour": "neutrals", "Title": "Chanel Beige and Black Bicolor Flap Bag"}, "Neutrals", 5)
 
 def test_noise_extraction():
-    print("TEST 5: Noise extraction")
     run_case("navy", {"colour": "Navy", "Title": "SUPER RARE 2020 Cruise Collection Runway Edition Celebrity Favorite Must-Have Statement Piece Navy Blue Shoulder Bag LIMITED - buy now 100% authentic used good condition, made in italy"}, "Blue", 11)
     run_case("pink", {"colour": "Pink", "Title": "authentic guaranteed 100% original with receipt certificate included dustbag box ribbon pink leather wallet gift ready. 100% authenic contanct me to buy"}, "Pink", 2)
 
 def test_ground_truth_leprix():
-    print("TEST GT: Leprix")
     run_case("leprix1", {"brand": "Gucci", "Title": "Balenciaga Medium Calfskin Hacker Project Jackie 1961 - very good condition", "Colour": "Black"}, "Black", 1)
     run_case("leprix2", {"brand": "Gucci", "Title": "Bicolor Calfskin Jackie 1961 Wallet On Chain - new with tags", "Colour": "White"}, "White", 4)
     run_case("leprix3", {"brand": "Gucci", "Title": "Tricolor Leather Soho Disco Crossbody AA"}, None, None)
 
 def test_ground_truth_italian():
-    print("TEST GT: Italian")
     run_case("ital1", {"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Nano Papillon Monogram Vintage"}, "Brown", 3)
     run_case("ital2", {"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - MANHATTAN GM Monogram"}, "Brown", 3)
     run_case("ital3", {"brand": "Prada", "Title": "PRADA - Occhiale da sole lente a specchio rosa"}, "Pink", 2)
+
+
+def print_summary():
+    """Print final test summary with detailed failure info."""
+    passed = [r for r in RESULTS if r["passed"]]
+    failed = [r for r in RESULTS if not r["passed"]]
+
+    print(f"\n{'='*60}")
+    print(f"TEST SUMMARY: {len(passed)}/{len(RESULTS)} passed")
+    print(f"{'='*60}")
+
+    if failed:
+        print("\nFailed tests:")
+        print("-" * 60)
+        for f in failed:
+            print(f"  test_ref: {f['name']}")
+            print(f"  expected: {f['expected']}")
+            print(f"  actual:   {f['actual']}")
+            if f['error']:
+                print(f"  error:    {f['error']}")
+            print("-" * 60)
+
+    if passed:
+        print("\nPassed tests:")
+        for p in passed:
+            print(f"  ✓ {p['name']}")
+
+    return len(failed) == 0
 
 
 if __name__ == "__main__":
@@ -203,14 +218,11 @@ if __name__ == "__main__":
     test_ground_truth_leprix()
     test_ground_truth_italian()
 
-    passed = [r for r in RESULTS if r[1]]
-    failed = [r for r in RESULTS if not r[1]]
-    print(f"\n=== SUMMARY: {len(passed)}/{len(RESULTS)} passed ===")
-    if failed:
-        print("Failed:")
-        for name, _, err in failed:
-            print(f"  - {name}" + (f" ({err})" if err else ""))
-        sys.exit(1)
-    else:
-        print("All tests passed!")
+    all_passed = print_summary()
+
+    if all_passed:
+        print("\nPASSED")
         sys.exit(0)
+    else:
+        print("\nFAILED")
+        sys.exit(1)

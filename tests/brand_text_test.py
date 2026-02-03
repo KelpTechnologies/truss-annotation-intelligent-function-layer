@@ -136,76 +136,88 @@ def run_case(name: str, text_dump: dict, exp_brand, exp_id):
         got_brand, got_id = r.get("brand"), r.get("brand_id")
 
         if exp_brand is None:
-            # Unknown expected: check ID=0/None and name="Unknown"/None/""
             passed = is_unknown(got_id) and is_unknown(got_brand)
             exp_str = "Unknown(0)"
-            got_str = f"{got_brand}({got_id})"
         else:
             passed = (got_brand == exp_brand and got_id == exp_id)
             exp_str = f"{exp_brand}({exp_id})"
-            got_str = f"{got_brand}({got_id})"
 
-        input_short = text_dump.get("Title", "")[:40] or str(text_dump)[:40]
-        status = "PASS" if passed else "FAIL"
-        print(f"  [{status}] {name}: '{input_short}' | exp={exp_str} got={got_str}")
-        RESULTS.append((name, passed, None))
+        got_str = f"{got_brand}({got_id})"
+        RESULTS.append({"name": name, "passed": passed, "expected": exp_str, "actual": got_str, "error": None})
     except Exception as e:
-        print(f"  [ERR ] {name}: {e}")
-        RESULTS.append((name, False, str(e)))
+        RESULTS.append({"name": name, "passed": False, "expected": f"{exp_brand}({exp_id})", "actual": None, "error": str(e)})
 
 
 # === TESTS ===
 def test_unknown_no_info():
-    print("TEST 1: Unknown - no info")
     run_case("empty", {"brand": "", "Title": ""}, None, None)
     run_case("generic", {"brand": "", "Title": "bag"}, None, None)
 
 def test_unknown_irrelevant():
-    print("TEST 2: Unknown - irrelevant")
     run_case("no-hints", {"brand": "", "Title": "Beautiful vintage leather handbag great condition"}, None, None)
     run_case("designer", {"brand": "", "Title": "Designer crossbody purse authentic luxury item"}, None, None)
 
 def test_simple_correct():
-    print("TEST 3: Simple correct")
     run_case("lv", {"brand": "Louis Vuitton", "Title": "Louis Vuitton Neverfull MM Monogram Canvas"}, "Louis Vuitton", 4210)
     run_case("coach", {"brand": "Coach", "Title": "Coach Tabby Shoulder Bag in Signature Canvas"}, "Coach", 1555)
 
 def test_brand_mismatch():
-    print("TEST 4: Brand in title vs field mismatch")
     run_case("hermes", {"brand": "Unknown", "Title": "Hermès Birkin 35 Togo Leather Gold Hardware"}, "Hermès", 3074)
     run_case("chloe", {"brand": "", "Title": "Chloé Marcie Medium Saddle Bag Tan Calfskin"}, "Chloé", 1462)
 
 def test_without_accents():
-    print("TEST 5: Without accents (normalization)")
     run_case("hermes-no-accent", {"brand": "", "Title": "Hermes Kelly 28 Epsom Leather Palladium Hardware"}, "Hermès", 3074)
     run_case("chloe-no-accent", {"brand": "", "Title": "Chloe Woody Medium Tote Canvas and Leather"}, "Chloé", 1462)
 
 def test_with_accents():
-    print("TEST 6: With accents (direct match)")
     run_case("hermes-accent", {"brand": "", "Title": "Hermès Constance 24 Evercolor Leather"}, "Hermès", 3074)
     run_case("chloe-accent", {"brand": "", "Title": "Chloé Faye Small Shoulder Bag Motty Grey"}, "Chloé", 1462)
 
 def test_brand_in_noise():
-    print("TEST 7: Brand in noise")
     run_case("lv-noise", {"brand": "", "Title": "RARE 2019 Limited Edition Holiday Collection Exclusive VIP Gift Set Premium Quality Louis Vuitton Speedy 25 Excellent Condition Fast Ship"}, "Louis Vuitton", 4210)
     run_case("coach-noise", {"brand": "", "Title": "authentic guaranteed 100% real deal fast shipping free returns great seller A+++ Coach Chelsea Crossbody brand new with tags NWT"}, "Coach", 1555)
 
 def test_abbreviations():
-    print("TEST 8: Abbreviations and variations")
     run_case("lv-abbrev", {"brand": "", "Title": "LV Pochette Accessoires Monogram"}, "Louis Vuitton", 4210)
     run_case("hermes-caps", {"brand": "", "Title": "HERMES Garden Party 36 Negonda Leather"}, "Hermès", 3074)
 
 def test_ground_truth_leprix():
-    print("TEST GT: Leprix")
     run_case("leprix1", {"brand": "Louis Vuitton", "Title": "Louis Vuitton Neverfull GM Damier Ebene - excellent condition"}, "Louis Vuitton", 4210)
     run_case("leprix2", {"brand": "Hermès", "Title": "Hermes Evelyne III PM Clemence Gold - very good condition"}, "Hermès", 3074)
     run_case("leprix3", {"brand": "Coach", "Title": "Coach Willow Tote Colorblock Signature Canvas - new with tags"}, "Coach", 1555)
 
 def test_ground_truth_italian():
-    print("TEST GT: Italian")
     run_case("ital1", {"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Nano Papillon Monogram Vintage", "Tags": "bauletto, borsa di lusso, Louis vuitton, Monogram, nano, Nanopapillon, Papillon"}, "Louis Vuitton", 4210)
     run_case("ital2", {"brand": "Chloé", "Title": "CHLOE - Marcie Small Crossbody Tan", "Tags": "borsa di lusso, borsa pelle, Chloe, crossbody, marcie, tan"}, "Chloé", 1462)
     run_case("ital3", {"brand": "Hermès", "Title": "HERMES - Picotin Lock 18 Clemence Noir", "Tags": "borsa di lusso, borsa pelle, Hermes, picotin, picotin lock, noir"}, "Hermès", 3074)
+
+
+def print_summary():
+    """Print final test summary with detailed failure info."""
+    passed = [r for r in RESULTS if r["passed"]]
+    failed = [r for r in RESULTS if not r["passed"]]
+
+    print(f"\n{'='*60}")
+    print(f"TEST SUMMARY: {len(passed)}/{len(RESULTS)} passed")
+    print(f"{'='*60}")
+
+    if failed:
+        print("\nFailed tests:")
+        print("-" * 60)
+        for f in failed:
+            print(f"  test_ref: {f['name']}")
+            print(f"  expected: {f['expected']}")
+            print(f"  actual:   {f['actual']}")
+            if f['error']:
+                print(f"  error:    {f['error']}")
+            print("-" * 60)
+
+    if passed:
+        print("\nPassed tests:")
+        for p in passed:
+            print(f"  ✓ {p['name']}")
+
+    return len(failed) == 0
 
 
 if __name__ == "__main__":
@@ -221,14 +233,11 @@ if __name__ == "__main__":
     test_ground_truth_leprix()
     test_ground_truth_italian()
 
-    passed = [r for r in RESULTS if r[1]]
-    failed = [r for r in RESULTS if not r[1]]
-    print(f"\n=== SUMMARY: {len(passed)}/{len(RESULTS)} passed ===")
-    if failed:
-        print("Failed:")
-        for name, _, err in failed:
-            print(f"  - {name}" + (f" ({err})" if err else ""))
-        sys.exit(1)
-    else:
-        print("All tests passed!")
+    all_passed = print_summary()
+
+    if all_passed:
+        print("\nPASSED")
         sys.exit(0)
+    else:
+        print("\nFAILED")
+        sys.exit(1)

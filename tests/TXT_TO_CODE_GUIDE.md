@@ -85,39 +85,63 @@ if not BASE_URL:
 # Optional: Auth token if needed
 AUTH_TOKEN = os.environ.get("TEST_AUTH_TOKEN", "")
 
+# Collect test results (don't print during execution)
+test_results = []  # List of {"name": str, "passed": bool, "expected": any, "actual": any, "error": str}
+
+
+def record_result(name, passed, expected=None, actual=None, error=None):
+    """Record test result for final summary."""
+    test_results.append({
+        "name": name,
+        "passed": passed,
+        "expected": expected,
+        "actual": actual,
+        "error": error
+    })
+
 
 def test_main_case():
     """
     Primary test case from .txt spec.
     """
-    # --- Make the request (from INPUT section) ---
-    response = requests.post(  # or .get(), .put(), .delete()
-        f"{BASE_URL}/api/v1/endpoint",
-        json={
-            "field1": "value1",
-            "field2": 123
-        },
-        headers={
-            "Authorization": f"Bearer {AUTH_TOKEN}"  # if needed
-        }
-    )
-    
-    # --- Check status code (from OUTPUT section) ---
-    assert response.status_code == 200, \
-        f"Expected status 200, got {response.status_code}: {response.text}"
-    
-    data = response.json()
-    
-    # --- Check response body (from OUTPUT section) ---
-    assert data["expected_field"] == "expected_value", \
-        f"Expected 'expected_value', got {data.get('expected_field')}"
-    
-    # --- Check business rules (from INTERNAL LOGIC section) ---
-    # Example: verify calculation
-    assert data["total"] == data["subtotal"] - data["discount"], \
-        f"Total calculation incorrect: {data}"
-    
-    print("✓ Main test case passed")
+    test_name = "test_main_case"
+    try:
+        # --- Make the request (from INPUT section) ---
+        response = requests.post(  # or .get(), .put(), .delete()
+            f"{BASE_URL}/api/v1/endpoint",
+            json={
+                "field1": "value1",
+                "field2": 123
+            },
+            headers={
+                "Authorization": f"Bearer {AUTH_TOKEN}"  # if needed
+            }
+        )
+
+        # --- Check status code (from OUTPUT section) ---
+        if response.status_code != 200:
+            record_result(test_name, False, expected=200, actual=response.status_code,
+                         error=f"Status code mismatch: {response.text}")
+            return
+
+        data = response.json()
+
+        # --- Check response body (from OUTPUT section) ---
+        if data.get("expected_field") != "expected_value":
+            record_result(test_name, False, expected="expected_value",
+                         actual=data.get("expected_field"), error="Field value mismatch")
+            return
+
+        # --- Check business rules (from INTERNAL LOGIC section) ---
+        expected_total = data["subtotal"] - data["discount"]
+        if data["total"] != expected_total:
+            record_result(test_name, False, expected=expected_total,
+                         actual=data["total"], error="Total calculation incorrect")
+            return
+
+        record_result(test_name, True)
+    except Exception as e:
+        record_result(test_name, False, error=str(e))
 
 
 def test_edge_case():
@@ -125,34 +149,67 @@ def test_edge_case():
     Edge case from INTERNAL LOGIC section.
     Example: "If quantity is 0 or negative, return 400 error"
     """
-    response = requests.post(
-        f"{BASE_URL}/api/v1/endpoint",
-        json={
-            "field1": "value1",
-            "field2": -1  # Invalid value
-        }
-    )
-    
-    assert response.status_code == 400, \
-        f"Expected status 400 for invalid input, got {response.status_code}"
-    
-    print("✓ Edge case passed")
+    test_name = "test_edge_case"
+    try:
+        response = requests.post(
+            f"{BASE_URL}/api/v1/endpoint",
+            json={
+                "field1": "value1",
+                "field2": -1  # Invalid value
+            }
+        )
+
+        if response.status_code != 400:
+            record_result(test_name, False, expected=400, actual=response.status_code,
+                         error="Expected 400 for invalid input")
+            return
+
+        record_result(test_name, True)
+    except Exception as e:
+        record_result(test_name, False, error=str(e))
+
+
+def print_summary():
+    """Print final test summary with detailed failure info."""
+    passed = [r for r in test_results if r["passed"]]
+    failed = [r for r in test_results if not r["passed"]]
+
+    print(f"\n{'='*50}")
+    print(f"TEST SUMMARY: {len(passed)}/{len(test_results)} passed")
+    print(f"{'='*50}")
+
+    if failed:
+        print("\nFailed tests:")
+        print("-" * 50)
+        for f in failed:
+            print(f"  test_ref: {f['name']}")
+            print(f"  expected: {f['expected']}")
+            print(f"  actual:   {f['actual']}")
+            if f['error']:
+                print(f"  error:    {f['error']}")
+            print("-" * 50)
+
+    if passed:
+        print("\nPassed tests:")
+        for p in passed:
+            print(f"  ✓ {p['name']}")
+
+    return len(failed) == 0
 
 
 if __name__ == "__main__":
-    try:
-        test_main_case()
-        test_edge_case()  # Add more as needed
-        print("PASSED")
+    # Run all tests (don't exit early on failure)
+    test_main_case()
+    test_edge_case()  # Add more as needed
+
+    # Print summary at end
+    all_passed = print_summary()
+
+    if all_passed:
+        print("\nPASSED")
         sys.exit(0)
-    except AssertionError as e:
-        print(f"FAILED: {e}")
-        sys.exit(1)
-    except requests.RequestException as e:
-        print(f"ERROR: Request failed - {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"ERROR: {e}")
+    else:
+        print("\nFAILED")
         sys.exit(1)
 ```
 
@@ -175,70 +232,123 @@ if (!BASE_URL) {
   process.exit(1);
 }
 
+// Collect test results (don't print during execution)
+const testResults = []; // Array of {name, passed, expected, actual, error}
+
+function recordResult(name, passed, expected = null, actual = null, error = null) {
+  testResults.push({ name, passed, expected, actual, error });
+}
+
 async function testMainCase() {
-  // --- Make the request (from INPUT section) ---
-  const response = await fetch(`${BASE_URL}/api/v1/endpoint`, {
-    method: "POST", // or "GET", "PUT", "DELETE"
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${AUTH_TOKEN}` // if needed
-    },
-    body: JSON.stringify({
-      field1: "value1",
-      field2: 123
-    })
-  });
+  const testName = "testMainCase";
+  try {
+    // --- Make the request (from INPUT section) ---
+    const response = await fetch(`${BASE_URL}/api/v1/endpoint`, {
+      method: "POST", // or "GET", "PUT", "DELETE"
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${AUTH_TOKEN}` // if needed
+      },
+      body: JSON.stringify({
+        field1: "value1",
+        field2: 123
+      })
+    });
 
-  // --- Check status code (from OUTPUT section) ---
-  if (response.status !== 200) {
-    const text = await response.text();
-    throw new Error(`Expected status 200, got ${response.status}: ${text}`);
+    // --- Check status code (from OUTPUT section) ---
+    if (response.status !== 200) {
+      const text = await response.text();
+      recordResult(testName, false, 200, response.status, `Status mismatch: ${text}`);
+      return;
+    }
+
+    const data = await response.json();
+
+    // --- Check response body (from OUTPUT section) ---
+    if (data.expected_field !== "expected_value") {
+      recordResult(testName, false, "expected_value", data.expected_field, "Field value mismatch");
+      return;
+    }
+
+    // --- Check business rules (from INTERNAL LOGIC section) ---
+    const expectedTotal = data.subtotal - data.discount;
+    if (data.total !== expectedTotal) {
+      recordResult(testName, false, expectedTotal, data.total, "Total calculation incorrect");
+      return;
+    }
+
+    recordResult(testName, true);
+  } catch (error) {
+    recordResult(testName, false, null, null, error.message);
   }
-
-  const data = await response.json();
-
-  // --- Check response body (from OUTPUT section) ---
-  if (data.expected_field !== "expected_value") {
-    throw new Error(`Expected 'expected_value', got ${data.expected_field}`);
-  }
-
-  // --- Check business rules (from INTERNAL LOGIC section) ---
-  // Example: verify calculation
-  if (data.total !== data.subtotal - data.discount) {
-    throw new Error(`Total calculation incorrect: ${JSON.stringify(data)}`);
-  }
-
-  console.log("✓ Main test case passed");
 }
 
 async function testEdgeCase() {
-  // Edge case from INTERNAL LOGIC section
-  // Example: "If quantity is 0 or negative, return 400 error"
-  
-  const response = await fetch(`${BASE_URL}/api/v1/endpoint`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      field1: "value1",
-      field2: -1 // Invalid value
-    })
-  });
+  const testName = "testEdgeCase";
+  try {
+    const response = await fetch(`${BASE_URL}/api/v1/endpoint`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        field1: "value1",
+        field2: -1 // Invalid value
+      })
+    });
 
-  if (response.status !== 400) {
-    throw new Error(`Expected status 400 for invalid input, got ${response.status}`);
+    if (response.status !== 400) {
+      recordResult(testName, false, 400, response.status, "Expected 400 for invalid input");
+      return;
+    }
+
+    recordResult(testName, true);
+  } catch (error) {
+    recordResult(testName, false, null, null, error.message);
+  }
+}
+
+function printSummary() {
+  const passed = testResults.filter(r => r.passed);
+  const failed = testResults.filter(r => !r.passed);
+
+  console.log("\n" + "=".repeat(50));
+  console.log(`TEST SUMMARY: ${passed.length}/${testResults.length} passed`);
+  console.log("=".repeat(50));
+
+  if (failed.length > 0) {
+    console.log("\nFailed tests:");
+    console.log("-".repeat(50));
+    for (const f of failed) {
+      console.log(`  test_ref: ${f.name}`);
+      console.log(`  expected: ${f.expected}`);
+      console.log(`  actual:   ${f.actual}`);
+      if (f.error) console.log(`  error:    ${f.error}`);
+      console.log("-".repeat(50));
+    }
   }
 
-  console.log("✓ Edge case passed");
+  if (passed.length > 0) {
+    console.log("\nPassed tests:");
+    for (const p of passed) {
+      console.log(`  ✓ ${p.name}`);
+    }
+  }
+
+  return failed.length === 0;
 }
 
 async function main() {
-  try {
-    await testMainCase();
-    await testEdgeCase(); // Add more as needed
-    console.log("PASSED");
+  // Run all tests (don't exit early on failure)
+  await testMainCase();
+  await testEdgeCase(); // Add more as needed
+
+  // Print summary at end
+  const allPassed = printSummary();
+
+  if (allPassed) {
+    console.log("\nPASSED");
     process.exit(0);
-  } catch (error) {
-    console.error(`FAILED: ${error.message}`);
+  } else {
+    console.log("\nFAILED");
     process.exit(1);
   }
 }
@@ -520,11 +630,12 @@ if __name__ == "__main__":
 6. [ ] Asserts status code from OUTPUT section
 7. [ ] Asserts all response fields from OUTPUT section (mapped to actual code behavior)
 8. [ ] Includes edge cases from INTERNAL LOGIC section
-9. [ ] Error messages are clear and include actual vs expected values
-10. [ ] Comments reference relevant parts of INTERNAL LOGIC for reviewer
-11. [ ] Prints "PASSED" on success, "FAILED: {reason}" on failure
-12. [ ] **No changes to code outside tests/ folder**
-13. [ ] **Design decisions report printed if deviations from .txt exist**
+9. [ ] **Collects results during execution, prints summary at end (no mid-test prints)**
+10. [ ] **Failed test summary includes: test_ref, expected, actual, error**
+11. [ ] Comments reference relevant parts of INTERNAL LOGIC for reviewer
+12. [ ] Prints "PASSED" or "FAILED" after summary
+13. [ ] **No changes to code outside tests/ folder**
+14. [ ] **Design decisions report printed if deviations from .txt exist**
 
 ---
 
@@ -571,71 +682,124 @@ if not BASE_URL:
     print("ERROR: API_BASE_URL or STAGING_API_URL environment variable not set")
     sys.exit(1)
 
+# Collect test results
+test_results = []
+
+
+def record_result(name, passed, expected=None, actual=None, error=None):
+    test_results.append({"name": name, "passed": passed, "expected": expected, "actual": actual, "error": error})
+
 
 def test_150_units_gets_15_percent_discount():
     """From INPUT/OUTPUT: 150 units at $10 = $1275 after 15% discount"""
-    response = requests.post(
-        f"{BASE_URL}/api/v1/calculate-price",
-        json={"quantity": 150, "unit_price": 10.00}
-    )
-    
-    assert response.status_code == 200, \
-        f"Expected 200, got {response.status_code}: {response.text}"
-    
-    data = response.json()
-    
-    assert data["subtotal"] == 1500.00, \
-        f"Expected subtotal 1500.00, got {data.get('subtotal')}"
-    assert data["discount_percent"] == 15, \
-        f"Expected discount_percent 15, got {data.get('discount_percent')}"
-    assert data["total"] == 1275.00, \
-        f"Expected total 1275.00, got {data.get('total')}"
-    
-    # INTERNAL LOGIC: verify discount applies to subtotal
-    expected_total = data["subtotal"] * (1 - data["discount_percent"] / 100)
-    assert abs(data["total"] - expected_total) < 0.01, \
-        f"Total doesn't match subtotal minus discount"
-    
-    print("✓ 150 units discount test passed")
+    test_name = "test_150_units_gets_15_percent_discount"
+    try:
+        response = requests.post(
+            f"{BASE_URL}/api/v1/calculate-price",
+            json={"quantity": 150, "unit_price": 10.00}
+        )
+
+        if response.status_code != 200:
+            record_result(test_name, False, 200, response.status_code, response.text)
+            return
+
+        data = response.json()
+
+        if data.get("subtotal") != 1500.00:
+            record_result(test_name, False, 1500.00, data.get("subtotal"), "subtotal mismatch")
+            return
+        if data.get("discount_percent") != 15:
+            record_result(test_name, False, 15, data.get("discount_percent"), "discount_percent mismatch")
+            return
+        if data.get("total") != 1275.00:
+            record_result(test_name, False, 1275.00, data.get("total"), "total mismatch")
+            return
+
+        # INTERNAL LOGIC: verify discount applies to subtotal
+        expected_total = data["subtotal"] * (1 - data["discount_percent"] / 100)
+        if abs(data["total"] - expected_total) >= 0.01:
+            record_result(test_name, False, expected_total, data["total"], "discount calculation mismatch")
+            return
+
+        record_result(test_name, True)
+    except Exception as e:
+        record_result(test_name, False, error=str(e))
 
 
 def test_zero_quantity_returns_400():
     """From INTERNAL LOGIC: quantity <= 0 should return 400"""
-    response = requests.post(
-        f"{BASE_URL}/api/v1/calculate-price",
-        json={"quantity": 0, "unit_price": 10.00}
-    )
-    
-    assert response.status_code == 400, \
-        f"Expected 400 for zero quantity, got {response.status_code}"
-    
-    print("✓ Zero quantity error test passed")
+    test_name = "test_zero_quantity_returns_400"
+    try:
+        response = requests.post(
+            f"{BASE_URL}/api/v1/calculate-price",
+            json={"quantity": 0, "unit_price": 10.00}
+        )
+
+        if response.status_code != 400:
+            record_result(test_name, False, 400, response.status_code, "Expected 400 for zero quantity")
+            return
+
+        record_result(test_name, True)
+    except Exception as e:
+        record_result(test_name, False, error=str(e))
 
 
 def test_negative_quantity_returns_400():
     """From INTERNAL LOGIC: quantity <= 0 should return 400"""
-    response = requests.post(
-        f"{BASE_URL}/api/v1/calculate-price",
-        json={"quantity": -5, "unit_price": 10.00}
-    )
-    
-    assert response.status_code == 400, \
-        f"Expected 400 for negative quantity, got {response.status_code}"
-    
-    print("✓ Negative quantity error test passed")
+    test_name = "test_negative_quantity_returns_400"
+    try:
+        response = requests.post(
+            f"{BASE_URL}/api/v1/calculate-price",
+            json={"quantity": -5, "unit_price": 10.00}
+        )
+
+        if response.status_code != 400:
+            record_result(test_name, False, 400, response.status_code, "Expected 400 for negative quantity")
+            return
+
+        record_result(test_name, True)
+    except Exception as e:
+        record_result(test_name, False, error=str(e))
+
+
+def print_summary():
+    passed = [r for r in test_results if r["passed"]]
+    failed = [r for r in test_results if not r["passed"]]
+
+    print(f"\n{'='*50}")
+    print(f"TEST SUMMARY: {len(passed)}/{len(test_results)} passed")
+    print(f"{'='*50}")
+
+    if failed:
+        print("\nFailed tests:")
+        print("-" * 50)
+        for f in failed:
+            print(f"  test_ref: {f['name']}")
+            print(f"  expected: {f['expected']}")
+            print(f"  actual:   {f['actual']}")
+            if f['error']:
+                print(f"  error:    {f['error']}")
+            print("-" * 50)
+
+    if passed:
+        print("\nPassed tests:")
+        for p in passed:
+            print(f"  ✓ {p['name']}")
+
+    return len(failed) == 0
 
 
 if __name__ == "__main__":
-    try:
-        test_150_units_gets_15_percent_discount()
-        test_zero_quantity_returns_400()
-        test_negative_quantity_returns_400()
-        print("PASSED")
+    test_150_units_gets_15_percent_discount()
+    test_zero_quantity_returns_400()
+    test_negative_quantity_returns_400()
+
+    all_passed = print_summary()
+
+    if all_passed:
+        print("\nPASSED")
         sys.exit(0)
-    except AssertionError as e:
-        print(f"FAILED: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"ERROR: {e}")
+    else:
+        print("\nFAILED")
         sys.exit(1)
 ```
