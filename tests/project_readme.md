@@ -266,3 +266,104 @@ conda run -n pyds python tests/material_text_test.py -m local
 ```bash
 STAGING_API_URL=https://staging.example.com python .github/scripts/runner.py
 ```
+
+---
+
+## Specialized Classifier Patterns
+
+### Keyword Classification
+
+Keywords use a **different orchestration** and **response format** than other classifiers.
+
+**Orchestration**: `keyword_classifier_orchestration.py` (not `classify_for_api`)
+
+**Input Format**:
+```python
+{
+    "general_input_text": "Title + Description + Tags",
+    "text_to_avoid": "existing_classifications (material, colour, etc.)"
+}
+```
+
+**Response Format** (dict, not primary_id/primary_name):
+```python
+{
+    "keyword_1": {"keyword": "Quilted", "confidence": 0.95},
+    "keyword_2": {"keyword": "Crossbody", "confidence": 0.88},
+    # ... up to keyword_5
+}
+```
+
+**Test Helpers**:
+```python
+def has_any_keyword(result, expected_keywords):
+    """Check if at least one expected keyword is present."""
+    found = [v.get("keyword") for v in result.values() if v]
+    return any(kw in found for kw in expected_keywords)
+
+def has_no_bad_keywords(result, bad_keywords):
+    """Check no condition/accessory/listing words extracted."""
+    found = [v.get("keyword", "").lower() for v in result.values() if v]
+    return not any(bad.lower() in found for bad in bad_keywords)
+```
+
+---
+
+### Hardware Material Classification
+
+**Config ID**: `classifier-hardware-bags-text` (not `hardware_material`)
+
+**Response Fields**: `hardware_material`, `hardware_material_id` (no root_ fields)
+
+**Known Limitations**:
+- Abbreviations (GHW, PHW, SHW, RHW) **not recognized** - return Unknown
+- Use expanded forms: "Gold Hardware", "Palladium Hardware"
+
+**Updated is_unknown helper** (accepts -1 for validation_failed):
+```python
+def is_unknown(value):
+    if value is None: return True
+    if value in (0, -1): return True  # -1 = validation_failed
+    if isinstance(value, str) and value.lower() in ("unknown", "nan", ""): return True
+    if isinstance(value, float) and math.isnan(value): return True
+    return False
+```
+
+---
+
+### Size Classification
+
+Size uses a **different workflow** and requires `model_id` as a separate param.
+
+**Orchestration**: `run_model_size_classification_workflow` (not `classify_for_api`)
+
+**Input Format**:
+```python
+result = run_model_size_classification_workflow(
+    text_input=json.dumps(text_dump),
+    model_id=123,  # Required integer
+    input_mode="text-only",
+    env="staging"
+)
+```
+
+**Response Fields**: `size`, `size_id` (no root_ fields)
+
+**Notes**:
+- `model_id` is **required** - API raises ValueError if missing
+- Model name numbers can be ambiguous (e.g., "Hermes 31" - is 31 size or model name?)
+- Use `run_case_flexible()` for non-deterministic LLM cases
+
+---
+
+## Test File Reference
+
+| Test File | Orchestration | Config ID | Notes |
+|-----------|---------------|-----------|-------|
+| material_text_test.py | classify_for_api | classifier-material-bags-text | Standard pattern |
+| colour_test.py | classify_for_api | colour-bags-limited-taxo-text | |
+| brand_text_test.py | run_brand_classification_workflow | - | Brand-specific |
+| condition_tests.py | classify_for_api | classifier-condition-bags-text | |
+| keyword_tests.py | keyword_classifier_orchestration | - | Dict response |
+| hardware_tests.py | classify_for_api | classifier-hardware-bags-text | |
+| size_tests.py | run_model_size_classification_workflow | - | Requires model_id |

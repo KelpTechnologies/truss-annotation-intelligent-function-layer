@@ -1,0 +1,266 @@
+# Keyword Classification Tests
+# API: POST /automations/annotation/bags/classify/keywords
+# Tests text-only classification path for type-level keyword extraction
+
+# INPUT
+# API endpoint: POST /automations/annotation/bags/classify/keywords
+# Input mode: text-only
+# Request body contains: text_dump (combined text from title/brand/description), existing_classifications
+# NOTE: existing_classifications contains already-classified attributes to AVOID duplicating
+
+# CLASSIFICATION RULES:
+# 1. Extract up to 3 type-defining keywords ranked by distinctiveness
+# 2. DO NOT duplicate any attribute in existing_classifications
+# 3. DO NOT extract condition/wear/defect descriptions
+# 4. DO NOT extract accessories or listing-specific details
+# 5. Use only explicit text - do NOT infer from brand/model knowledge
+# 6. Prioritize price-impacting features (limited edition, vintage, collaboration)
+# 7. Keywords must apply to ALL bags of this model, not just this listing
+
+inputs:
+text_dump_arr:
+
+# TEST 1: No information at all
+# Expected: Return empty keywords object
+[{"existing_classifications": {"brand": "Louis Vuitton", "model": "Neverfull", "material": "Canvas", "colour": "Brown", "condition": "Used Excellent", "size": "MM"}, "Title": ""},
+{"existing_classifications": {"brand": "Chanel", "model": "Classic Flap", "material": "Caviar", "colour": "Black", "condition": "Used Very Good", "size": "Medium"}, "Title": "Chanel Classic Flap"},
+
+# TEST 2: Text contains ONLY already-classified attributes
+# Expected: Return empty keywords - everything is already captured
+{"existing_classifications": {"brand": "Hermès", "model": "Birkin", "material": "Togo", "root_material": "Leather", "hardware": "Gold", "root_hardware": "Gold", "colour": "Noir", "condition": "Used Excellent", "size": "35"}, "Title": "Hermès Birkin 35 Togo Noir Gold Hardware Excellent Condition"},
+{"existing_classifications": {"brand": "Louis Vuitton", "model": "Speedy", "material": "Monogram Canvas", "root_material": "Canvas", "colour": "Brown", "condition": "Used Good", "size": "25"}, "Title": "Louis Vuitton Speedy 25 Monogram Canvas Brown"},
+
+# TEST 3: Simple valid keywords - construction details
+# Expected: Extract construction/design keywords not in existing classifications
+{"existing_classifications": {"brand": "Chanel", "model": "Classic Flap", "material": "Lambskin", "colour": "Black", "hardware": "Gold", "condition": "Used Very Good", "size": "Medium"}, "Title": "Chanel Classic Flap Medium Black Lambskin Quilted Gold Hardware"},
+{"existing_classifications": {"brand": "Bottega Veneta", "model": "Cassette", "material": "Leather", "colour": "Green", "condition": "Used Excellent", "size": "Medium"}, "Title": "Bottega Veneta Cassette Medium Green Leather Intrecciato Woven"},
+{"existing_classifications": {"brand": "Louis Vuitton", "model": "Capucines", "material": "Taurillon", "colour": "Black", "hardware": "Silver", "condition": "Brand New", "size": "MM"}, "Title": "Louis Vuitton Capucines MM Black Taurillon Perforated Leather Silver Hardware"},
+
+# TEST 4: Silhouette and structure keywords
+# Expected: Extract shape/structure defining features
+{"existing_classifications": {"brand": "Hermès", "model": "Picotin", "material": "Clemence", "colour": "Gold", "hardware": "Palladium", "condition": "Used Very Good", "size": "18"}, "Title": "Hermès Picotin Lock 18 Clemence Gold PHW Bucket Bag Open Top"},
+{"existing_classifications": {"brand": "Celine", "model": "Luggage", "material": "Calfskin", "colour": "Black", "condition": "Used Good", "size": "Nano"}, "Title": "Celine Luggage Nano Black Calfskin Structured Boxy Silhouette Top Handle"},
+{"existing_classifications": {"brand": "Saint Laurent", "model": "Lou Lou", "material": "Leather", "colour": "Beige", "hardware": "Gold", "condition": "Used Excellent", "size": "Medium"}, "Title": "Saint Laurent Lou Lou Medium Beige Leather Y Quilted Slouchy Gold Hardware"},
+
+# TEST 5: Price-impacting features - should be prioritized
+# Expected: Limited edition, vintage, collaboration keywords ranked high
+{"existing_classifications": {"brand": "Louis Vuitton", "model": "Neverfull", "material": "Canvas", "colour": "Multicolor", "condition": "Used Very Good", "size": "MM"}, "Title": "Louis Vuitton Neverfull MM Multicolor Canvas Murakami Collaboration Limited Edition 2003"},
+{"existing_classifications": {"brand": "Chanel", "model": "Classic Flap", "material": "Tweed", "colour": "Pink", "hardware": "Gold", "condition": "Used Excellent", "size": "Medium"}, "Title": "Chanel Classic Flap Medium Pink Tweed Gold Hardware Seasonal Cruise Collection"},
+{"existing_classifications": {"brand": "Hermès", "model": "Kelly", "material": "Box", "colour": "Rouge", "hardware": "Gold", "condition": "Used Good", "size": "28"}, "Title": "Hermès Kelly 28 Box Rouge Gold Hardware Vintage 1971 Sellier"},
+
+# TEST 6: Closure and mechanism keywords
+# Expected: Extract distinctive closure types
+{"existing_classifications": {"brand": "Chanel", "model": "Classic Flap", "material": "Caviar", "colour": "Black", "hardware": "Gold", "condition": "Used Excellent", "size": "Jumbo"}, "Title": "Chanel Classic Flap Jumbo Black Caviar Gold Hardware Double Flap Turn Lock CC Closure"},
+{"existing_classifications": {"brand": "Hermès", "model": "Constance", "material": "Epsom", "colour": "Blue", "hardware": "Palladium", "condition": "Used Very Good", "size": "24"}, "Title": "Hermès Constance 24 Epsom Blue Palladium H Buckle Push Lock Closure"},
+{"existing_classifications": {"brand": "Fendi", "model": "Peekaboo", "material": "Leather", "colour": "Grey", "hardware": "Silver", "condition": "Brand New", "size": "Medium"}, "Title": "Fendi Peekaboo Medium Grey Leather Silver Hardware Twist Lock Compartments"},
+
+# TEST 7: CONDITION/WEAR - MUST IGNORE (these should NOT be extracted)
+# Expected: Return empty keywords or only non-condition keywords
+{"existing_classifications": {"brand": "Louis Vuitton", "model": "Speedy", "material": "Canvas", "colour": "Brown", "condition": "Used Fair", "size": "30"}, "Title": "Louis Vuitton Speedy 30 Canvas worn corners scratched hardware scuffed vachetta stained interior"},
+{"existing_classifications": {"brand": "Chanel", "model": "Boy", "material": "Lambskin", "colour": "Black", "hardware": "Ruthenium", "condition": "Used Poor", "size": "Medium"}, "Title": "Chanel Boy Medium Black Lambskin Ruthenium peeling leather faded hardware tarnished chain loose stitching"},
+{"existing_classifications": {"brand": "Hermès", "model": "Birkin", "material": "Togo", "colour": "Etoupe", "hardware": "Gold", "condition": "Used Good", "size": "35"}, "Title": "Hermès Birkin 35 Togo Etoupe Gold marks on exterior handle out of shape creased corners discolored glazing"},
+
+# TEST 8: ACCESSORIES - MUST IGNORE
+# Expected: Return empty keywords or only non-accessory keywords; ignore box, dustbag, cards etc.
+{"existing_classifications": {"brand": "Louis Vuitton", "model": "Neverfull", "material": "Canvas", "colour": "Brown", "condition": "Used Excellent", "size": "GM"}, "Title": "Louis Vuitton Neverfull GM Canvas comes with dustbag original box receipt tags booklet pouch"},
+{"existing_classifications": {"brand": "Hermès", "model": "Kelly", "material": "Togo", "colour": "Gold", "hardware": "Palladium", "condition": "Brand New", "size": "25"}, "Title": "Hermès Kelly 25 Togo Gold Palladium includes orange box dust cover lock keys clochette rain cover"},
+
+# TEST 9: LISTING-SPECIFIC DETAILS - MUST IGNORE
+# Expected: Return empty keywords; serial numbers, ownership history etc. should not be extracted
+{"existing_classifications": {"brand": "Chanel", "model": "Classic Flap", "material": "Caviar", "colour": "Black", "hardware": "Gold", "condition": "Used Excellent", "size": "Medium"}, "Title": "Chanel Classic Flap Medium Black Caviar Gold serial number 12345678 date code 25 series authenticated by Entrupy"},
+{"existing_classifications": {"brand": "Louis Vuitton", "model": "Alma", "material": "Epi", "colour": "Black", "condition": "Used Very Good", "size": "PM"}, "Title": "Louis Vuitton Alma PM Epi Black limited use rarely worn one owner purchased 2019 Paris store"},
+
+# TEST 10: Duplicate avoidance - material mentioned again
+# Expected: Do NOT extract material/colour/hardware if already in existing_classifications
+{"existing_classifications": {"brand": "Hermès", "model": "Birkin", "material": "Togo", "root_material": "Leather", "colour": "Noir", "hardware": "Gold", "root_hardware": "Gold", "condition": "Used Excellent", "size": "30"}, "Title": "Hermès Birkin 30 Togo Leather Noir Black Gold Hardware GHW Touch Lizard Trim"},
+{"existing_classifications": {"brand": "Chanel", "model": "Boy", "material": "Caviar", "root_material": "Leather", "colour": "Navy", "hardware": "Ruthenium", "root_hardware": "Ruthenium", "condition": "Used Very Good", "size": "Old Medium"}, "Title": "Chanel Boy Old Medium Navy Blue Caviar Leather Ruthenium Hardware Quilted Chevron Pattern"},
+
+# TEST 11: Duplicate avoidance - brand/model mentioned again
+# Expected: Do NOT extract brand or model names as keywords
+{"existing_classifications": {"brand": "Louis Vuitton", "model": "Pochette Métis", "material": "Canvas", "colour": "Brown", "hardware": "Gold", "condition": "Used Good", "size": "One Size"}, "Title": "Louis Vuitton Pochette Métis Monogram Canvas Brown Gold Hardware Crossbody Flap Bag S Lock"},
+{"existing_classifications": {"brand": "Dior", "model": "Lady Dior", "material": "Lambskin", "colour": "Black", "hardware": "Silver", "condition": "Used Excellent", "size": "Medium"}, "Title": "Christian Dior Lady Dior Medium Black Lambskin Silver Hardware Cannage Pattern DIOR Charms"},
+
+# TEST 12: Duplicate avoidance - condition mentioned again
+# Expected: Do NOT extract condition-related words if already classified
+{"existing_classifications": {"brand": "Gucci", "model": "Dionysus", "material": "Canvas", "colour": "Beige", "hardware": "Silver", "condition": "Brand New", "size": "Small"}, "Title": "Gucci Dionysus Small Beige Canvas Silver Hardware Brand New With Tags BNWT Tiger Head Closure"},
+{"existing_classifications": {"brand": "Prada", "model": "Galleria", "material": "Saffiano", "colour": "Black", "hardware": "Gold", "condition": "Used Excellent", "size": "Medium"}, "Title": "Prada Galleria Medium Black Saffiano Gold Excellent Condition Double Zip Structured"},
+
+# TEST 13: Duplicate avoidance - size mentioned again
+# Expected: Do NOT extract size if already in existing_classifications
+{"existing_classifications": {"brand": "Hermès", "model": "Evelyne", "material": "Clemence", "colour": "Gold", "hardware": "Palladium", "condition": "Used Very Good", "size": "PM"}, "Title": "Hermès Evelyne PM Clemence Gold Palladium Perforated H Logo Crossbody Adjustable Strap"},
+{"existing_classifications": {"brand": "Louis Vuitton", "model": "Keepall", "material": "Canvas", "colour": "Brown", "hardware": "Gold", "condition": "Used Good", "size": "55"}, "Title": "Louis Vuitton Keepall 55 Bandouliere Monogram Canvas Brown Gold 55cm Duffle Travel Bag"},
+
+# TEST 14: Valid design elements with noisy text
+# Expected: Extract design keywords despite noise
+{"existing_classifications": {"brand": "Balenciaga", "model": "City", "material": "Lambskin", "colour": "Black", "hardware": "Silver", "condition": "Used Very Good", "size": "Medium"}, "Title": "RARE 100% AUTH Balenciaga City Medium Black Lambskin Silver Hardware GIANT STUDS Motorcycle Bag A+++ Seller Fast Ship"},
+{"existing_classifications": {"brand": "Chloe", "model": "Marcie", "material": "Calfskin", "colour": "Tan", "condition": "Used Excellent", "size": "Medium"}, "Title": "authentic guaranteed Chloe Marcie Medium Tan Calfskin excellent Saddle Bag Whipstitch Detail Braided Handle free returns"},
+
+# TEST 15: Multiple valid keywords - ranking test
+# Expected: Up to 3 keywords, ranked by distinctiveness/price impact
+{"existing_classifications": {"brand": "Chanel", "model": "19", "material": "Lambskin", "colour": "Black", "hardware": "Mixed Metal", "condition": "Used Excellent", "size": "Large"}, "Title": "Chanel 19 Large Black Lambskin Mixed Metal Hardware Quilted Diamond Pattern Chain Woven Leather Strap Magnetic Flap CC Turn Lock"},
+{"existing_classifications": {"brand": "Louis Vuitton", "model": "Twist", "material": "Epi", "colour": "Pink", "hardware": "Silver", "condition": "Brand New", "size": "MM"}, "Title": "Louis Vuitton Twist MM Pink Epi Silver Hardware Embossed Monogram Flower LV Lock Crossbody Chain Strap Limited Edition"}]
+
+
+# OUTPUT
+# Response contains: keywords object with up to 3 keywords, confidence scores, and reasoning
+#
+# EMPTY KEYWORDS:
+# When classifier cannot extract valid keywords, it returns:
+#   {"keywords": {}, "reasoning": "<explanation>"}
+#
+# VALID KEYWORDS:
+# Up to 3 keywords ranked by distinctiveness:
+#   {"keywords": {"keyword_1": {"keyword": "<string>", "confidence": <0.0-1.0>}, ...}, "reasoning": "<1-2 sentences>"}
+
+# Expected output format:
+keywords,reasoning
+
+# TEST 1: No information
+{},No distinctive type-defining keywords found in text
+{},No additional keywords beyond existing classifications
+
+# TEST 2: Only already-classified attributes
+{},All attributes already captured in existing classifications
+{},All attributes already captured in existing classifications
+
+# TEST 3: Construction details (quilted, woven, perforated)
+{"keyword_1": {"keyword": "quilted", "confidence": 0.95}},Quilted construction is a type-defining feature not in existing classifications
+{"keyword_1": {"keyword": "intrecciato woven", "confidence": 0.95}},Intrecciato woven pattern is signature type-defining construction
+{"keyword_1": {"keyword": "perforated", "confidence": 0.90}},Perforated leather is a distinctive design detail
+
+# TEST 4: Silhouette and structure
+{"keyword_1": {"keyword": "bucket bag", "confidence": 0.90}, "keyword_2": {"keyword": "open top", "confidence": 0.85}},Bucket shape and open top are type-defining structural features
+{"keyword_1": {"keyword": "structured boxy", "confidence": 0.90}, "keyword_2": {"keyword": "top handle", "confidence": 0.85}},Structured boxy silhouette and top handle define this type
+{"keyword_1": {"keyword": "Y quilted", "confidence": 0.90}, "keyword_2": {"keyword": "slouchy", "confidence": 0.85}},Y quilted pattern and slouchy structure are signature design elements
+
+# TEST 5: Price-impacting features (prioritized)
+{"keyword_1": {"keyword": "Murakami collaboration", "confidence": 0.98}, "keyword_2": {"keyword": "limited edition", "confidence": 0.95}, "keyword_3": {"keyword": "2003", "confidence": 0.85}},Murakami collaboration and limited edition status significantly impact value
+{"keyword_1": {"keyword": "seasonal cruise collection", "confidence": 0.95}},Seasonal collection designation affects resale value
+{"keyword_1": {"keyword": "vintage 1971", "confidence": 0.98}, "keyword_2": {"keyword": "sellier", "confidence": 0.95}},Vintage date and sellier construction are high value indicators
+
+# TEST 6: Closure and mechanism keywords
+{"keyword_1": {"keyword": "double flap", "confidence": 0.95}, "keyword_2": {"keyword": "turn lock", "confidence": 0.90}},Double flap and turn lock are distinctive closure mechanisms
+{"keyword_1": {"keyword": "H buckle", "confidence": 0.90}, "keyword_2": {"keyword": "push lock", "confidence": 0.85}},H buckle closure is a type-defining design element
+{"keyword_1": {"keyword": "twist lock", "confidence": 0.90}, "keyword_2": {"keyword": "compartments", "confidence": 0.80}},Twist lock and compartment design define this model type
+
+# TEST 7: CONDITION/WEAR - Return empty (all text describes defects)
+{},Text only contains condition and wear descriptions which are excluded
+{},Text only contains damage and defect descriptions which are excluded
+{},All descriptive text relates to condition issues not design features
+
+# TEST 8: ACCESSORIES - Return empty or non-accessory keywords only
+{},Text only mentions accessories like dustbag and box which are excluded
+{},Text only mentions included accessories which do not define the bag type
+
+# TEST 9: LISTING-SPECIFIC - Return empty
+{},Text contains listing-specific details like serial numbers which are excluded
+{},Text contains ownership history and purchase details which are excluded
+
+# TEST 10: Duplicate avoidance - material/hardware (extract only NEW features)
+{"keyword_1": {"keyword": "touch lizard trim", "confidence": 0.90}},Lizard trim is additional material detail not captured in primary material classification
+{"keyword_1": {"keyword": "chevron pattern", "confidence": 0.90}},Chevron quilting pattern distinguishes from standard quilting
+
+# TEST 11: Duplicate avoidance - brand/model (extract design features only)
+{"keyword_1": {"keyword": "crossbody flap", "confidence": 0.85}, "keyword_2": {"keyword": "S lock", "confidence": 0.90}},S lock closure and flap design are type-defining features not duplicating model name
+{"keyword_1": {"keyword": "cannage pattern", "confidence": 0.95}},Cannage quilting pattern is signature design element
+
+# TEST 12: Duplicate avoidance - condition (extract design features only)
+{"keyword_1": {"keyword": "tiger head closure", "confidence": 0.95}},Tiger head closure is distinctive design element; condition terms excluded as already classified
+{"keyword_1": {"keyword": "double zip", "confidence": 0.90}, "keyword_2": {"keyword": "structured", "confidence": 0.85}},Double zip and structured design are type features; condition excluded
+
+# TEST 13: Duplicate avoidance - size (extract design features only)
+{"keyword_1": {"keyword": "perforated H logo", "confidence": 0.90}, "keyword_2": {"keyword": "crossbody", "confidence": 0.80}, "keyword_3": {"keyword": "adjustable strap", "confidence": 0.75}},Perforated H and strap features define type; size PM excluded as classified
+{"keyword_1": {"keyword": "bandouliere", "confidence": 0.90}, "keyword_2": {"keyword": "duffle travel", "confidence": 0.85}},Bandouliere strap variant and travel function define type; size excluded
+
+# TEST 14: Valid keywords in noisy text
+{"keyword_1": {"keyword": "giant studs", "confidence": 0.95}, "keyword_2": {"keyword": "motorcycle", "confidence": 0.85}},Giant studs hardware variant is distinctive; motorcycle style defines silhouette
+{"keyword_1": {"keyword": "saddle bag", "confidence": 0.90}, "keyword_2": {"keyword": "whipstitch", "confidence": 0.90}, "keyword_3": {"keyword": "braided handle", "confidence": 0.85}},Saddle shape whipstitch and braided handle are type-defining design elements
+
+# TEST 15: Multiple keywords ranked by distinctiveness
+{"keyword_1": {"keyword": "diamond quilted", "confidence": 0.90}, "keyword_2": {"keyword": "chain woven leather", "confidence": 0.88}, "keyword_3": {"keyword": "magnetic flap", "confidence": 0.80}},Diamond quilting and woven chain strap are most distinctive features
+{"keyword_1": {"keyword": "limited edition", "confidence": 0.98}, "keyword_2": {"keyword": "embossed monogram flower", "confidence": 0.90}, "keyword_3": {"keyword": "LV lock", "confidence": 0.85}},Limited edition status prioritized for value impact; embossed pattern and lock are design features
+
+
+# INTERNAL LOGIC
+# 1. Parse existing_classifications to identify already-captured attributes
+# 2. Scan text_dump for type-defining keywords NOT in existing_classifications
+# 3. Filter out:
+#    - Condition/wear/defect descriptions (scratched, worn, stained, etc.)
+#    - Accessories (dustbag, box, receipt, cards, etc.)
+#    - Listing-specific details (serial numbers, date codes, ownership history)
+#    - Any terms matching existing_classifications values
+# 4. Rank remaining keywords by:
+#    - Price impact (limited edition, vintage, collaboration > common features)
+#    - Distinctiveness (unique design elements > generic descriptions)
+# 5. Return up to 3 keywords with confidence scores
+# 6. Use only ASCII characters, no special punctuation
+
+# EXISTING CLASSIFICATIONS COLUMNS (to avoid duplicating):
+# - brand: The brand name (e.g., Louis Vuitton, Chanel, Hermès)
+# - model: The bag model name (e.g., Birkin, Neverfull, Classic Flap)
+# - root_model: Parent model category if applicable
+# - material: Primary material (e.g., Togo, Caviar, Canvas)
+# - root_material: Material category (e.g., Leather, Canvas)
+# - hardware: Hardware material (e.g., Gold, Palladium, Silver)
+# - root_hardware: Hardware category
+# - colour: Primary colour (e.g., Black, Noir, Brown)
+# - condition: Item condition (e.g., Used Excellent, Brand New)
+# - size: Size designation (e.g., 35, Medium, PM)
+
+ONLY USE THE TEXT ONLY VERSION OF THE KEYWORD CLASSIFIER NOT THE VISUAL/MULTIMODAL VERSION
+
+
+# GROUND TRUTH EXAMPLES FROM TEST DATA
+
+# Source 1: leprix_5_mixed_sample_enriched_20260127_103218.csv
+inputs_ground_truth_leprix:
+text_dump_arr:
+
+[{"existing_classifications": {"brand": "Chanel", "model": "Classic Flap", "material": "Caviar", "root_material": "Leather", "hardware": "Gold", "colour": "Black", "condition": "Used Excellent", "size": "Medium"}, "Title": "Chanel Classic Flap Medium Black Caviar Gold Hardware Double Flap Quilted Diamond"},
+{"existing_classifications": {"brand": "Hermès", "model": "Birkin", "material": "Togo", "root_material": "Leather", "hardware": "Palladium", "colour": "Etoupe", "condition": "Used Very Good", "size": "35"}, "Title": "Hermès Birkin 35 Togo Etoupe Palladium Hardware PHW Taurillon Clemence"},
+{"existing_classifications": {"brand": "Louis Vuitton", "model": "Speedy", "material": "Canvas", "root_material": "Canvas", "hardware": "Gold", "colour": "Brown", "condition": "Used Good", "size": "25"}, "Title": "Louis Vuitton Speedy 25 Bandouliere Monogram Canvas Brown Gold Hardware Crossbody Strap"}]
+
+# OUTPUT - Ground truth keywords
+keywords,reasoning
+{"keyword_1": {"keyword": "double flap", "confidence": 0.95}, "keyword_2": {"keyword": "quilted diamond", "confidence": 0.90}},Double flap variant and diamond quilting are type-defining features
+{},No additional type-defining features beyond existing classifications; Taurillon Clemence is material already covered
+{"keyword_1": {"keyword": "bandouliere", "confidence": 0.95}, "keyword_2": {"keyword": "crossbody strap", "confidence": 0.85}},Bandouliere variant with crossbody strap distinguishes from base Speedy model
+
+
+# Source 2: brands_gateway_italian_0_sample_50_enriched_20260128_152406.csv
+inputs_ground_truth_italian:
+text_dump_arr:
+
+[{"existing_classifications": {"brand": "Louis Vuitton", "model": "Pochette Métis", "material": "Canvas", "root_material": "Canvas", "hardware": "Gold", "colour": "Brown", "condition": "Used Excellent", "size": "One Size"}, "Title": "LOUIS VUITTON - Pochette Métis Monogram Canvas S Lock Crossbody", "Tags": "borsa di lusso, Louis vuitton, pochette, monogram, crossbody"},
+{"existing_classifications": {"brand": "Gucci", "model": "Dionysus", "material": "Canvas", "root_material": "Canvas", "hardware": "Silver", "colour": "Beige", "condition": "Used Very Good", "size": "Small"}, "Title": "GUCCI - Dionysus Small GG Supreme Canvas Tiger Head", "Tags": "borsa di lusso, Gucci, dionysus, GG supreme, tiger head"}]
+
+# OUTPUT - Ground truth keywords
+keywords,reasoning
+{"keyword_1": {"keyword": "S lock", "confidence": 0.90}, "keyword_2": {"keyword": "crossbody", "confidence": 0.80}},S Lock closure and crossbody style are distinctive type features
+{"keyword_1": {"keyword": "tiger head", "confidence": 0.95}, "keyword_2": {"keyword": "GG supreme", "confidence": 0.85}},Tiger head closure is signature design; GG Supreme is pattern variant
+
+
+# Source 3: Edge cases for condition vs design feature distinction
+inputs_ground_truth_condition_vs_design:
+text_dump_arr:
+
+[{"existing_classifications": {"brand": "Chanel", "model": "Boy", "material": "Calfskin", "hardware": "Ruthenium", "colour": "Black", "condition": "Used Good", "size": "Medium"}, "Title": "Chanel Boy Medium Black Calfskin Ruthenium Quilted Stitch Detail Chain Strap", "Description": "Shows normal wear on corners"},
+{"existing_classifications": {"brand": "Hermès", "model": "Kelly", "material": "Epsom", "hardware": "Palladium", "colour": "Blue", "condition": "Used Fair", "size": "28"}, "Title": "Hermès Kelly 28 Epsom Blue Palladium Sellier Rigid Structure", "Description": "Corner wear visible, handle shows patina, interior stained"}]
+
+# OUTPUT - Design features extracted, condition ignored
+keywords,reasoning
+{"keyword_1": {"keyword": "quilted stitch", "confidence": 0.90}, "keyword_2": {"keyword": "chain strap", "confidence": 0.85}},Quilted stitching and chain strap are design features; wear description excluded
+{"keyword_1": {"keyword": "sellier", "confidence": 0.95}, "keyword_2": {"keyword": "rigid structure", "confidence": 0.85}},Sellier construction defines type; condition descriptions in description field excluded
+
+
+# Source 4: Edge cases for already-classified attribute avoidance
+inputs_ground_truth_duplicate_avoidance:
+text_dump_arr:
+
+[{"existing_classifications": {"brand": "Prada", "model": "Galleria", "material": "Saffiano", "root_material": "Leather", "hardware": "Gold", "colour": "Black", "condition": "Used Excellent", "size": "Medium"}, "Title": "Prada Galleria Medium Saffiano Leather Black Gold Hardware Double Zip Tote", "Description": "Saffiano leather exterior, gold tone hardware, medium size"},
+{"existing_classifications": {"brand": "Dior", "model": "Lady Dior", "material": "Lambskin", "root_material": "Leather", "hardware": "Silver", "colour": "Pink", "condition": "Brand New", "size": "Small"}, "Title": "Dior Lady Dior Small Pink Lambskin Silver Hardware Cannage Quilted DIOR Charms", "Description": "Pink lambskin with silver hardware, brand new condition"}]
+
+# OUTPUT - Only NEW features extracted
+keywords,reasoning
+{"keyword_1": {"keyword": "double zip", "confidence": 0.90}, "keyword_2": {"keyword": "tote", "confidence": 0.80}},Double zip and tote style are type features; material hardware colour size condition already classified
+{"keyword_1": {"keyword": "cannage quilted", "confidence": 0.95}, "keyword_2": {"keyword": "DIOR charms", "confidence": 0.90}},Cannage pattern and charms are design features; all other attributes already classified

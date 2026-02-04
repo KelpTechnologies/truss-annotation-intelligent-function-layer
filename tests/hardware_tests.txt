@@ -1,0 +1,256 @@
+# Hardware Material Classification Tests
+# API: POST /automations/annotation/bags/classify/hardware_material
+# Tests text-only classification path
+
+# INPUT
+# API endpoint: POST /automations/annotation/bags/classify/hardware_material
+# Input mode: text-only
+# Request body contains: text_dump (combined text from title/brand/description)
+
+# CLASSIFICATION RULES:
+# - Only propose hardware material if EXPLICITLY stated in text
+# - Do NOT infer from brand knowledge (e.g., Chanel CC ≠ assume Gold)
+# - Do NOT infer from product names, colors, or other properties
+# - "gold tone" without material confirmation → Metal, not Gold
+# - "hardware" alone without material → Unknown
+# - Choose most detailed material when similar (Gold > Metal)
+
+inputs:
+text_dump_arr:
+
+# TEST 1: Unknown - No information at all
+# Expected: Return unknown when input is empty or has no useful content
+[{"hardware_material": "", "Title": ""},
+{"hardware_material": "", "Title": "Louis Vuitton Neverfull MM"},
+
+# TEST 2: Unknown - Hardware mentioned but no material specified
+# Expected: Return unknown when hardware exists but material not stated
+{"hardware_material": "", "Title": "Chanel Classic Flap with CC turn-lock hardware"},
+{"hardware_material": "", "Title": "Hermès Birkin 35 with signature hardware"},
+{"hardware_material": "", "Title": "Louis Vuitton Speedy featuring metal clasp"},
+
+# TEST 3: Color-only mentions (NO explicit material) → Metal fallback
+# Expected: Return Metal when only color/tone mentioned, not actual material
+{"hardware_material": "", "Title": "Gucci Marmont with gold-tone hardware"},
+{"hardware_material": "", "Title": "Prada Galleria silver-tone buckles"},
+{"hardware_material": "", "Title": "Coach Tabby with warm gold tone chain"},
+{"hardware_material": "", "Title": "Chloé Faye golden hardware accents"},
+
+# TEST 4: Simple correct example - explicit material mention
+# Expected: Direct hardware material match from title
+{"hardware_material": "", "Title": "Hermès Birkin 35 Togo with gold hardware"},
+{"hardware_material": "", "Title": "Chanel Boy Bag with ruthenium hardware"},
+{"hardware_material": "", "Title": "Louis Vuitton Capucines with silver hardware"},
+
+# TEST 5: Common abbreviations - GHW, PHW, SHW, RHW
+# Expected: Recognize standard luxury resale hardware abbreviations
+{"hardware_material": "", "Title": "Hermès Kelly 28 Epsom GHW"},
+{"hardware_material": "", "Title": "Hermès Constance 24 Evercolor PHW"},
+{"hardware_material": "", "Title": "Chanel Classic Flap Caviar SHW"},
+{"hardware_material": "", "Title": "Hermès Lindy 26 Clemence RHW"},
+
+# TEST 6: Expanded abbreviations - Gold Hardware, Palladium Hardware
+# Expected: Match expanded forms of common abbreviations
+{"hardware_material": "", "Title": "Hermès Birkin 30 with Gold Hardware"},
+{"hardware_material": "", "Title": "Hermès Evelyne PM Palladium Hardware"},
+{"hardware_material": "", "Title": "Chanel Boy Bag Silver Hardware"},
+{"hardware_material": "", "Title": "Hermès Picotin Lock Rose Gold Hardware"},
+
+# TEST 7: Specific/rare hardware materials
+# Expected: Identify less common hardware materials when explicitly stated
+{"hardware_material": "", "Title": "Louis Vuitton Twist MM with permabrass hardware"},
+{"hardware_material": "", "Title": "Hermès So Kelly with palladium plated hardware"},
+{"hardware_material": "", "Title": "Chanel Limited Edition with gunmetal hardware"},
+{"hardware_material": "", "Title": "Balenciaga City with platinum hardware"},
+
+# TEST 8: Non-metal hardware materials
+# Expected: Identify plastic, wood, rhinestone, etc.
+{"hardware_material": "", "Title": "Chanel Reissue with rhinestone CC clasp"},
+{"hardware_material": "", "Title": "Cult Gaia Ark bag with wooden hardware"},
+{"hardware_material": "", "Title": "Vintage bag with plastic buckle hardware"},
+{"hardware_material": "", "Title": "Edie Parker clutch with plexiglass clasp"},
+
+# TEST 9: Brand inference traps - DO NOT INFER
+# Expected: Return Unknown - these mention brand features but NOT hardware material
+{"hardware_material": "", "Title": "Hermès Birkin 35 Togo Noir"},
+{"hardware_material": "", "Title": "Chanel Classic Flap Medium Caviar Black CC logo"},
+{"hardware_material": "", "Title": "Louis Vuitton Twist with LV clasp"},
+{"hardware_material": "", "Title": "Dior Lady Dior with DIOR charms"},
+
+# TEST 10: Color names that could be confused with hardware
+# Expected: Return Unknown - colors/finishes are not hardware materials
+{"hardware_material": "", "Title": "Prada Bag in Cipria with matching hardware"},
+{"hardware_material": "", "Title": "Hermès Birkin Rose Sakura with contrasting hardware"},
+{"hardware_material": "", "Title": "Chanel Boy Bronze with tonal hardware"},
+
+# TEST 11: Hardware material in noisy text
+# Expected: Extract hardware material despite surrounding noise
+{"hardware_material": "", "Title": "RARE LIMITED 2020 Hermès Birkin 25 Swift GOLD HARDWARE excellent condition A+++ authentic fast ship"},
+{"hardware_material": "", "Title": "100% authentic Chanel Classic Jumbo Double Flap black caviar PALLADIUM HW trusted seller"},
+
+# TEST 12: Multiple hardware mentions - prioritize most specific
+# Expected: Choose most specific material (Gold > Metal, Palladium > Silver-tone)
+{"hardware_material": "", "Title": "Hermès Kelly with metal gold hardware throughout"},
+{"hardware_material": "", "Title": "Chanel Bag silver-tone palladium hardware"}]
+
+
+# OUTPUT
+# Response contains: hardware_material, hardware_material_id
+#
+# UNKNOWN/UNIDENTIFIED HARDWARE MATERIALS:
+# When classifier cannot identify hardware material, it returns:
+#   hardware_material_id: 0 (ID 0 = "unknown" convention in schema)
+#   hardware_material: "Unknown" (name lookup for ID 0 returns "Unknown")
+
+# Expected output DataFrame columns:
+hardware_material,hardware_material_id
+
+# TEST 1: Unknown - No information
+Unknown,0
+Unknown,0
+
+# TEST 2: Unknown - Hardware mentioned but no material
+Unknown,0
+Unknown,0
+Metal,7
+
+# TEST 3: Color-only mentions → Metal fallback
+Metal,7
+Metal,7
+Metal,7
+Metal,7
+
+# TEST 4: Simple correct examples - explicit material
+Gold,9
+Ruthenium,38
+Silver,23
+
+# TEST 5: Common abbreviations (GHW, PHW, SHW, RHW)
+Gold,9
+Palladium,35
+Silver,23
+Rose-gold,36
+
+# TEST 6: Expanded abbreviations
+Gold,9
+Palladium,35
+Silver,23
+Rose-gold,36
+
+# TEST 7: Specific/rare hardware materials
+Permabrass,37
+Palladium,35
+Gunmetal,11
+Platinum,46
+
+# TEST 8: Non-metal hardware materials
+Rhinestone,13
+Wood,8
+Plastic,6
+Plexiglass,39
+
+# TEST 9: Brand inference traps - DO NOT INFER
+Unknown,0
+Unknown,0
+Unknown,0
+Unknown,0
+
+# TEST 10: Color names confused with hardware
+Unknown,0
+Unknown,0
+Unknown,0
+
+# TEST 11: Hardware material in noise
+Gold,9
+Palladium,35
+
+# TEST 12: Multiple mentions - most specific wins
+Gold,9
+Palladium,35
+
+
+# INTERNAL LOGIC
+# 1. Hardware material classifier parses text_dump for EXPLICIT hardware material keywords
+# 2. Maps to taxonomy ID using schema (e.g., Gold -> ID 9, Palladium -> ID 35)
+# 3. Returns unknown (ID 0) when no hardware material explicitly stated
+# 4. DOES NOT infer from:
+#    - Brand knowledge (Hermès ≠ assume gold/palladium)
+#    - Logo names (CC, LV, DIOR ≠ assume any material)
+#    - Product colors (Cipria, Rose Sakura ≠ hardware material)
+# 5. Color-tone only (gold-tone, silver-tone) → Metal (ID 7), NOT actual metal
+# 6. Recognizes common abbreviations:
+#    - GHW → Gold (ID 9)
+#    - PHW → Palladium (ID 35)
+#    - SHW → Silver (ID 23)
+#    - RHW → Rose-gold (ID 36)
+# 7. Prioritizes most specific material when multiple mentioned (Gold > Metal)
+# 8. Hardware materials in schema:
+#    - 6: Plastic
+#    - 7: Metal
+#    - 8: Wood
+#    - 9: Gold
+#    - 11: Gunmetal
+#    - 13: Rhinestone
+#    - 23: Silver
+#    - 35: Palladium
+#    - 36: Rose-gold
+#    - 37: Permabrass
+#    - 38: Ruthenium
+#    - 39: Plexiglass
+#    - 40: Steel
+#    - 41: Vinyl
+#    - 45: Titanium
+#    - 46: Platinum
+
+ONLY USE THE TEXT ONLY VERSION OF THE HARDWARE MATERIAL CLASSIFIER NOT THE VISUAL/MULTIMODAL VERSION
+
+
+# GROUND TRUTH EXAMPLES FROM TEST DATA
+
+# Source 1: leprix_5_mixed_sample_enriched_20260127_103218.csv
+inputs_ground_truth_leprix:
+text_dump_arr:
+
+[{"brand": "Hermès", "Title": "Hermès Birkin 35 Togo Etoupe GHW - excellent condition"},
+{"brand": "Hermès", "Title": "Hermès Kelly 28 Epsom Black PHW - very good condition"},
+{"brand": "Chanel", "Title": "Chanel Classic Double Flap Caviar - gold hardware"}]
+
+# OUTPUT - Ground truth from TRUSS_hardware_material columns
+hardware_material,hardware_material_id
+Gold,9
+Palladium,35
+Gold,9
+
+
+# Source 2: brands_gateway_italian_0_sample_50_enriched_20260128_152406.csv
+inputs_ground_truth_italian:
+text_dump_arr:
+
+[{"brand": "Hermès", "Title": "HERMES - Birkin 30 Togo Noir Gold Hardware", "Tags": "borsa di lusso, Hermes, birkin, gold hardware, GHW"},
+{"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Twist MM Epi Noir", "Tags": "Louis vuitton, twist, borsa di lusso"},
+{"brand": "Chanel", "Title": "CHANEL - Boy Bag Medium Caviar Ruthenium Hardware", "Tags": "Chanel, boy bag, ruthenium, borsa di lusso"}]
+
+# OUTPUT - Ground truth from TRUSS_hardware_material columns
+# Note: LV Twist without explicit hardware mention → Unknown
+hardware_material,hardware_material_id
+Gold,9
+Unknown,0
+Ruthenium,38
+
+
+# Source 3: Edge cases for explicit vs inferred matching
+inputs_ground_truth_explicit_test:
+text_dump_arr:
+
+[{"brand": "Hermès", "Title": "Hermes Constance 24 Evercolor Blue Nuit", "Description": "Beautiful bag with shiny hardware"},
+{"brand": "Hermès", "Title": "Hermes Constance 24 Evercolor Blue Nuit PHW", "Description": "Beautiful bag with palladium hardware"},
+{"brand": "Chanel", "Title": "Chanel Classic Flap Jumbo Black Caviar", "Description": "Iconic CC turn-lock closure"},
+{"brand": "Chanel", "Title": "Chanel Classic Flap Jumbo Black Caviar GHW", "Description": "Iconic CC turn-lock in gold"}]
+
+# OUTPUT - Demonstrating explicit match requirement
+# Only rows with explicit hardware material (PHW, GHW) get classified
+hardware_material,hardware_material_id
+Unknown,0
+Palladium,35
+Unknown,0
+Gold,9

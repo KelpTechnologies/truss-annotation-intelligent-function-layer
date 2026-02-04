@@ -1,0 +1,282 @@
+# Model Size Classification Tests
+# API: POST /automations/annotation/bags/classify/model_size
+# Tests text-only classification path
+
+# INPUT
+# API endpoint: POST /automations/annotation/bags/classify/model_size
+# Input mode: text-only
+# Request body contains: text_dump (combined text from title/brand/description), model_id, model
+# NOTE: model_id and model name are REQUIRED inputs for size classification
+
+# CLASSIFICATION RULES:
+# 1. Match size mentions in the product text to the available size options
+# 2. Consider exact matches first, then partial matches
+# 3. Provide reasoning for selection
+# 4. If no size matches, return prediction_id 0
+# 5. If no model_id or model provided, return no prediction (empty/null response)
+
+inputs:
+text_dump_arr:
+
+# TEST 1: No model provided - REQUIRED FIELD MISSING
+# Expected: Return empty/null - cannot classify size without knowing the model
+[{"model_id": "", "model": "", "Title": "Louis Vuitton Mini Bag"},
+{"model_id": "", "model": "", "Title": "Hermès PM Shoulder Bag"},
+{"model_id": null, "model": null, "Title": "Designer Bag Small Size"},
+
+# TEST 2: Model ID provided but no model name
+# Expected: Return empty/null - both model_id and model name required
+{"model_id": "377", "model": "", "Title": "Louis Vuitton Loop Mini"},
+{"model_id": "11", "model": null, "Title": "Hermès 31 Medium"},
+
+# TEST 3: Model name provided but no model ID
+# Expected: Return empty/null - both model_id and model name required
+{"model_id": "", "model": "Loop", "Title": "Louis Vuitton Loop Mini"},
+{"model_id": null, "model": "31", "Title": "Hermès 31 Medium"},
+
+# TEST 4: Unknown - No size information in text
+# Expected: Return prediction_id 0 when model provided but no size mentioned
+{"model_id": "377", "model": "Loop", "Title": "Louis Vuitton Loop Monogram Canvas"},
+{"model_id": "11", "model": "31", "Title": "Hermès 31 Togo Noir Gold Hardware"},
+{"model_id": "514", "model": "Popincourt", "Title": "Louis Vuitton Popincourt Damier Ebene"},
+
+# TEST 5: Simple correct example - explicit size mention
+# Expected: Direct size match from title
+{"model_id": "377", "model": "Loop", "Title": "Louis Vuitton Loop Mini Monogram"},
+{"model_id": "11", "model": "31", "Title": "Hermès 31 Medium Togo Gold Hardware"},
+{"model_id": "514", "model": "Popincourt", "Title": "Louis Vuitton Popincourt PM Monogram"},
+
+# TEST 6: One Size models - size should match automatically
+# Expected: Return One Size when model only has one size option
+{"model_id": "900", "model": "Brillant X-Ray", "Title": "Delvaux Brillant X-Ray Leather"},
+{"model_id": "910", "model": "Tempête Pochette", "Title": "Delvaux Tempête Pochette Calfskin"},
+{"model_id": "412", "model": "Maximors", "Title": "Hermès Maximors Togo"},
+{"model_id": "13", "model": "Abbesses Messenger", "Title": "Louis Vuitton Abbesses Messenger Damier"},
+
+# TEST 7: Size abbreviations - PM, MM, GM
+# Expected: Match common Hermès/LV size abbreviations
+{"model_id": "311", "model": "Jimetou", "Title": "Hermès Jimetou PM Evercolor"},
+{"model_id": "311", "model": "Jimetou", "Title": "Hermès Jimetou GM Clemence"},
+{"model_id": "514", "model": "Popincourt", "Title": "Louis Vuitton Popincourt MM Monogram"},
+
+# TEST 8: Descriptive size names
+# Expected: Match descriptive sizes (Mini, Small, Medium, Nano, Micro, XL)
+{"model_id": "11", "model": "31", "Title": "Hermès 31 Nano Evercolor Blue"},
+{"model_id": "11", "model": "31", "Title": "Hermès 31 Micro Swift Noir"},
+{"model_id": "11", "model": "31", "Title": "Hermès 31 Small Togo Etoupe"},
+{"model_id": "11", "model": "31", "Title": "Hermès 31 XL Clemence Gold"},
+
+# TEST 9: Unique/model-specific size names
+# Expected: Match model-specific size names (e.g., Candy for Loop)
+{"model_id": "377", "model": "Loop", "Title": "Louis Vuitton Loop Candy Monogram Jacquard"},
+
+# TEST 10: Size in noisy text
+# Expected: Extract size despite surrounding noise
+{"model_id": "377", "model": "Loop", "Title": "RARE LIMITED 2023 Louis Vuitton Loop MINI Monogram excellent condition A+++ fast ship authentic"},
+{"model_id": "11", "model": "31", "Title": "100% authentic Hermès 31 MEDIUM Togo Noir GHW trusted seller free returns"},
+
+# TEST 11: Size mentioned but not valid for this model
+# Expected: Return prediction_id 0 - size exists but not for this specific model
+{"model_id": "377", "model": "Loop", "Title": "Louis Vuitton Loop PM Monogram"},
+{"model_id": "377", "model": "Loop", "Title": "Louis Vuitton Loop Medium Monogram"},
+{"model_id": "513", "model": "Pompom Kate", "Title": "Hermès Pompom Kate Mini"},
+
+# TEST 12: Case insensitivity test
+# Expected: Match sizes regardless of case
+{"model_id": "377", "model": "Loop", "Title": "Louis Vuitton Loop MINI monogram"},
+{"model_id": "11", "model": "31", "Title": "Hermès 31 medium togo"},
+{"model_id": "311", "model": "Jimetou", "Title": "Hermès Jimetou pm Evercolor"},
+
+# TEST 13: Size with additional descriptors
+# Expected: Extract core size from descriptive text
+{"model_id": "11", "model": "31", "Title": "Hermès 31 in the Small size Togo Gold"},
+{"model_id": "514", "model": "Popincourt", "Title": "Louis Vuitton Popincourt size PM Monogram"}]
+
+
+# OUTPUT
+# Response contains: size, size_id
+# Also includes: reasoning (max 30 words), scores array
+#
+# MISSING MODEL INPUTS:
+# When model_id or model name is missing/null, classifier returns:
+#   Empty/null response - cannot process without model context
+#
+# UNKNOWN/UNIDENTIFIED SIZES:
+# When classifier cannot identify size (model provided but no size match), it returns:
+#   size_id: 0 (ID 0 = "unknown" convention in schema)
+#   size: "Unknown" (name lookup for ID 0 returns "Unknown")
+
+# Expected output DataFrame columns:
+size,size_id
+
+# TEST 1: No model provided - REQUIRED FIELD MISSING
+None,None
+None,None
+None,None
+
+# TEST 2: Model ID only (no model name)
+None,None
+None,None
+
+# TEST 3: Model name only (no model ID)
+None,None
+None,None
+
+# TEST 4: Unknown - No size in text
+Unknown,0
+Unknown,0
+Unknown,0
+
+# TEST 5: Simple correct examples
+Mini,959
+Medium,748
+PM,626
+
+# TEST 6: One Size models
+One Size,1275
+One Size,1292
+One Size,253
+One Size,360
+
+# TEST 7: Size abbreviations (PM, MM, GM)
+PM,187
+GM,188
+MM,627
+
+# TEST 8: Descriptive size names
+Nano,751
+Micro,752
+Small,749
+XL,747
+
+# TEST 9: Model-specific size names
+Candy,958
+
+# TEST 10: Size in noise
+Mini,959
+Medium,748
+
+# TEST 11: Size not valid for model
+Unknown,0
+Unknown,0
+Unknown,0
+
+# TEST 12: Case insensitivity
+Mini,959
+Medium,748
+PM,187
+
+# TEST 13: Size with descriptors
+Small,749
+PM,626
+
+
+# INTERNAL LOGIC
+# 1. PREREQUISITE: model_id AND model name must both be provided
+#    - If either is missing/null/empty → return None/null (no classification possible)
+# 2. Size classifier parses text_dump for size keywords
+# 3. Filters available sizes to only those valid for the given model_id
+# 4. Maps matched size to taxonomy ID using schema (e.g., Mini for Loop → ID 959)
+# 5. Returns unknown (ID 0) when:
+#    - No size indicators found in text
+#    - Size mentioned but not valid for this specific model
+# 6. Prioritizes exact matches over partial matches
+# 7. Case-insensitive matching (MINI = Mini = mini)
+# 8. For "One Size" models, auto-matches if model is identified
+# 9. Common size patterns:
+#    - Abbreviations: PM, MM, GM, TGM
+#    - Descriptive: Mini, Small, Medium, Large, XL, Nano, Micro
+#    - Model-specific: Candy (Loop), etc.
+
+ONLY USE THE TEXT ONLY VERSION OF THE MODEL SIZE CLASSIFIER NOT THE VISUAL/MULTIMODAL VERSION
+
+
+# SCHEMA REFERENCE (subset for testing)
+# model_id | model                    | size     | size_id
+# ---------|--------------------------|----------|--------
+# 377      | Loop                     | Mini     | 959
+# 377      | Loop                     | Candy    | 958
+# 11       | 31                       | Micro    | 752
+# 11       | 31                       | Medium   | 748
+# 11       | 31                       | Nano     | 751
+# 11       | 31                       | Small    | 749
+# 11       | 31                       | Mini     | 750
+# 11       | 31                       | XL       | 747
+# 900      | Brillant X-Ray           | One Size | 1275
+# 910      | Tempête Pochette         | One Size | 1292
+# 311      | Jimetou                  | PM       | 187
+# 311      | Jimetou                  | GM       | 188
+# 412      | Maximors                 | One Size | 253
+# 800      | Calèche-Express Messenger| One Size | 71
+# 13       | Abbesses Messenger       | One Size | 360
+# 514      | Popincourt               | PM       | 626
+# 514      | Popincourt               | MM       | 627
+# 513      | Pompom Kate              | One Size | 1639
+
+
+# GROUND TRUTH EXAMPLES FROM TEST DATA
+
+# Source 1: leprix_5_mixed_sample_enriched_20260127_103218.csv
+inputs_ground_truth_leprix:
+text_dump_arr:
+
+[{"model_id": "377", "model": "Loop", "brand": "Louis Vuitton", "Title": "Louis Vuitton Loop Mini Monogram - excellent condition"},
+{"model_id": "11", "model": "31", "brand": "Hermès", "Title": "Hermès 31 Medium Togo Etoupe GHW - very good condition"},
+{"model_id": "311", "model": "Jimetou", "brand": "Hermès", "Title": "Hermès Jimetou PM Evercolor Gold - AB"}]
+
+# OUTPUT - Ground truth from TRUSS_size columns
+size,size_id
+Mini,959
+Medium,748
+PM,187
+
+
+# Source 2: brands_gateway_italian_0_sample_50_enriched_20260128_152406.csv
+inputs_ground_truth_italian:
+text_dump_arr:
+
+[{"model_id": "514", "model": "Popincourt", "brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Popincourt PM Monogram", "Tags": "borsa di lusso, Louis vuitton, Popincourt, PM"},
+{"model_id": "412", "model": "Maximors", "brand": "Hermès", "Title": "HERMES - Maximors Togo Noir", "Tags": "borsa di lusso, Hermes, Maximors"},
+{"model_id": "900", "model": "Brillant X-Ray", "brand": "Delvaux", "Title": "DELVAUX - Brillant X-Ray Calfskin", "Tags": "borsa di lusso, Delvaux, Brillant"}]
+
+# OUTPUT - Ground truth from TRUSS_size columns
+# Note: Maximors and Brillant X-Ray are One Size models
+size,size_id
+PM,626
+One Size,253
+One Size,1275
+
+
+# Source 3: Edge cases for missing model inputs
+inputs_ground_truth_missing_model:
+text_dump_arr:
+
+[{"model_id": "", "model": "", "brand": "Louis Vuitton", "Title": "Louis Vuitton Mini Pochette Accessoires"},
+{"model_id": "377", "model": "", "brand": "Louis Vuitton", "Title": "Louis Vuitton Loop Mini Monogram"},
+{"model_id": "", "model": "Loop", "brand": "Louis Vuitton", "Title": "Louis Vuitton Loop Mini Monogram"},
+{"model_id": "377", "model": "Loop", "brand": "Louis Vuitton", "Title": "Louis Vuitton Loop Mini Monogram"}]
+
+# OUTPUT - Demonstrating required model inputs
+# Only the last row (with both model_id AND model name) gets classified
+size,size_id
+None,None
+None,None
+None,None
+Mini,959
+
+
+# Source 4: Edge cases for invalid size-model combinations
+inputs_ground_truth_invalid_combinations:
+text_dump_arr:
+
+[{"model_id": "513", "model": "Pompom Kate", "brand": "Hermès", "Title": "Hermès Pompom Kate Small", "Description": "Small is not a valid size for Pompom Kate"},
+{"model_id": "513", "model": "Pompom Kate", "brand": "Hermès", "Title": "Hermès Pompom Kate", "Description": "No size mentioned, One Size model"},
+{"model_id": "377", "model": "Loop", "brand": "Louis Vuitton", "Title": "Louis Vuitton Loop GM", "Description": "GM is not a valid size for Loop"}]
+
+# OUTPUT - Demonstrating invalid size handling
+# Pompom Kate only has "One Size" - "Small" is invalid
+# Loop only has Mini/Candy - "GM" is invalid
+size,size_id
+Unknown,0
+One Size,1639
+Unknown,0
