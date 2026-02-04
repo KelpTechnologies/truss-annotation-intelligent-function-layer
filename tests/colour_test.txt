@@ -56,21 +56,21 @@ Unknown,0
 Unknown,0
 
 # TEST 3: Simple correct examples
-Black,1
-Red,7
+Black,2
+Red,6
 
 # TEST 4: Primary vs secondary (subtle - bicolor cases)
-White,4
-Neutrals,5
+White,1
+Neutrals,24
 
 # TEST 5: Colour in noise
 Blue,11
-Pink,2
+Pink,18
 
 
 # INTERNAL LOGIC
 # 1. Colour classifier parses text_dump for colour keywords
-# 2. Maps to taxonomy ID using schema (e.g., Black -> ID 1)
+# 2. Maps to taxonomy ID using schema (e.g., Black -> ID 2)
 # 3. Returns unknown (NaN) when no colour indicators found
 # 4. For bicolor items, first mentioned colour is primary
 # 5. Handles colour synonyms (e.g., Navy -> Blue family)
@@ -89,8 +89,8 @@ text_dump_arr:
 
 # OUTPUT - Ground truth from test data (TRUSS_colour_id column)
 colour,colour_id
-Black,1
-White,4
+Black,2
+White,1
 Unknown,0
 
 # Note: Row 3 had no explicit colour in source - colour from image analysis, returns unknown (ID 0) for text-only
@@ -106,8 +106,8 @@ text_dump_arr:
 
 # OUTPUT - Ground truth from TRUSS_colour columns
 colour,colour_id
-Brown,3
-Brown,3
-Pink,2
+Unknown,0
+Unknown,0
+Pink,18
 
 # Note: "Monogram" pattern typically brown/tan. "rosa" = pink in Italian

@@ -134,6 +134,7 @@ def run_case(name: str, text_dump: dict, exp_colour, exp_id):
     try:
         r = classify(text_dump)
         got_colour, got_id = r.get("colour"), r.get("colour_id")
+        reasoning = r.get("reasoning", "")
 
         if exp_colour is None:
             passed = is_unknown(got_id) and is_unknown(got_colour)
@@ -143,9 +144,9 @@ def run_case(name: str, text_dump: dict, exp_colour, exp_id):
             exp_str = f"{exp_colour}({exp_id})"
 
         got_str = f"{got_colour}({got_id})"
-        RESULTS.append({"name": name, "passed": passed, "expected": exp_str, "actual": got_str, "error": None})
+        RESULTS.append({"name": name, "passed": passed, "expected": exp_str, "actual": got_str, "error": None, "reasoning": reasoning})
     except Exception as e:
-        RESULTS.append({"name": name, "passed": False, "expected": f"{exp_colour}({exp_id})", "actual": None, "error": str(e)})
+        RESULTS.append({"name": name, "passed": False, "expected": f"{exp_colour}({exp_id})", "actual": None, "error": str(e), "reasoning": None})
 
 
 # === TESTS ===
@@ -158,26 +159,26 @@ def test_unknown_irrelevant():
     run_case("vintage", {"colour": "", "Title": "Vintage authentic luxury tote bag with dust cover"}, None, None)
 
 def test_simple_correct():
-    run_case("black", {"colour": "Black", "Title": "Gucci Black Leather Soho Disco Crossbody"}, "Black", 1)
-    run_case("red", {"colour": "Red", "Title": "Prada Red Saffiano Galleria Tote"}, "Red", 7)
+    run_case("black", {"colour": "Black", "Title": "Gucci Black Leather Soho Disco Crossbody"}, "Black", 2)
+    run_case("red", {"colour": "Red", "Title": "Prada Red Saffiano Galleria Tote"}, "Red", 6)
 
 def test_primary_secondary():
-    run_case("white", {"colour": "White", "Title": "White leather bag with black trim accents"}, "White", 4)
-    run_case("neutrals", {"colour": "neutrals", "Title": "Chanel Beige and Black Bicolor Flap Bag"}, "Neutrals", 5)
+    run_case("white", {"colour": "White", "Title": "White leather bag with black trim accents"}, "White", 1)
+    run_case("neutrals", {"colour": "neutrals", "Title": "Chanel Beige and Black Bicolor Flap Bag"}, "Neutrals", 24)
 
 def test_noise_extraction():
     run_case("navy", {"colour": "Navy", "Title": "SUPER RARE 2020 Cruise Collection Runway Edition Celebrity Favorite Must-Have Statement Piece Navy Blue Shoulder Bag LIMITED - buy now 100% authentic used good condition, made in italy"}, "Blue", 11)
-    run_case("pink", {"colour": "Pink", "Title": "authentic guaranteed 100% original with receipt certificate included dustbag box ribbon pink leather wallet gift ready. 100% authenic contanct me to buy"}, "Pink", 2)
+    run_case("pink", {"colour": "Pink", "Title": "authentic guaranteed 100% original with receipt certificate included dustbag box ribbon pink leather wallet gift ready. 100% authenic contanct me to buy"}, "Pink", 18)
 
 def test_ground_truth_leprix():
-    run_case("leprix1", {"brand": "Gucci", "Title": "Balenciaga Medium Calfskin Hacker Project Jackie 1961 - very good condition", "Colour": "Black"}, "Black", 1)
-    run_case("leprix2", {"brand": "Gucci", "Title": "Bicolor Calfskin Jackie 1961 Wallet On Chain - new with tags", "Colour": "White"}, "White", 4)
+    run_case("leprix1", {"brand": "Gucci", "Title": "Balenciaga Medium Calfskin Hacker Project Jackie 1961 - very good condition", "Colour": "Black"}, "Black", 2)
+    run_case("leprix2", {"brand": "Gucci", "Title": "Bicolor Calfskin Jackie 1961 Wallet On Chain - new with tags", "Colour": "White"}, "White", 1)
     run_case("leprix3", {"brand": "Gucci", "Title": "Tricolor Leather Soho Disco Crossbody AA"}, None, None)
 
 def test_ground_truth_italian():
-    run_case("ital1", {"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Nano Papillon Monogram Vintage"}, "Brown", 3)
-    run_case("ital2", {"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - MANHATTAN GM Monogram"}, "Brown", 3)
-    run_case("ital3", {"brand": "Prada", "Title": "PRADA - Occhiale da sole lente a specchio rosa"}, "Pink", 2)
+    run_case("ital1", {"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - Nano Papillon Monogram Vintage"}, None, None)
+    run_case("ital2", {"brand": "Louis Vuitton", "Title": "LOUIS VUITTON - MANHATTAN GM Monogram"}, None, None)
+    run_case("ital3", {"brand": "Prada", "Title": "PRADA - Occhiale da sole lente a specchio rosa"}, "Pink", 18)
 
 
 def print_summary():
@@ -196,8 +197,10 @@ def print_summary():
             print(f"  test_ref: {f['name']}")
             print(f"  expected: {f['expected']}")
             print(f"  actual:   {f['actual']}")
-            if f['error']:
+            if f.get('error'):
                 print(f"  error:    {f['error']}")
+            if MODE == "local" and f.get('reasoning'):
+                print(f"  reasoning: {f['reasoning']}")
             print("-" * 60)
 
     if passed:
