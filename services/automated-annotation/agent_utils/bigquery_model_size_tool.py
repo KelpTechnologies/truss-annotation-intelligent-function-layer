@@ -6,78 +6,52 @@ Tool for searching model_size_knowledge_display table in BigQuery.
 Used by model size classification workflow.
 """
 
-import json
+import os
 from typing import List, Dict, Any, Optional
 import pandas as pd
 from google.cloud import bigquery
-from google.oauth2 import service_account
-import boto3
-import botocore
-from aws_secretsmanager_caching import SecretCache, SecretCacheConfig
+
+# Import centralized credentials management
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from core.utils.credentials import ensure_gcp_adc
 
 
 # Configuration
-BIGQUERY_SECRET_NAME = 'gcp/bigquery-and-gcs-cloud-migration-service-account'
-BIGQUERY_REGION = 'eu-west-2'
-BIGQUERY_PROJECT_ID = None
 BIGQUERY_DATASET = 'api'
 BIGQUERY_TABLE = 'model_size_knowledge_display'
 
-
-def get_bigquery_secret() -> Dict[str, Any]:
-    """
-    Retrieve BigQuery/GCP service account credentials from AWS Secrets Manager.
-    Returns a dictionary with GCP service account credentials.
-    """
-    try:
-        client = botocore.session.get_session().create_client('secretsmanager', region_name=BIGQUERY_REGION)
-        cache_config = SecretCacheConfig()
-        cache = SecretCache(config=cache_config, client=client)
-        secret_string = cache.get_secret_string(BIGQUERY_SECRET_NAME)
-        secret = json.loads(secret_string)
-        return secret
-    except Exception as e:
-        raise Exception(f"Failed to retrieve BigQuery secret '{BIGQUERY_SECRET_NAME}': {e}")
+# Singleton for BigQuery client (reused across calls)
+_bigquery_client_singleton = None
 
 
 def get_bigquery_client():
     """
-    Get a BigQuery client using service account credentials from AWS Secrets Manager.
+    Get a BigQuery client using Application Default Credentials.
+    Uses centralized credentials from truss-platform-secrets via ensure_gcp_adc().
+    Uses singleton pattern to reuse client across calls.
     """
+    global _bigquery_client_singleton
+
+    if _bigquery_client_singleton is not None:
+        return _bigquery_client_singleton
+
     try:
-        # Get credentials from AWS Secrets Manager
-        secret = get_bigquery_secret()
-        
-        # Create service account credentials from secret
-        credentials_info = {
-            "type": secret.get("type", "service_account"),
-            "project_id": secret.get("project_id"),
-            "private_key_id": secret.get("private_key_id"),
-            "private_key": secret.get("private_key"),
-            "client_email": secret.get("client_email"),
-            "client_id": secret.get("client_id"),
-            "auth_uri": secret.get("auth_uri", "https://accounts.google.com/o/oauth2/auth"),
-            "token_uri": secret.get("token_uri", "https://oauth2.googleapis.com/token"),
-            "client_x509_cert_url": secret.get("client_x509_cert_url"),
-            "universe_domain": secret.get("universe_domain", "googleapis.com")
-        }
-        
-        # Validate required fields
-        required_fields = ["project_id", "private_key", "client_email"]
-        missing_fields = [field for field in required_fields if not credentials_info.get(field)]
-        if missing_fields:
-            raise ValueError(f"Secret missing required fields: {missing_fields}")
-        
-        # Create credentials object
-        credentials = service_account.Credentials.from_service_account_info(credentials_info)
-        
-        # Create BigQuery client
-        client = bigquery.Client(credentials=credentials, project=credentials_info["project_id"])
-        
-        # Store project ID globally for convenience
-        global BIGQUERY_PROJECT_ID
-        BIGQUERY_PROJECT_ID = credentials_info["project_id"]
-        
+        # Ensure GCP Application Default Credentials are set up
+        ensure_gcp_adc()
+
+        # Get project from environment (set by ensure_gcp_adc)
+        project_id = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEXAI_PROJECT")
+        if not project_id:
+            raise ValueError("GOOGLE_CLOUD_PROJECT or VERTEXAI_PROJECT must be set")
+
+        # Create BigQuery client using ADC
+        client = bigquery.Client(project=project_id)
+
+        # Cache the client
+        _bigquery_client_singleton = client
+
         return client
     except Exception as e:
         raise Exception(f"Failed to create BigQuery client: {e}")

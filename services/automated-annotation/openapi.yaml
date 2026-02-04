@@ -1,7 +1,7 @@
 # Generated OpenAPI spec with HybridAuth - DO NOT EDIT DIRECTLY
 # Service: automated-annotation
 # Layer: aifl
-# Generated: 2026-02-02T14:10:38.396Z
+# Generated: 2026-02-04T16:22:30.154Z
 openapi: 3.0.1
 info:
   title: automated-annotation
