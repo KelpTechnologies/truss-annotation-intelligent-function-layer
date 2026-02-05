@@ -270,6 +270,27 @@ def handle_classification(req_ctx, category: str, target: str, payload: dict):
                 formatted_result = format_classification_for_legacy_api(result, target)
                 component_type = "classification_result"
                 data = [formatted_result]
+                
+                # For single-item mode, check if extraction failed (not just "Unknown"/null)
+                # Return 400 for actual errors (success=False), but 200 for successful null extractions
+                if result.get("success") is False and not result.get("no_extraction"):
+                    elapsed = time.time() - request_start_time
+                    logger.error(f"Classification failed after {elapsed:.2f}s: {result.get('error', 'Unknown error')}")
+                    response = create_response(
+                        400,
+                        {
+                            "component_type": component_type,
+                            "data": data,
+                            "metadata": {
+                                "category": category,
+                                "target": target,
+                                "error": result.get("error", "Classification failed"),
+                                "error_type": result.get("error_type", "unknown")
+                            },
+                        },
+                    )
+                    structured_logger.log_error(req_ctx, ValueError(result.get("error", "Classification failed")), status_code=400)
+                    return response
         
         elapsed = time.time() - request_start_time
         logger.info(f"Property classification request completed in {elapsed:.2f}s")

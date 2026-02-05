@@ -149,6 +149,42 @@ def classify_for_api(
             schema=agent_result.schema
         )
         
+        # Handle "Unknown" results (ID 0) - return success but with null extraction
+        # This indicates the extraction worked but no valid classification was found
+        primary_name = classification_data.get("primary_name")
+        primary_id = classification_data.get("primary_id")
+        is_unknown_result = primary_id == 0 or (primary_name and primary_name.lower() == "unknown")
+        
+        if is_unknown_result:
+            logger.info(f"Classification returned 'Unknown' result - returning success with null extraction")
+            result = {
+                "config_id": config_id,
+                "primary": None,
+                "primary_id": None,
+                "primary_name": None,
+                "alternatives": [],
+                "alternative_ids": [],
+                "alternative_names": [],
+                "confidence": 0.0,
+                "reasoning": classification_data.get("reasoning") or "No valid classification found",
+                "success": True,  # Still success - extraction worked, just no valid result
+                "status": "no_match",
+                "processing_time_seconds": round(total_elapsed, 3),
+                "validation_passed": True,
+                "no_extraction": True,  # Flag to indicate intentionally null extraction
+            }
+            
+            # Set root fields to None for material/model
+            if 'material' in config_id.lower():
+                result['root_material_name'] = None
+                result['root_material_id'] = None
+            elif 'model' in config_id.lower():
+                result['root_model_name'] = None
+                result['root_model_id'] = None
+            
+            logger.info(f"Returning null extraction result for 'Unknown' classification")
+            return result
+        
         result = {
             "config_id": config_id,
             "primary": classification_data.get("primary"),
