@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(conda activate:*)",
+      "Bash(python:*)",
+      "Bash(conda run:*)",
+      "Bash(ls:*)",
+      "Bash(findstr:*)",
+      "Bash(Select-Object -Last 100)"
     ]
   }
 }
