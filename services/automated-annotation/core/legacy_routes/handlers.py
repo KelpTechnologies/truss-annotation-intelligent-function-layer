@@ -224,7 +224,19 @@ def handle_classification(req_ctx, category: str, target: str, payload: dict):
                 
         elif target == "hardware":
             logger.info("Processing hardware classification request")
-            result = execute_hardware_classification_for_api(api_input=payload)
+            input_mode = payload.get("input_mode") or detect_input_mode(payload)
+            base_config_id = "classifier-hardware-bags"
+            config_id = get_config_id_for_input_mode(base_config_id, input_mode)
+            logger.info(
+                f"Mapped {category}/hardware to config_id: {config_id} (input_mode={input_mode})"
+            )
+            if "input_mode" not in payload:
+                payload = {**payload, "input_mode": input_mode}
+
+            result = execute_classification_for_api(
+                config_id=config_id,
+                api_input=payload
+            )
             
             if is_batch_mode:
                 # Batch mode: result is a list
