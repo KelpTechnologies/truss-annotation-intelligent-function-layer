@@ -107,6 +107,7 @@ def get_config_id_for_property(category: str, property_name: str) -> str:
             "model": "classifier-model-bags",
             "material": "classifier-material-bags",
             "colour": "classifier-colour-bags",
+            "keywords": "classifier-keywords-bags",
             "type": "classifier-type-bags",
             "condition": "classifier-condition-bags",
         }
