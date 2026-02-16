@@ -209,6 +209,17 @@ def execute_classification_for_api(
             if value and str(value).strip():
                 text_metadata[field] = value
     
+    # Log input summary for debugging (avoid logging raw URLs or text)
+    logger.info(
+        "Classification input summary - config_id=%s input_mode=%s image_id=%s image_url=%s text_input=%s text_metadata_keys=%s",
+        config_id,
+        input_mode,
+        bool(image_id),
+        bool(image_url),
+        bool(text_input),
+        list(text_metadata.keys()) if text_metadata else []
+    )
+
     # Call orchestration function
     # Pass get_signed_image_url as a function for Lambda-specific image URL fetching
     result = classify_for_api(
