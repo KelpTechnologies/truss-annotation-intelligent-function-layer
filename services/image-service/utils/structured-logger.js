@@ -5,7 +5,7 @@
  * To update, run: npm run copy:toolkit from truss-api-platform
  * 
  * Source: truss-api-platform/logging-toolkit/structured-logger.js
- * Generated: 2025-12-04T11:30:27.848Z
+ * Generated: 2026-02-17T11:54:08.272Z
  */
 
 /**
@@ -15,7 +15,7 @@
  * @version 2.0.0
  */
 
-const LOG_SCHEMA_VERSION = 2;
+const LOG_SCHEMA_VERSION = 2.1;
 
 /**
  * Log types
@@ -24,6 +24,7 @@ const LOG_TYPES = {
   REQUEST: "REQUEST",
   RESPONSE: "RESPONSE",
   ERROR: "ERROR",
+  WARNING: "WARNING",
   METRIC: "METRIC",
   DEBUG: "DEBUG",
 };
@@ -291,6 +292,13 @@ function generateRequestId() {
 }
 
 /**
+ * Generate unique correlation ID for cross-service tracing
+ */
+function generateCorrelationId() {
+  return `corr_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+}
+
+/**
  * Extract user context from Lambda event
  */
 function extractUserContext(event) {
@@ -325,6 +333,12 @@ class StructuredLogger {
       event.headers?.["x-request-id"] ||
       generateRequestId();
 
+    // Extract or generate correlation ID for cross-service tracing
+    const correlationId =
+      event.headers?.["x-correlation-id"] ||
+      event.headers?.["X-Correlation-Id"] ||
+      generateCorrelationId();
+
     const method = event.httpMethod || event.requestContext?.http?.method || "";
     const path = event.path || event.requestContext?.http?.path || "";
     const pathParams = event.pathParameters || {};
@@ -334,6 +348,7 @@ class StructuredLogger {
 
     const context = {
       requestId,
+      correlationId,
       method,
       path,
       route: `${method} ${path}`,
@@ -391,15 +406,63 @@ class StructuredLogger {
     // Normalize error message for cleaner aggregation
     const normalizedMessage = normalizeErrorMessage(error);
 
+    // Classify error type for filtering
+    const errorMessage = (error.message || String(error)).toLowerCase();
+    const isTimeout =
+      errorMessage.includes("timeout") ||
+      errorMessage.includes("timed out") ||
+      error.code === "ETIMEDOUT" ||
+      error.code === "ESOCKETTIMEDOUT";
+    const isConnectionError =
+      errorMessage.includes("econnrefused") ||
+      errorMessage.includes("econnreset") ||
+      errorMessage.includes("enotfound") ||
+      error.code === "ECONNREFUSED" ||
+      error.code === "ECONNRESET";
+    const isDatabaseError =
+      errorMessage.includes("database") ||
+      errorMessage.includes("rds") ||
+      errorMessage.includes("mysql") ||
+      errorMessage.includes("connection pool") ||
+      error.code === "ER_CON_COUNT_ERROR";
+
     this._emit(LOG_TYPES.ERROR, requestContext, {
       statusCode: options.statusCode || 500,
       durationMs,
       error: {
         message: normalizedMessage,
         messageOriginal: error.message || String(error),
+        type: error.constructor?.name || error.name || "Error",
         name: error.name || "Error",
         stack: error.stack?.substring(0, 1000) || null,
         code: error.code || null,
+        isTimeout,
+        isConnectionError,
+        isDatabaseError,
+      },
+      queryContext: options.queryContext || {
+        route: requestContext.routeNormalized || null,
+      },
+    });
+  }
+
+  /**
+   * Log a warning
+   * Unlike errors, warnings don't terminate the request - they're informational alerts
+   * Can be called multiple times per request to emit multiple warnings
+   * @param {object} requestContext - Request context from startRequest
+   * @param {string} message - Warning message
+   * @param {object} details - Additional details about the warning
+   */
+  logWarning(requestContext, message, details = {}) {
+    // Normalize warning message for cleaner aggregation (reuse error normalization)
+    const normalizedMessage = normalizeErrorMessage(message);
+
+    this._emit(LOG_TYPES.WARNING, requestContext, {
+      warning: {
+        message: normalizedMessage,
+        messageOriginal: message,
+        ...details,
       },
     });
   }
@@ -440,6 +503,7 @@ class StructuredLogger {
       logType,
       ts: new Date().toISOString(),
       requestId: requestContext.requestId || null,
+      correlationId: requestContext.correlationId || null,
       layer: requestContext.layer || this.layer || "unknown",
       serviceName: requestContext.serviceName || this.serviceName || null,
       route: requestContext.route || null,
@@ -528,6 +592,7 @@ module.exports = {
   truncateForLogging,
   normalizeErrorMessage,
   generateRequestId,
+  generateCorrelationId,
   extractUserContext,
   calculateQueryComplexity,
 };

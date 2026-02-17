@@ -27,7 +27,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 import re
 
-LOG_SCHEMA_VERSION = 2
+LOG_SCHEMA_VERSION = 2.1
 
 # Layer detection mapping (matches JavaScript implementation)
 LAYER_MAP = {
@@ -137,11 +137,18 @@ class StructuredLogger:
             headers.get("X-Request-Id") or
             self._generate_request_id()
         )
-        
+
+        # Extract or generate correlation ID for cross-service tracing
+        correlation_id = (
+            headers.get("x-correlation-id") or
+            headers.get("X-Correlation-Id") or
+            self._generate_correlation_id()
+        )
+
         method = event.get("httpMethod", "") or request_context.get("http", {}).get("method", "")
         path = event.get("path", "") or request_context.get("http", {}).get("path", "")
         path_params = event.get("pathParameters") or {}
-        
+
         # Extract user context from authorizer
         user_id = (
             authorizer.get("keyId") or
@@ -150,12 +157,13 @@ class StructuredLogger:
         )
         tenant_id = authorizer.get("tenantId")
         auth_type = authorizer.get("authType", "unknown")
-        
+
         # Detect layer from path if not explicitly set
         layer = self.layer or detect_layer(path)
-        
+
         context = {
             "request_id": request_id,
+            "correlation_id": correlation_id,
             "method": method,
             "path": path,
             "route": f"{method} {path}",
@@ -324,6 +332,7 @@ class StructuredLogger:
             "logType": log_type,
             "ts": datetime.utcnow().isoformat() + "Z",
             "requestId": ctx.get("request_id"),
+            "correlationId": ctx.get("correlation_id"),
             "layer": ctx.get("layer", self.layer),
             "serviceName": ctx.get("service_name", self.service_name),
             "route": ctx.get("route"),
@@ -346,6 +355,14 @@ class StructuredLogger:
         import string
         random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=9))
         return f"req_{int(time.time() * 1000)}_{random_suffix}"
+
+    @staticmethod
+    def _generate_correlation_id() -> str:
+        """Generate a unique correlation ID for cross-service tracing."""
+        import random
+        import string
+        random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=9))
+        return f"corr_{int(time.time() * 1000)}_{random_suffix}"
 
 
 # Convenience function to create a logger instance
