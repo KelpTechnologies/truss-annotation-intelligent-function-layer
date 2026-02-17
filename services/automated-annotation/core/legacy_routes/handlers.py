@@ -168,7 +168,7 @@ def handle_classification(req_ctx, category: str, target: str, payload: dict):
                 component_type = "size_classification_result"
                 data = [formatted_result]
                 
-        elif target in ("keyword", "keywords"):
+        elif target in ("keyword", "keywords", "key-words"):
             logger.info("Processing keyword classification request (keyword_classifier_orchestration)")
             result = execute_keyword_classification_for_api(api_input=payload)
 
