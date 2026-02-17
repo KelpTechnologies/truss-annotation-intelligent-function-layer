@@ -601,6 +601,9 @@ def execute_keyword_classification_for_api(
     general_input_text = api_input.get("general_input_text")
     if not general_input_text:
         raise ValueError("'general_input_text' is required for keyword classification")
+    # Accept string input - wrap in dict for downstream format_input_text()
+    if isinstance(general_input_text, str):
+        general_input_text = {"text": general_input_text}
     
     text_to_avoid = api_input.get("text_to_avoid")
     if text_to_avoid is None:
