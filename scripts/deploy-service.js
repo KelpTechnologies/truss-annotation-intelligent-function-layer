@@ -314,7 +314,9 @@ async function packageService(
     );
 
     // Create deployment package
-    const zipName = `${serviceName}-${stage}.zip`;
+    // Use repo-prefixed zip name to prevent S3 key collisions between repos
+    // that share service names (e.g., ADSL and AIFL both have "image-service")
+    const zipName = `truss-aifl-${serviceName}-${stage}.zip`;
     const zipPath = path.resolve(servicePath, zipName);
 
     console.log(`     🗜️  Creating deployment package: ${zipName}`);
