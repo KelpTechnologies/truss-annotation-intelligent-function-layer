@@ -261,19 +261,24 @@ def handle_classification(req_ctx, category: str, target: str, payload: dict):
             # Condition should always use text-only (never use image for condition assessment)
             if target == "condition":
                 input_mode = "text-only"
+                # Force text-only on payload (override any caller-provided input_mode)
+                payload = {**payload, "input_mode": "text-only"}
+                # Strip image fields so downstream won't attempt to fetch/use them
+                payload.pop("image", None)
+                payload.pop("image_url", None)
                 # Force text-only on batch items too
                 if is_batch_mode:
-                    payload = {
-                        **payload,
-                        "items": [{**item, "input_mode": "text-only"} for item in payload["items"]]
-                    }
+                    payload["items"] = [
+                        {**{k: v for k, v in item.items() if k not in ("image", "image_url")}, "input_mode": "text-only"}
+                        for item in payload["items"]
+                    ]
             else:
                 input_mode = payload.get("input_mode") or detect_input_mode(payload)
+                if "input_mode" not in payload:
+                    payload = {**payload, "input_mode": input_mode}
             base_config_id = get_config_id_for_property(category, target)
             config_id = get_config_id_for_input_mode(base_config_id, input_mode)
             logger.info(f"Mapped {category}/{target} to config_id: {config_id} (input_mode={input_mode})")
-            if "input_mode" not in payload:
-                payload = {**payload, "input_mode": input_mode}
 
             # Execute classification via lightweight API handler
             result = execute_classification_for_api(
