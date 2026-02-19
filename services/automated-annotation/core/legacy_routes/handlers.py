@@ -168,7 +168,7 @@ def handle_classification(req_ctx, category: str, target: str, payload: dict):
                 component_type = "size_classification_result"
                 data = [formatted_result]
                 
-        elif target in ("keyword", "keywords"):
+        elif target in ("keyword", "keywords", "key-words"):
             logger.info("Processing keyword classification request (keyword_classifier_orchestration)")
             result = execute_keyword_classification_for_api(api_input=payload)
 
@@ -224,7 +224,19 @@ def handle_classification(req_ctx, category: str, target: str, payload: dict):
                 
         elif target == "hardware":
             logger.info("Processing hardware classification request")
-            result = execute_hardware_classification_for_api(api_input=payload)
+            input_mode = payload.get("input_mode") or detect_input_mode(payload)
+            base_config_id = "classifier-hardware-bags"
+            config_id = get_config_id_for_input_mode(base_config_id, input_mode)
+            logger.info(
+                f"Mapped {category}/hardware to config_id: {config_id} (input_mode={input_mode})"
+            )
+            if "input_mode" not in payload:
+                payload = {**payload, "input_mode": input_mode}
+
+            result = execute_classification_for_api(
+                config_id=config_id,
+                api_input=payload
+            )
             
             if is_batch_mode:
                 # Batch mode: result is a list
@@ -246,13 +258,27 @@ def handle_classification(req_ctx, category: str, target: str, payload: dict):
 
         else:
             # Use new agent-based orchestrator system for other properties
-            # Detect input format and choose config (text-only -> -text config, else base config)
-            input_mode = payload.get("input_mode") or detect_input_mode(payload)
+            # Condition should always use text-only (never use image for condition assessment)
+            if target == "condition":
+                input_mode = "text-only"
+                # Force text-only on payload (override any caller-provided input_mode)
+                payload = {**payload, "input_mode": "text-only"}
+                # Strip image fields so downstream won't attempt to fetch/use them
+                payload.pop("image", None)
+                payload.pop("image_url", None)
+                # Force text-only on batch items too
+                if is_batch_mode:
+                    payload["items"] = [
+                        {**{k: v for k, v in item.items() if k not in ("image", "image_url")}, "input_mode": "text-only"}
+                        for item in payload["items"]
+                    ]
+            else:
+                input_mode = payload.get("input_mode") or detect_input_mode(payload)
+                if "input_mode" not in payload:
+                    payload = {**payload, "input_mode": input_mode}
             base_config_id = get_config_id_for_property(category, target)
             config_id = get_config_id_for_input_mode(base_config_id, input_mode)
             logger.info(f"Mapped {category}/{target} to config_id: {config_id} (input_mode={input_mode})")
-            if "input_mode" not in payload:
-                payload = {**payload, "input_mode": input_mode}
 
             # Execute classification via lightweight API handler
             result = execute_classification_for_api(

@@ -107,6 +107,7 @@ def get_config_id_for_property(category: str, property_name: str) -> str:
             "model": "classifier-model-bags",
             "material": "classifier-material-bags",
             "colour": "classifier-colour-bags",
+            "keywords": "classifier-keywords-bags",
             "type": "classifier-type-bags",
             "condition": "classifier-condition-bags",
         }
@@ -209,6 +210,17 @@ def execute_classification_for_api(
             if value and str(value).strip():
                 text_metadata[field] = value
     
+    # Log input summary for debugging (avoid logging raw URLs or text)
+    logger.info(
+        "Classification input summary - config_id=%s input_mode=%s image_id=%s image_url=%s text_input=%s text_metadata_keys=%s",
+        config_id,
+        input_mode,
+        bool(image_id),
+        bool(image_url),
+        bool(text_input),
+        list(text_metadata.keys()) if text_metadata else []
+    )
+
     # Call orchestration function
     # Pass get_signed_image_url as a function for Lambda-specific image URL fetching
     result = classify_for_api(
@@ -589,6 +601,9 @@ def execute_keyword_classification_for_api(
     general_input_text = api_input.get("general_input_text")
     if not general_input_text:
         raise ValueError("'general_input_text' is required for keyword classification")
+    # Accept string input - wrap in dict for downstream format_input_text()
+    if isinstance(general_input_text, str):
+        general_input_text = {"text": general_input_text}
     
     text_to_avoid = api_input.get("text_to_avoid")
     if text_to_avoid is None:

@@ -101,6 +101,11 @@ def classify_for_api(
         logger.info(f"Fetching signed URL for image: {image_id}")
         try:
             image_url = get_image_url_fn(image_id)
+            logger.info(
+                "Fetched signed URL for image_id=%s url_present=%s",
+                image_id,
+                bool(image_url)
+            )
         except Exception as e:
             logger.error(f"Failed to fetch image URL for {image_id}: {str(e)}")
             raise ValueError(f"Failed to fetch image URL: {str(e)}")
@@ -126,7 +131,12 @@ def classify_for_api(
             input_data["text_input"] = json.dumps(filtered_metadata, indent=2)
             logger.debug(f"Converted text_metadata to stringified JSON: {len(filtered_metadata)} fields")
     
-    logger.info(f"Agent input - image_url: {bool(image_url)}, text_input: {bool(text_input)}, input_mode: {input_mode}")
+    logger.info(
+        "Agent input - image_url=%s text_input=%s input_mode=%s",
+        bool(image_url),
+        bool(text_input),
+        input_mode
+    )
     
     # Initialize agent
     logger.info(f"Initializing agent with model: {full_config['model_config'].get('model')}")
