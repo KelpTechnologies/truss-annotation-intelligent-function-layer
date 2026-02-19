@@ -258,8 +258,17 @@ def handle_classification(req_ctx, category: str, target: str, payload: dict):
 
         else:
             # Use new agent-based orchestrator system for other properties
-            # Detect input format and choose config (text-only -> -text config, else base config)
-            input_mode = payload.get("input_mode") or detect_input_mode(payload)
+            # Condition should always use text-only (never use image for condition assessment)
+            if target == "condition":
+                input_mode = "text-only"
+                # Force text-only on batch items too
+                if is_batch_mode:
+                    payload = {
+                        **payload,
+                        "items": [{**item, "input_mode": "text-only"} for item in payload["items"]]
+                    }
+            else:
+                input_mode = payload.get("input_mode") or detect_input_mode(payload)
             base_config_id = get_config_id_for_property(category, target)
             config_id = get_config_id_for_input_mode(base_config_id, input_mode)
             logger.info(f"Mapped {category}/{target} to config_id: {config_id} (input_mode={input_mode})")
