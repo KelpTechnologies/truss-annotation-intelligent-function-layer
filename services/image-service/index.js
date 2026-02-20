@@ -1,10 +1,14 @@
-const AWS = require("aws-sdk");
+const { S3Client, PutObjectCommand, CopyObjectCommand, ListObjectsV2Command, DeleteObjectCommand, DeleteObjectsCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
+const { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, DeleteCommand } = require("@aws-sdk/lib-dynamodb");
 const { v4: uuidv4 } = require("uuid");
 const { createLogger } = require("./utils");
 
 // Initialize AWS services
-const s3 = new AWS.S3();
-const dynamodb = new AWS.DynamoDB.DocumentClient();
+const s3 = new S3Client({ region: process.env.AWS_REGION || "eu-west-2" });
+const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || "eu-west-2" });
+const dynamodb = DynamoDBDocumentClient.from(dynamoClient);
 
 // Initialize structured logger for metrics (REQUEST/RESPONSE/ERROR lifecycle events)
 const structuredLogger = createLogger({
@@ -176,17 +180,16 @@ async function generateUploadUrl(params) {
     const key = `uploads/${uniqueId}.${fileExtension}`;
 
     // Generate presigned URL for PUT operation
-    const presignedUrl = s3.getSignedUrl("putObject", {
+    const presignedUrl = await getSignedUrl(s3, new PutObjectCommand({
       Bucket: SOURCE_BUCKET,
       Key: key,
       ContentType: contentType || `image/${fileExtension}`,
-      Expires: expiresIn,
       Metadata: {
         "original-filename": filename,
         "upload-timestamp": new Date().toISOString(),
         stage: STAGE,
       },
-    });
+    }), { expiresIn });
 
     // Store upload record in DynamoDB
     await storeUploadRecord(uniqueId, key, filename, contentType);
@@ -229,7 +232,7 @@ async function getProcessingStatus(processingId) {
 
     console.log("DynamoDB query params:", JSON.stringify(params, null, 2));
 
-    const result = await dynamodb.get(params).promise();
+    const result = await dynamodb.send(new GetCommand(params));
 
     console.log("DynamoDB result:", JSON.stringify(result, null, 2));
 
@@ -276,7 +279,7 @@ async function listImages(queryParams) {
       params.ExpressionAttributeValues = { ":status": status };
     }
 
-    const result = await dynamodb.scan(params).promise();
+    const result = await dynamodb.send(new ScanCommand(params));
 
     return createResponse(200, {
       images: result.Items,
@@ -306,7 +309,7 @@ async function getProcessedImages(processingId) {
       },
     };
 
-    const result = await dynamodb.get(params).promise();
+    const result = await dynamodb.send(new GetCommand(params));
 
     console.log(
       "DynamoDB record for processed images:",
@@ -330,11 +333,10 @@ async function getProcessedImages(processingId) {
     }
 
     // Generate presigned URL for the processed image
-    const downloadUrl = s3.getSignedUrl("getObject", {
+    const downloadUrl = await getSignedUrl(s3, new GetObjectCommand({
       Bucket: PROCESSED_BUCKET,
       Key: processedImage.key,
-      Expires: 3600, // 1 hour default
-    });
+    }), { expiresIn: 3600 });
 
     return createResponse(200, {
       processingId: processingId,
@@ -380,7 +382,7 @@ async function triggerProcessing(uniqueId) {
       },
     };
 
-    await s3.copyObject(copyParams).promise();
+    await s3.send(new CopyObjectCommand(copyParams));
 
     return createResponse(200, {
       message: "Processing triggered successfully",
@@ -409,12 +411,10 @@ async function deleteImage(uniqueId) {
     }
 
     // Delete from source bucket
-    await s3
-      .deleteObject({
-        Bucket: SOURCE_BUCKET,
-        Key: uploadRecord.key,
-      })
-      .promise();
+    await s3.send(new DeleteObjectCommand({
+      Bucket: SOURCE_BUCKET,
+      Key: uploadRecord.key,
+    }));
 
     // Delete processed versions
     const processedParams = {
@@ -422,17 +422,18 @@ async function deleteImage(uniqueId) {
       Prefix: `processed/${uniqueId}`,
     };
 
-    const processedObjects = await s3.listObjectsV2(processedParams).promise();
+    const processedObjects = await s3.send(new ListObjectsV2Command(processedParams));
 
-    if (processedObjects.Contents.length > 0) {
+    const contents = processedObjects.Contents || [];
+    if (contents.length > 0) {
       const deleteParams = {
         Bucket: PROCESSED_BUCKET,
         Delete: {
-          Objects: processedObjects.Contents.map((obj) => ({ Key: obj.Key })),
+          Objects: contents.map((obj) => ({ Key: obj.Key })),
         },
       };
 
-      await s3.deleteObjects(deleteParams).promise();
+      await s3.send(new DeleteObjectsCommand(deleteParams));
     }
 
     // Delete processing records
@@ -441,7 +442,7 @@ async function deleteImage(uniqueId) {
     return createResponse(200, {
       message: "Image deleted successfully",
       uniqueId: uniqueId,
-      deletedProcessedImages: processedObjects.Contents.length,
+      deletedProcessedImages: contents.length,
     });
   } catch (error) {
     console.error("Error deleting image:", error);
@@ -468,7 +469,7 @@ async function storeUploadRecord(uniqueId, key, filename, contentType) {
     },
   };
 
-  await dynamodb.put(params).promise();
+  await dynamodb.send(new PutCommand(params));
 }
 
 /**
@@ -483,7 +484,7 @@ async function findUploadRecord(uniqueId) {
     },
   };
 
-  const result = await dynamodb.scan(params).promise();
+  const result = await dynamodb.send(new ScanCommand(params));
   return result.Items[0] || null;
 }
 
@@ -499,15 +500,13 @@ async function deleteProcessingRecords(uniqueId) {
     },
   };
 
-  const result = await dynamodb.scan(params).promise();
+  const result = await dynamodb.send(new ScanCommand(params));
 
   for (const item of result.Items) {
-    await dynamodb
-      .delete({
-        TableName: PROCESSING_TABLE,
-        Key: { processingId: item.processingId },
-      })
-      .promise();
+    await dynamodb.send(new DeleteCommand({
+      TableName: PROCESSING_TABLE,
+      Key: { processingId: item.processingId },
+    }));
   }
 }
 
@@ -531,7 +530,7 @@ async function debugTable() {
       Limit: 10,
     };
 
-    const result = await dynamodb.scan(params).promise();
+    const result = await dynamodb.send(new ScanCommand(params));
 
     console.log("Debug: Found", result.Count, "records");
     console.log("Debug: Records:", JSON.stringify(result.Items, null, 2));

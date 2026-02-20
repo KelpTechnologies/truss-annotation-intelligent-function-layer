@@ -1,7 +1,7 @@
 # Generated OpenAPI spec with HybridAuth - DO NOT EDIT DIRECTLY
 # Service: image-service
 # Layer: aifl
-# Generated: 2025-12-09T17:51:27.863Z
+# Generated: 2026-02-20T13:39:32.271Z
 openapi: 3.0.1
 info:
   title: image-service

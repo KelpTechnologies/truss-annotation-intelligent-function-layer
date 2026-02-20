@@ -3,7 +3,7 @@
  * Provides BigQuery integration for AWS Lambda functions
  */
 
-const AWS = require("aws-sdk");
+const { SecretsManagerClient, GetSecretValueCommand } = require("@aws-sdk/client-secrets-manager");
 const { BigQuery } = require("@google-cloud/bigquery");
 const { createLogger } = require("./structured-logger");
 
@@ -20,7 +20,6 @@ const initContext = {
   routeNormalized: "MODULE_INIT",
 };
 
-initLogger.debug("AWS SDK version", { version: AWS.VERSION }, initContext);
 initLogger.debug("BigQuery module loaded successfully", {}, initContext);
 
 let secretsClient = null;
@@ -46,7 +45,7 @@ function getSecretsClient() {
         initContext
       );
 
-      secretsClient = new AWS.SecretsManager({
+      secretsClient = new SecretsManagerClient({
         region: process.env.AWS_REGION || "us-east-1",
       });
       initLogger.debug(
@@ -87,9 +86,9 @@ async function getBigQueryClient(secretName = "bigquery-service-account") {
       initContext
     );
 
-    const response = await secretsClient
-      .getSecretValue({ SecretId: secretName })
-      .promise();
+    const response = await secretsClient.send(
+      new GetSecretValueCommand({ SecretId: secretName })
+    );
     initLogger.debug(
       "Secret retrieved from AWS Secrets Manager",
       {
