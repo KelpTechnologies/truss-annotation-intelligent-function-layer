@@ -5,7 +5,7 @@
     "version": "1.0.0"
   },
   "deployment": {
-    "runtime": "nodejs18.x",
+    "runtime": "nodejs22.x",
     "timeout": 30,
     "memory": 512,
     "layers": [

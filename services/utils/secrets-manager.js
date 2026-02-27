@@ -15,7 +15,7 @@
  * }
  */
 
-const AWS = require("aws-sdk");
+const { SecretsManagerClient, GetSecretValueCommand } = require("@aws-sdk/client-secrets-manager");
 
 // Default ARN - can be overridden via environment variable
 const DEFAULT_SECRET_ARN =
@@ -28,11 +28,11 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache TTL
 
 /**
  * Get or create AWS Secrets Manager client
- * @returns {AWS.SecretsManager} Secrets Manager client
+ * @returns {SecretsManagerClient} Secrets Manager client
  */
 function getSecretsClient() {
   if (!secretsClient) {
-    secretsClient = new AWS.SecretsManager({
+    secretsClient = new SecretsManagerClient({
       region: process.env.AWS_REGION || "eu-west-2",
     });
   }
@@ -67,9 +67,9 @@ async function getSecrets() {
 
   try {
     console.log("🔐 Retrieving secrets from AWS Secrets Manager...");
-    const response = await client
-      .getSecretValue({ SecretId: secretArn })
-      .promise();
+    const response = await client.send(
+      new GetSecretValueCommand({ SecretId: secretArn })
+    );
 
     cachedSecrets = JSON.parse(response.SecretString);
     cacheTimestamp = Date.now();

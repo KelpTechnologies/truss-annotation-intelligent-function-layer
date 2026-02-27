@@ -108,7 +108,7 @@ Resources:
     Properties:
       FunctionName: !Ref FunctionName
       Handler: index.handler
-      Runtime: nodejs18.x
+      Runtime: nodejs22.x
       Role: !GetAtt ImageProcessingRole.Arn
       Code:
         S3Bucket: !Ref CodeS3Bucket

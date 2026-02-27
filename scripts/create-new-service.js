@@ -4,7 +4,7 @@ const path = require("path");
 // Service templates
 const SERVICE_TEMPLATES = {
   nodejs: {
-    runtime: "nodejs18.x",
+    runtime: "nodejs22.x",
     handler: "index.handler",
     packageManager: "npm",
   },

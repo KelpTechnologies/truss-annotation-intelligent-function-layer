@@ -1,11 +1,14 @@
-const AWS = require("aws-sdk");
+const { S3Client, GetObjectCommand, PutObjectCommand } = require("@aws-sdk/client-s3");
+const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
+const { DynamoDBDocumentClient, PutCommand } = require("@aws-sdk/lib-dynamodb");
 const sharp = require("sharp");
 const axios = require("axios");
 const FormData = require("form-data");
 const crypto = require("crypto");
 
-const s3 = new AWS.S3();
-const dynamodb = new AWS.DynamoDB.DocumentClient();
+const s3 = new S3Client({ region: process.env.AWS_REGION || "eu-west-2" });
+const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || "eu-west-2" });
+const dynamodb = DynamoDBDocumentClient.from(dynamoClient);
 
 // Configuration
 const SOURCE_BUCKET = process.env.SOURCE_BUCKET;
@@ -333,21 +336,24 @@ async function downloadImage(bucket, key) {
   };
 
   try {
-    const result = await s3.getObject(params).promise();
+    const result = await s3.send(new GetObjectCommand(params));
+    // v3: Body is a readable stream, convert to Buffer
+    const bodyBytes = await result.Body.transformToByteArray();
+    const body = Buffer.from(bodyBytes);
     console.log(`S3 download successful:`, {
       contentLength: result.ContentLength,
       contentType: result.ContentType,
       lastModified: result.LastModified,
       eTag: result.ETag,
     });
-    return result.Body;
+    return body;
   } catch (error) {
     console.error(`S3 download failed:`, {
       bucket,
       key,
       error: error.message,
-      code: error.code,
-      statusCode: error.statusCode,
+      name: error.name,
+      statusCode: error.$metadata?.httpStatusCode,
     });
     throw error;
   }
@@ -528,19 +534,22 @@ async function uploadProcessedImage(
       },
     };
 
-    const result = await s3.upload(params).promise();
+    const result = await s3.send(new PutObjectCommand(params));
+
+    // v3 PutObjectCommand does not return Location — construct the URL
+    const location = `https://${PROCESSED_BUCKET}.s3.${process.env.AWS_REGION || "eu-west-2"}.amazonaws.com/${key}`;
 
     console.log(`S3 upload successful:`, {
       key,
-      location: result.Location,
-      bucket: result.Bucket,
+      location,
+      bucket: PROCESSED_BUCKET,
       etag: result.ETag,
       size: sizeString,
     });
 
     return {
       key,
-      url: result.Location,
+      url: location,
       size: sizeString,
     };
   } catch (error) {
@@ -548,8 +557,8 @@ async function uploadProcessedImage(
       bucket: PROCESSED_BUCKET,
       key,
       error: error.message,
-      code: error.code,
-      statusCode: error.statusCode,
+      name: error.name,
+      statusCode: error.$metadata?.httpStatusCode,
       stack: error.stack,
     });
     throw new Error(`Upload failed: ${error.message}`);
@@ -788,7 +797,7 @@ async function updateProcessingStatus(
       itemSize: JSON.stringify(params.Item).length,
     });
 
-    await dynamodb.put(params).promise();
+    await dynamodb.send(new PutCommand(params));
 
     console.log(
       `DynamoDB status updated successfully: ${processingId} - ${status}`
@@ -798,8 +807,8 @@ async function updateProcessingStatus(
       processingId,
       status,
       error: dbError.message,
-      code: dbError.code,
-      statusCode: dbError.statusCode,
+      name: dbError.name,
+      statusCode: dbError.$metadata?.httpStatusCode,
       stack: dbError.stack,
     });
     // Don't throw here as it's not critical for image processing
