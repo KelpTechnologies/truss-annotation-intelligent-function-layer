@@ -19,7 +19,7 @@ For material:
 API Environment Mapping:
     - dev -> api_Dev
     - staging -> api_staging
-    - prod -> api_prod
+    - prod -> api
 """
 
 import json
@@ -160,7 +160,7 @@ def _get_api_env_name() -> str:
     mapping = {
         "dev": "api_Dev",
         "staging": "api_staging",
-        "prod": "api_prod"
+        "prod": "api"
     }
     env_name = mapping.get(stage, "api_Dev")
     logger.info(f"[BigQuery] Mapped STAGE={stage} to API environment: {env_name}")
