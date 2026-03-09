@@ -97,18 +97,30 @@ def classify_for_api(
         raise ValueError(f"Agent config '{config_id}' not found: {str(e)}")
     
     # Get image URL if image_id provided and function available
+    # Retry on 404 — image may not be processed yet (race condition in batch jobs)
     if image_id and not image_url and get_image_url_fn:
         logger.info(f"Fetching signed URL for image: {image_id}")
-        try:
-            image_url = get_image_url_fn(image_id)
-            logger.info(
-                "Fetched signed URL for image_id=%s url_present=%s",
-                image_id,
-                bool(image_url)
-            )
-        except Exception as e:
-            logger.error(f"Failed to fetch image URL for {image_id}: {str(e)}")
-            raise ValueError(f"Failed to fetch image URL: {str(e)}")
+        max_retries = 3
+        retry_delay = 5
+        for attempt in range(max_retries):
+            try:
+                image_url = get_image_url_fn(image_id)
+                logger.info(
+                    "Fetched signed URL for image_id=%s url_present=%s",
+                    image_id,
+                    bool(image_url)
+                )
+                break
+            except Exception as e:
+                if attempt < max_retries - 1 and ("404" in str(e) or "Not Found" in str(e)):
+                    logger.warning(
+                        "Image %s not ready (attempt %d/%d), retrying in %ds...",
+                        image_id, attempt + 1, max_retries, retry_delay * (attempt + 1)
+                    )
+                    time.sleep(retry_delay * (attempt + 1))
+                else:
+                    logger.error(f"Failed to fetch image URL for {image_id}: {str(e)}")
+                    raise ValueError(f"Failed to fetch image URL: {str(e)}")
     
     # Build input_data for agent
     input_data = {
