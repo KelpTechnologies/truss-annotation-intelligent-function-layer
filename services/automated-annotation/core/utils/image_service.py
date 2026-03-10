@@ -38,13 +38,16 @@ def get_signed_image_url(image_id: str) -> Optional[str]:
         "Accept": "application/json"
     }
     
-    # Use pass-through auth if available, otherwise use API key
-    if auth_headers:
-        headers.update(auth_headers)
-        logger.debug("Using pass-through auth headers for image service")
-    elif api_key:
+    # Always prefer API key for service-to-service calls.
+    # Cognito JWTs passed through from the queue processor expire after 1 hour,
+    # causing 403s on long-running batches when the authorizer rejects the stale token.
+    # The API key doesn't expire, so it's the reliable auth method for async flows.
+    if api_key:
         headers["x-api-key"] = api_key
         logger.debug("Using API key for image service")
+    elif auth_headers:
+        headers.update(auth_headers)
+        logger.debug("Using pass-through auth headers for image service (no API key available)")
     else:
         logger.warning("No authentication available for image service")
     
