@@ -12,6 +12,7 @@ Uses google-genai SDK directly instead of LangChain for minimal dependencies (~5
 import json
 import logging
 import re
+import warnings
 from typing import Dict, List, Any, Optional, Union
 from pathlib import Path
 from datetime import datetime
@@ -22,6 +23,7 @@ from PIL import Image
 
 from google import genai
 from google.genai import types
+from google.genai.types import HttpOptions
 from pydantic import BaseModel, Field
 import pandas as pd
 
@@ -34,9 +36,11 @@ from .validation import (
     register_pydantic_model
 )
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
+
+# Suppress google-genai SDK warning for ON_DEMAND_PRIORITY TrafficType enum
+warnings.filterwarnings("ignore", message="ON_DEMAND_PRIORITY is not a valid TrafficType")
 
 
 class PredictionScore(BaseModel):
@@ -135,7 +139,6 @@ class LLMAnnotationAgent:
         # Initialize validator
         try:
             self.validator = Validator(self.validation_config)
-            logger.info("Validation system initialized")
         except Exception as e:
             raise ValueError(f"Failed to initialize validator: {e}") from e
         
@@ -151,11 +154,22 @@ class LLMAnnotationAgent:
         }
         
         # Initialize Google GenAI client (uses VertexAI backend)
-        self.client = genai.Client(
+        # Priority PayGo: global endpoint + priority headers for consistent perf
+        self.priority_paygo = self.model_config.get('priority_paygo', True)
+        client_kwargs = dict(
             vertexai=True,
             project=self.project_id,
-            location=self.location
+            location='global' if self.priority_paygo else self.location,
         )
+        if self.priority_paygo:
+            client_kwargs['http_options'] = HttpOptions(
+                api_version="v1",
+                headers={
+                    "X-Vertex-AI-LLM-Request-Type": "shared",
+                    "X-Vertex-AI-LLM-Shared-Request-Type": "priority",
+                },
+            )
+        self.client = genai.Client(**client_kwargs)
         
         # Store generation config parameters
         self.temperature = self.model_config.get('temperature', 0.1)
@@ -172,7 +186,7 @@ class LLMAnnotationAgent:
             self.temperature = model_defaults[self.model_name].get("temperature", self.temperature)
             self.max_output_tokens = model_defaults[self.model_name].get("max_output_tokens", self.max_output_tokens)
         
-        logger.info(f"Initialized agent '{self.config_id}' with model {self.model_name}")
+        logger.debug(f"Initialized agent '{self.config_id}' with model {self.model_name}")
 
     def _extract_valid_ids_from_schema(self, schema_content: dict) -> set:
         """
@@ -389,6 +403,52 @@ class LLMAnnotationAgent:
             )
         )
 
+    def _extract_llm_metadata(self, response, elapsed_seconds, call_type):
+        """Extract token usage, latency, stop reason from LLM response."""
+        meta = {"llm_latency_ms": round(elapsed_seconds * 1000, 1), "llm_call_type": call_type}
+        try:
+            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                um = response.usage_metadata
+                if getattr(um, 'prompt_token_count', None) is not None:
+                    meta["llm_tokens_input"] = um.prompt_token_count
+                if getattr(um, 'candidates_token_count', None) is not None:
+                    meta["llm_tokens_output"] = um.candidates_token_count
+                if getattr(um, 'total_token_count', None) is not None:
+                    meta["llm_tokens_total"] = um.total_token_count
+                if getattr(um, 'traffic_type', None) is not None:
+                    meta["llm_traffic_type"] = str(um.traffic_type)
+            if hasattr(response, 'candidates') and response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'finish_reason') and candidate.finish_reason:
+                    meta["llm_stop_reason"] = str(candidate.finish_reason)
+        except Exception:
+            pass
+        return meta
+
+    def _extract_output_metadata(self, parsed):
+        """Extract prediction, reasoning, confidence, scores from parsed output."""
+        meta = {}
+        try:
+            if parsed.get('prediction_id') is not None:
+                pid = parsed['prediction_id']
+                meta["prediction_id"] = pid
+                sc = self.schema.get('schema_content', {}) if self.schema else {}
+                name = sc.get(str(pid), {}).get('name')
+                if name:
+                    meta["prediction_name"] = name
+            if parsed.get('reasoning'):
+                meta["reasoning"] = parsed['reasoning']
+            if parsed.get('scores'):
+                scores = parsed['scores']
+                meta["scores"] = json.dumps([{"id": s["id"], "score": s["score"]} for s in scores[:5]])
+                for s in scores:
+                    if s.get('id') == parsed.get('prediction_id'):
+                        meta["confidence"] = s['score']
+                        break
+        except Exception:
+            pass
+        return meta
+
     def execute(
         self,
         input_data: Dict[str, Any],
@@ -396,11 +456,11 @@ class LLMAnnotationAgent:
     ) -> AgentResult:
         """
         Execute agent task based on input data and configuration.
-        
+
         This is the main entry point for all agent operations. The specific behavior
         (classification, config generation, etc.) is determined by the agent's
         configuration and prompt template.
-        
+
         Args:
             input_data: Input for the task. Common keys:
                 - image_url: str (optional) - URL of image to analyze
@@ -411,37 +471,42 @@ class LLMAnnotationAgent:
                 - garment_id: str (optional) - DEPRECATED: use item_id instead
                 - input_mode: str (optional) - "auto", "image-only", "text-only", "multimodal"
                 - format_as_product_info: bool (optional) - If True, prefix text with "Product Information:"
-            
+
             context: Additional context for validation. Merged with base context.
                 e.g., {"csv_columns": ["col1", "col2"]} for CSV config generation
-        
+
         Returns:
             AgentResult with:
                 - status: AgentStatus
                 - result: dict (the parsed LLM output)
                 - validation_info: ValidationInfo
                 - error_report: ErrorReport (if failed)
-                - metadata: dict (attempt count, timing, etc.)
+                - metadata: dict (agent context, LLM metrics, output, validation)
         """
         import time
         start_time = time.time()
-        
+
+        # Base metadata — always present in every return path
+        input_mode = input_data.get('input_mode', 'auto')
+        item_id = input_data.get('item_id') or input_data.get('garment_id')
+        base_meta = {
+            "config_id": self.config_id,
+            "model": self.model_name,
+            "input_mode": input_mode,
+            "item_id": item_id,
+            "attempt": 1,
+        }
+
         # Normalize input field names (backward compatibility)
-        # Consolidate text fields: text_input > text_metadata > input_text
         text_content = (
-            input_data.get('text_input') or 
-            input_data.get('text_metadata') or 
-            input_data.get('input_text') or 
+            input_data.get('text_input') or
+            input_data.get('text_metadata') or
+            input_data.get('input_text') or
             ''
         )
-        # Consolidate ID field: item_id > garment_id
-        item_id = input_data.get('item_id') or input_data.get('garment_id')
-        
-        # Validate input based on mode
-        input_mode = input_data.get('input_mode', 'auto')
         has_image = bool(input_data.get('image_url'))
         has_text = bool(text_content)
-        
+
         # Validate text-only mode has text
         if input_mode == 'text-only' and not has_text:
             return AgentResult(
@@ -452,10 +517,10 @@ class LLMAnnotationAgent:
                     details={"input_mode": input_mode, "has_text": has_text},
                     recoverable=False
                 ),
-                metadata={"duration_seconds": time.time() - start_time, "item_id": item_id},
+                metadata={**base_meta, "duration_seconds": time.time() - start_time},
                 schema=self.schema
             )
-        
+
         # Validate image-only mode has image
         if input_mode == 'image-only' and not has_image:
             return AgentResult(
@@ -466,10 +531,10 @@ class LLMAnnotationAgent:
                     details={"input_mode": input_mode, "has_image": has_image},
                     recoverable=False
                 ),
-                metadata={"duration_seconds": time.time() - start_time, "item_id": item_id},
+                metadata={**base_meta, "duration_seconds": time.time() - start_time},
                 schema=self.schema
             )
-        
+
         # Validate multimodal mode has image
         if input_mode == 'multimodal' and not has_image:
             return AgentResult(
@@ -480,10 +545,10 @@ class LLMAnnotationAgent:
                     details={"input_mode": input_mode, "has_image": has_image},
                     recoverable=False
                 ),
-                metadata={"duration_seconds": time.time() - start_time, "item_id": item_id},
+                metadata={**base_meta, "duration_seconds": time.time() - start_time},
                 schema=self.schema
             )
-        
+
         # Validate auto mode has at least one input
         if input_mode == 'auto' and not has_image and not has_text:
             return AgentResult(
@@ -494,19 +559,19 @@ class LLMAnnotationAgent:
                     details={"input_mode": input_mode, "has_image": has_image, "has_text": has_text},
                     recoverable=False
                 ),
-                metadata={"duration_seconds": time.time() - start_time, "item_id": item_id},
+                metadata={**base_meta, "duration_seconds": time.time() - start_time},
                 schema=self.schema
             )
-        
+
         # Store normalized values back for _build_prompt
         input_data['_text_content'] = text_content
         input_data['_item_id'] = item_id
-        
+
         # 1. Build validation context (base + call-specific)
         validation_context = {**self._base_context}
         if context:
             validation_context.update(context)
-        
+
         # 2. Build prompt
         try:
             prompt = self._build_prompt(input_data)
@@ -519,17 +584,19 @@ class LLMAnnotationAgent:
                     details={"input_data_keys": list(input_data.keys())},
                     recoverable=False
                 ),
-                metadata={"duration_seconds": time.time() - start_time},
+                metadata={**base_meta, "duration_seconds": time.time() - start_time},
                 schema=self.schema
             )
-        
-        # 3. Call LLM
+
+        # 3. Call LLM (timed)
+        llm_meta = {}
         try:
             image_url = input_data.get('image_url')
+            llm_start = time.time()
             if image_url:
                 response = self._call_llm_with_image(prompt, image_url)
+                call_type = "multimodal"
             else:
-                # Text-only call using Google GenAI
                 response = self.client.models.generate_content(
                     model=self.model_name,
                     contents=prompt,
@@ -538,6 +605,8 @@ class LLMAnnotationAgent:
                         max_output_tokens=self.max_output_tokens,
                     )
                 )
+                call_type = "text"
+            llm_meta = self._extract_llm_metadata(response, time.time() - llm_start, call_type)
         except Exception as e:
             return AgentResult(
                 status=AgentStatus.LLM_ERROR,
@@ -547,27 +616,25 @@ class LLMAnnotationAgent:
                     details={},
                     recoverable=True
                 ),
-                metadata={"duration_seconds": time.time() - start_time},
+                metadata={**base_meta, **llm_meta, "duration_seconds": time.time() - start_time},
                 schema=self.schema
             )
-        
+
         # 4. Parse JSON response
         parsed, parse_error = self._parse_json_response(response)
-        
+
         # 4.5. Clean up "Unknown" values - replace with empty string/null
         if parsed is not None:
             parsed = self._strip_unknown_values(parsed)
-        
+
+        # 4.6. Extract output metadata from parsed result
+        output_meta = self._extract_output_metadata(parsed) if parsed else {}
+
         if parsed is None:
-            # Print parsing failure details + raw prompt input
-            print(f"\n[PARSING FAILED] {parse_error or 'Failed to parse JSON from response'}")
-            print(f"Prompt length: {len(prompt)} chars")
-            if len(prompt) <= 4000:
-                print("Prompt Sent to Agent:\n" + prompt)
-            else:
-                print("Prompt Sent to Agent (truncated):\n" + prompt[:4000] + "\n... [truncated] ...")
-            print(f"LLM response type: {type(response).__name__}")
-            print("Raw LLM Response Preview:\n" + self._get_response_preview(response, max_chars=800))
+            logger.error(
+                f"[PARSING FAILED] {parse_error or 'Failed to parse JSON from response'} | "
+                f"prompt_len={len(prompt)} | raw_preview={self._get_response_preview(response, max_chars=300)}"
+            )
 
             return AgentResult(
                 status=AgentStatus.PARSING_FAILED,
@@ -577,37 +644,41 @@ class LLMAnnotationAgent:
                     details={"raw_response": self._get_response_preview(response)},
                     recoverable=True
                 ),
-                metadata={"duration_seconds": time.time() - start_time},
+                metadata={**base_meta, **llm_meta, "duration_seconds": time.time() - start_time},
                 schema=self.schema
             )
-        
+
         # 5. Validate response
         raw_response_text = self._get_response_preview(response, max_chars=1000)
         validation_info = self.validator.validate(parsed, validation_context, raw_response_text)
-        
-        # 6. Build result
+
+        # 6. Build result with rich metadata
         duration = time.time() - start_time
-        
+        validation_meta = {
+            "validation_valid": validation_info.is_valid,
+            "validation_category": str(validation_info.category) if validation_info.category else None,
+        }
+        metadata = {
+            **base_meta, **llm_meta, **output_meta, **validation_meta,
+            "duration_seconds": round(duration, 3),
+            "status": "success" if validation_info.is_valid else "validation_failed",
+        }
+
         if validation_info.is_valid:
             return AgentResult(
                 status=AgentStatus.SUCCESS,
                 result=parsed,
                 validation_info=validation_info,
                 error_report=None,
-                metadata={
-                    "attempt": 1,
-                    "duration_seconds": round(duration, 3),
-                    "item_id": input_data.get('_item_id')
-                },
+                metadata=metadata,
                 schema=self.schema
             )
         else:
-            # Get raw response for error reporting
             raw_response_preview = self._get_response_preview(response, max_chars=500)
-            
+
             return AgentResult(
                 status=AgentStatus.VALIDATION_FAILED,
-                result=parsed,  # Include parsed result even on validation failure
+                result=parsed,
                 validation_info=validation_info,
                 error_report=ErrorReport(
                     error_type="validation_failed",
@@ -619,11 +690,7 @@ class LLMAnnotationAgent:
                     },
                     recoverable=True
                 ),
-                metadata={
-                    "attempt": 1,
-                    "duration_seconds": round(duration, 3),
-                    "item_id": input_data.get('_item_id')
-                },
+                metadata=metadata,
                 schema=self.schema
             )
 
