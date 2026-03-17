@@ -76,6 +76,15 @@ def handle_classification(req_ctx, category: str, target: str, payload: dict):
 
     try:
         if target == "model":
+            # Gate: check if model classification is enabled for this category
+            if not CATEGORY_CONFIG.get(category, {}).get("model_classification_enabled", False):
+                logger.warning(f"Model classification not supported for category '{category}'")
+                response = create_response(400, {
+                    "error": f"Model classification is not supported for category '{category}'"
+                })
+                structured_logger.log_response(req_ctx, status_code=400)
+                return response
+
             logger.info("Processing model classification request")
             brand = payload.get("brand") or CATEGORY_CONFIG[category].get("default_brand")
             if not brand:
