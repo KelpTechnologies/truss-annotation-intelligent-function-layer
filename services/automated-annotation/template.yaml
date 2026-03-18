@@ -111,7 +111,9 @@ Resources:
       Timeout: 300
       MemorySize: 1024
       Layers:
-        - "arn:aws:lambda:eu-west-2:193757560043:layer:intelligent-functions-python:5"
+        - "arn:aws:lambda:eu-west-2:193757560043:layer:intelligent-functions-python-CORE:3"
+        - "arn:aws:lambda:eu-west-2:193757560043:layer:intelligent-functions-python-ML:4"
+        - "arn:aws:lambda:eu-west-2:193757560043:layer:intelligent-functions-python-DATA:3"
       Environment:
         Variables:
           STAGE: !Ref StageName
