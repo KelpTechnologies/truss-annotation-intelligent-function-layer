@@ -12,7 +12,9 @@
       "arn:aws:lambda:eu-west-2:193757560043:layer:intelligent-functions-python:5"
     ],
     "extra_env": {
-      "VERTEXAI_PROJECT": "truss-data-science"
+      "VERTEXAI_PROJECT": "truss-data-science",
+      "CLOUD_SQL_INSTANCE": "truss-data-science:europe-west2:truss-api-postgres",
+      "POSTGRES_DATABASE": "truss-api"
     },
     "_url_config_note": "API URLs are now stage-aware and configured in stage_urls.py. URLs are selected based on STAGE env var (dev/staging/prod)."
   },

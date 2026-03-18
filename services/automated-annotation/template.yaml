@@ -119,6 +119,8 @@ Resources:
           LAYER_NAME: "aifl"
           TRUSS_SECRETS_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:truss-platform-secrets-yVuz1R"
           VERTEXAI_PROJECT: "truss-data-science"
+          CLOUD_SQL_INSTANCE: "truss-data-science:europe-west2:truss-api-postgres"
+          POSTGRES_DATABASE: "truss-api"
           DB_HOST: !Ref DatabaseHost
 
   ServiceLambdaPermission:
