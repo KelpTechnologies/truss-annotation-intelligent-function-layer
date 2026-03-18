@@ -12,8 +12,12 @@
 # Replaces langchain-google-vertexai which pulled google-cloud-aiplatform (177MB)
 google-genai>=0.1.0
 
-# BigQuery client for model metadata lookup
+# BigQuery client for model metadata lookup (fallback)
 google-cloud-bigquery>=3.0.0
+
+# Cloud SQL Postgres (primary DB, faster than BigQuery for lookups)
+cloud-sql-python-connector[pg8000]>=1.0.0
+pg8000>=1.30.0
 
 # Pinecone for vector similarity search
 pinecone-client>=2.0.0

@@ -11,6 +11,47 @@ const DATABASE_CONFIG = {
   SSL: false,
 };
 
+// BigQuery dataset mapping by stage
+// Maps deployment stage to BigQuery dataset name
+const BIGQUERY_DATASETS = {
+  dev: "api_dev",
+  develop: "api_dev",
+  staging: "api_staging",
+  prod: "api",
+  production: "api",
+  default: "api_staging", // Fallback for unknown stages
+};
+
+/**
+ * Gets the BigQuery dataset name for the current stage
+ * @param {string|null} stageOverride - Optional stage override (defaults to STAGE env var)
+ * @returns {string} The dataset name for the current stage
+ */
+function getBigQueryDataset(stageOverride = null) {
+  const stage = stageOverride || process.env.STAGE || "staging";
+  return BIGQUERY_DATASETS[stage.toLowerCase()] || BIGQUERY_DATASETS.default;
+}
+
+// Postgres schema mapping by stage (mirrors BigQuery dataset mapping)
+const POSTGRES_SCHEMAS = {
+  dev: "api_dev",
+  develop: "api_dev",
+  staging: "api_staging",
+  prod: "api",
+  production: "api",
+  default: "api_staging",
+};
+
+/**
+ * Gets the Postgres schema name for the current stage
+ * @param {string|null} stageOverride - Optional stage override
+ * @returns {string} Schema name
+ */
+function getPostgresSchema(stageOverride = null) {
+  const stage = stageOverride || process.env.STAGE || "staging";
+  return POSTGRES_SCHEMAS[stage.toLowerCase()] || POSTGRES_SCHEMAS.default;
+}
+
 // Pagination defaults
 const PAGINATION = {
   DEFAULT_LIMIT: 500,
@@ -54,6 +95,11 @@ const GROUP_BY_FIELDS = {
   location: "sold_location",
   hardware: "hardware",
   monthly: "listed_date",
+  // Root taxonomy fields
+  root_model: "root_model",
+  root_material: "root_material",
+  root_type: "root_type",
+  root_hardware: "root_hardware",
 };
 const FIELD_MAPPINGS = {
   brand: "brand",
@@ -70,6 +116,11 @@ const FIELD_MAPPINGS = {
   hardware: "hardware",
   key_word: "listing_title", // maps to listing_title for text search
   monthly: "listed_date",
+  // Root taxonomy fields
+  root_model: "root_model",
+  root_material: "root_material",
+  root_type: "root_type",
+  root_hardware: "root_hardware",
 };
 
 // Item types for filtering
@@ -191,6 +242,10 @@ const CORS_HEADERS = {
 
 module.exports = {
   DATABASE_CONFIG,
+  BIGQUERY_DATASETS,
+  getBigQueryDataset,
+  POSTGRES_SCHEMAS,
+  getPostgresSchema,
   PAGINATION,
   SORT_ORDERS,
   QUERY_MODES,

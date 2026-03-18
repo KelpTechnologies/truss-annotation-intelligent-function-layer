@@ -1,25 +1,14 @@
 """
-BigQuery Taxonomy Root Lookup Tool
+Taxonomy Root Lookup Tool (Postgres-first, BigQuery fallback)
 
-This module provides functions to look up root/parent taxonomy values from child IDs
-using BigQuery as the data source.
+Looks up root/parent taxonomy values from child IDs.
+Tries Cloud SQL Postgres first for speed, falls back to BigQuery on failure.
 
-Database Schema:
----------------------------
-Queries the model_knowledge_display and material_knowledge_display tables in BigQuery.
+Tables:
+    model_knowledge_display  -> SELECT root_model, root_model_id WHERE model_id = ?
+    material_knowledge_display -> SELECT root_material, root_material_id WHERE material_id = ?
 
-For model:
-    Table: `truss-data-science.{api_env}.model_knowledge_display`
-    Query: SELECT root_model, root_model_id WHERE model_id = ?
-
-For material:
-    Table: `truss-data-science.{api_env}.material_knowledge_display`
-    Query: SELECT root_material, root_material_id WHERE material_id = ?
-
-API Environment Mapping:
-    - dev -> api_Dev
-    - staging -> api_staging
-    - prod -> api
+Schema mapping: dev -> api_Dev, staging -> api_staging, prod -> api
 """
 
 import json
@@ -268,96 +257,109 @@ def _query_root_from_child_bigquery(
         return None
 
 
+def _query_root_from_child_postgres(
+    child_id: int,
+    property_type: str,
+    category: str = "bags"
+) -> Optional[Dict[str, Any]]:
+    """
+    Query Postgres for root taxonomy entry. Returns None if unavailable.
+    """
+    try:
+        from core.utils.postgres_client import query as pg_query, _get_api_schema
+    except ImportError:
+        return None
+
+    schema = _get_api_schema()
+
+    if property_type == "model":
+        table = f"{schema}.model_knowledge_display"
+        id_col = "model_id"
+        root_id_col = "root_model_id"
+        root_name_col = "root_model"
+    elif property_type == "material":
+        table = f"{schema}.material_knowledge_display"
+        id_col = "material_id"
+        root_id_col = "root_material_id"
+        root_name_col = "root_material"
+    else:
+        return None
+
+    sql = f"SELECT {root_name_col}, {root_id_col} FROM {table} WHERE {id_col} = %s LIMIT 1"
+
+    logger.info(f"[Postgres] Root lookup: {property_type} child_id={child_id}")
+    rows = pg_query(sql, [child_id])
+    if rows is None:
+        return None
+
+    if rows:
+        row = rows[0]
+        return {
+            'root_id': row[root_id_col],
+            'root_name': row[root_name_col]
+        }
+    return {'root_id': None, 'root_name': None}
+
+
 def lookup_root_from_child_bigquery(
     child_id: int,
     property_type: str = None,
     category: str = "bags"
 ) -> Optional[Dict[str, Any]]:
     """
-    Look up root taxonomy item from child ID using BigQuery.
+    Look up root taxonomy item from child ID.
 
-    This is the main entry point for root taxonomy lookups. It wraps the
-    internal query function with additional validation and error handling.
+    Tries Postgres first for speed, falls back to BigQuery.
 
     Args:
         child_id: Child taxonomy ID to look up
-        property_type: Type of property ('model' or 'material')
-                      If None, will attempt to infer from context
+        property_type: 'model' or 'material'
         category: Category name (default: 'bags')
 
     Returns:
-        Dictionary with:
-        {
-            'root_id': int or None,
-            'root_name': str or None,
-            'error': str or None
-        }
-
-    Example Usage:
-        >>> result = lookup_root_from_child_bigquery(
-        ...     child_id=1234,
-        ...     property_type='model',
-        ...     category='bags'
-        ... )
-        >>> if result and result.get('root_id'):
-        ...     print(f"Root: {result['root_name']} (ID: {result['root_id']})")
-        ... else:
-        ...     print(f"Error: {result.get('error')}")
+        Dict with root_id, root_name, error
     """
     # Validate inputs
     if not child_id or child_id == 0:
         error_msg = f"Invalid child_id: {child_id}"
         logger.warning(error_msg)
-        return {
-            'root_id': None,
-            'root_name': None,
-            'error': error_msg
-        }
+        return {'root_id': None, 'root_name': None, 'error': error_msg}
 
     if property_type and property_type not in ['model', 'material']:
         error_msg = f"Invalid property_type: {property_type}. Must be 'model' or 'material'"
         logger.error(error_msg)
-        return {
-            'root_id': None,
-            'root_name': None,
-            'error': error_msg
-        }
+        return {'root_id': None, 'root_name': None, 'error': error_msg}
 
     try:
-        logger.info(
-            f"Looking up root for {property_type} child_id {child_id} in category {category}"
-        )
+        logger.info(f"Looking up root for {property_type} child_id {child_id}")
 
-        # Query BigQuery for root taxonomy entry
+        # Try Postgres first
+        try:
+            pg_result = _query_root_from_child_postgres(child_id, property_type, category)
+            if pg_result is not None:
+                if pg_result.get('root_id'):
+                    logger.info(f"[Postgres] Root lookup OK: {child_id} -> {pg_result['root_id']}")
+                    return {'root_id': pg_result['root_id'], 'root_name': pg_result['root_name'], 'error': None}
+                else:
+                    return {'root_id': None, 'root_name': None,
+                            'error': f"No root found for {property_type} child_id {child_id}"}
+        except Exception as e:
+            logger.warning(f"[Taxonomy] Postgres failed, trying BigQuery: {e}")
+
+        # Fallback to BigQuery
         result = _query_root_from_child_bigquery(child_id, property_type, category)
 
         if result and result.get('root_id'):
-            logger.info(
-                f"Root lookup successful: child_id={child_id} -> "
-                f"root_id={result['root_id']}, root_name={result['root_name']}"
-            )
-            return {
-                'root_id': result['root_id'],
-                'root_name': result['root_name'],
-                'error': None
-            }
+            logger.info(f"Root lookup OK: {child_id} -> {result['root_id']}")
+            return {'root_id': result['root_id'], 'root_name': result['root_name'], 'error': None}
         else:
-            error_msg = f"No root found for {property_type} child_id {child_id}"
-            logger.warning(error_msg)
-            return {
-                'root_id': None,
-                'root_name': None,
-                'error': error_msg
-            }
+            return {'root_id': None, 'root_name': None,
+                    'error': f"No root found for {property_type} child_id {child_id}"}
 
     except Exception as e:
         error_msg = f"Root lookup failed for {property_type} child_id {child_id}: {str(e)}"
         logger.error(error_msg, exc_info=True)
-        return {
-            'root_id': None,
-            'root_name': None,
-            'error': error_msg
-        }
+        return {'root_id': None, 'root_name': None, 'error': error_msg}
 
 
 # Convenience functions for specific property types
