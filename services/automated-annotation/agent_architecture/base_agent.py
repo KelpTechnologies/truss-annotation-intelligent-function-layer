@@ -36,6 +36,15 @@ from .validation import (
     register_pydantic_model
 )
 
+# Deferred import to avoid circular deps; resolved at first use in execute()
+_StepTimer = None
+def _get_step_timer():
+    global _StepTimer
+    if _StepTimer is None:
+        from agent_telemetry import StepTimer as _ST
+        _StepTimer = _ST
+    return _StepTimer
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARNING)
 
@@ -485,6 +494,8 @@ class LLMAnnotationAgent:
         """
         import time
         start_time = time.time()
+        StepTimer = _get_step_timer()
+        self._step_timer = StepTimer()
 
         # Base metadata — always present in every return path
         input_mode = input_data.get('input_mode', 'auto')
@@ -574,7 +585,8 @@ class LLMAnnotationAgent:
 
         # 2. Build prompt
         try:
-            prompt = self._build_prompt(input_data)
+            with self._step_timer.step("prompt_build"):
+                prompt = self._build_prompt(input_data)
         except Exception as e:
             return AgentResult(
                 status=AgentStatus.INVALID_INPUT,
@@ -593,19 +605,20 @@ class LLMAnnotationAgent:
         try:
             image_url = input_data.get('image_url')
             llm_start = time.time()
-            if image_url:
-                response = self._call_llm_with_image(prompt, image_url)
-                call_type = "multimodal"
-            else:
-                response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        temperature=self.temperature,
-                        max_output_tokens=self.max_output_tokens,
+            with self._step_timer.step("llm_call"):
+                if image_url:
+                    response = self._call_llm_with_image(prompt, image_url)
+                    call_type = "multimodal"
+                else:
+                    response = self.client.models.generate_content(
+                        model=self.model_name,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            temperature=self.temperature,
+                            max_output_tokens=self.max_output_tokens,
+                        )
                     )
-                )
-                call_type = "text"
+                    call_type = "text"
             llm_meta = self._extract_llm_metadata(response, time.time() - llm_start, call_type)
         except Exception as e:
             return AgentResult(
@@ -621,14 +634,15 @@ class LLMAnnotationAgent:
             )
 
         # 4. Parse JSON response
-        parsed, parse_error = self._parse_json_response(response)
+        with self._step_timer.step("json_parse"):
+            parsed, parse_error = self._parse_json_response(response)
 
-        # 4.5. Clean up "Unknown" values - replace with empty string/null
-        if parsed is not None:
-            parsed = self._strip_unknown_values(parsed)
+            # 4.5. Clean up "Unknown" values - replace with empty string/null
+            if parsed is not None:
+                parsed = self._strip_unknown_values(parsed)
 
-        # 4.6. Extract output metadata from parsed result
-        output_meta = self._extract_output_metadata(parsed) if parsed else {}
+            # 4.6. Extract output metadata from parsed result
+            output_meta = self._extract_output_metadata(parsed) if parsed else {}
 
         if parsed is None:
             logger.error(
@@ -649,11 +663,13 @@ class LLMAnnotationAgent:
             )
 
         # 5. Validate response
-        raw_response_text = self._get_response_preview(response, max_chars=1000)
-        validation_info = self.validator.validate(parsed, validation_context, raw_response_text)
+        with self._step_timer.step("validation"):
+            raw_response_text = self._get_response_preview(response, max_chars=1000)
+            validation_info = self.validator.validate(parsed, validation_context, raw_response_text)
 
         # 6. Build result with rich metadata
         duration = time.time() - start_time
+        step_timing = self._step_timer.finish()
         validation_meta = {
             "validation_valid": validation_info.is_valid,
             "validation_category": str(validation_info.category) if validation_info.category else None,
@@ -662,6 +678,7 @@ class LLMAnnotationAgent:
             **base_meta, **llm_meta, **output_meta, **validation_meta,
             "duration_seconds": round(duration, 3),
             "status": "success" if validation_info.is_valid else "validation_failed",
+            "step_timing": step_timing,
         }
 
         if validation_info.is_valid:

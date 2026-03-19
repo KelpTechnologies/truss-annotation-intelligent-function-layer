@@ -47,6 +47,7 @@ from agent_architecture import LLMAnnotationAgent
 from agent_architecture.validation import AgentResult, AgentStatus
 from agent_utils.dsl_api_client import DSLAPIClient
 from agent_orchestration.csv_config_loader import ConfigLoader
+from agent_telemetry import agent_telemetry, StepTimer
 
 
 def format_input_text(general_input_text: Dict[str, Any]) -> str:
@@ -153,12 +154,14 @@ def classify_keywords(
     general_input_text: Dict[str, Any],
     text_to_avoid: Dict[str, Any],
     agent: LLMAnnotationAgent,
-    item_id: str = "1"
+    item_id: str = "1",
+    req_ctx: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """Single keyword classification."""
     import time
-    
+
     config_id = 'classifier-keywords-bags'
+    timer = StepTimer()
 
     # Format the inputs for the prompt
     input_text_formatted = format_input_text(general_input_text)
@@ -182,6 +185,16 @@ def classify_keywords(
         # Execute agent
         agent_result: AgentResult = agent.execute(input_data=input_data)
         end_time = time.time()
+
+        # Emit telemetry
+        if req_ctx:
+            timing = timer.finish()
+            if agent_result.metadata.get("step_timing"):
+                timing.update(agent_result.metadata["step_timing"])
+            agent_telemetry.log_execution(
+                req_ctx=req_ctx, agent_result=agent_result, timing=timing,
+                config_id=config_id, input_data=input_data,
+            )
 
         # Handle AgentResult
         if agent_result.status == AgentStatus.SUCCESS:
@@ -289,7 +302,8 @@ def run_keyword_classification(
     general_input_text: Dict[str, Any],
     text_to_avoid: Dict[str, Any],
     full_config: Dict[str, Any],
-    item_id: str = "1"
+    item_id: str = "1",
+    req_ctx: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """
     Run keyword classification.
@@ -324,7 +338,8 @@ def run_keyword_classification(
         general_input_text=general_input_text,
         text_to_avoid=text_to_avoid,
         agent=agent,
-        item_id=item_id
+        item_id=item_id,
+        req_ctx=req_ctx,
     )
 
     return result
