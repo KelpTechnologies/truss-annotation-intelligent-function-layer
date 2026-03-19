@@ -5,9 +5,16 @@ const { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, DeleteComma
 const { v4: uuidv4 } = require("uuid");
 const { createLogger } = require("./utils");
 
+let captureAWSv3Client;
+try {
+  captureAWSv3Client = require("aws-xray-sdk-core").captureAWSv3Client;
+} catch (e) {
+  captureAWSv3Client = (client) => client;
+}
+
 // Initialize AWS services
-const s3 = new S3Client({ region: process.env.AWS_REGION || "eu-west-2" });
-const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || "eu-west-2" });
+const s3 = captureAWSv3Client(new S3Client({ region: process.env.AWS_REGION || "eu-west-2" }));
+const dynamoClient = captureAWSv3Client(new DynamoDBClient({ region: process.env.AWS_REGION || "eu-west-2" }));
 const dynamodb = DynamoDBDocumentClient.from(dynamoClient);
 
 // Initialize structured logger for metrics (REQUEST/RESPONSE/ERROR lifecycle events)

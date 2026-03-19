@@ -263,9 +263,13 @@ class StructuredLogger:
         # Extract resource context for product/entity tracking
         resource_ctx = extract_resource_context(event)
 
+        # Capture X-Ray trace ID for cross-referencing
+        xray_trace_id = os.environ.get("_X_AMZN_TRACE_ID")
+
         context = {
             "request_id": request_id,
             "correlation_id": correlation_id,
+            "xray_trace_id": xray_trace_id,
             "method": method,
             "path": path,
             "route": f"{method} {path}",
@@ -453,6 +457,7 @@ class StructuredLogger:
             "resourceId": ctx.get("resource_id"),
             "resourceType": ctx.get("resource_type"),
             "operationRunId": ctx.get("operation_run_id"),
+            "xrayTraceId": ctx.get("xray_trace_id"),
         }
         
         if extra:

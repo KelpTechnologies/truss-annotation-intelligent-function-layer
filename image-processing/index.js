@@ -6,8 +6,15 @@ const axios = require("axios");
 const FormData = require("form-data");
 const crypto = require("crypto");
 
-const s3 = new S3Client({ region: process.env.AWS_REGION || "eu-west-2" });
-const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || "eu-west-2" });
+let captureAWSv3Client;
+try {
+  captureAWSv3Client = require("aws-xray-sdk-core").captureAWSv3Client;
+} catch (e) {
+  captureAWSv3Client = (client) => client;
+}
+
+const s3 = captureAWSv3Client(new S3Client({ region: process.env.AWS_REGION || "eu-west-2" }));
+const dynamoClient = captureAWSv3Client(new DynamoDBClient({ region: process.env.AWS_REGION || "eu-west-2" }));
 const dynamodb = DynamoDBDocumentClient.from(dynamoClient);
 
 // Configuration

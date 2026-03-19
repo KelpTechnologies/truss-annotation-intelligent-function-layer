@@ -10,7 +10,7 @@ const registryModule = require("./generate-service-registry");
 const LAYER_CONFIG = (() => {
   const configPath = path.join(__dirname, "layer-config.json");
   if (!fs.existsSync(configPath)) {
-    console.error("❌ layer-config.json not found! Create it first.");
+    console.error("[ERROR] layer-config.json not found! Create it first.");
     process.exit(1);
   }
   return JSON.parse(fs.readFileSync(configPath, "utf-8"));
@@ -32,15 +32,15 @@ function generateServiceTemplates(servicePath, configFileArg, stageArg) {
   // Generate SINGLE unified OpenAPI spec with HybridAuth
   generateUnifiedOpenAPISpec(servicePath, config);
 
-  console.log(`✅ Generated templates for ${config.service.name} service`);
+  console.log(`[OK] Generated templates for ${config.service.name} service`);
 
   // Update service registry
   try {
-    console.log("🔄 Updating overall service-registry.json...");
+    console.log("[REFRESH] Updating overall service-registry.json...");
     registryModule.runMain();
-    console.log("✅ service-registry.json updated successfully.");
+    console.log("[OK] service-registry.json updated successfully.");
   } catch (error) {
-    console.error("❌ Failed to update service-registry.json:", error.message);
+    console.error("[ERROR] Failed to update service-registry.json:", error.message);
     process.exit(1);
   }
 }
@@ -207,6 +207,16 @@ ${dynamoActions.map((a) => `                  - ${a}`).join("\n")}
                   - !Sub "arn:aws:dynamodb:\${AWS::Region}:\${AWS::AccountId}:table/truss-image-processing-\${StageName}"`;
   }
 
+  // X-Ray tracing permissions
+  template += `
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                  - xray:GetSamplingRules
+                  - xray:GetSamplingTargets
+                Resource: "*"`;
+
   template += `
 
   ServiceLambda:
@@ -230,6 +240,10 @@ ${dynamoActions.map((a) => `                  - ${a}`).join("\n")}
       Layers:
 ${layers}`;
   }
+
+  template += `
+      TracingConfig:
+        Mode: Active`;
 
   if (requiresVPC) {
     template += `
@@ -293,7 +307,7 @@ Outputs:
     path.join(servicePath, `template${outputSuffix}.yaml`),
     template,
   );
-  console.log(`✅ Generated template${outputSuffix}.yaml`);
+  console.log(`[OK] Generated template${outputSuffix}.yaml`);
 }
 
 /**
@@ -430,7 +444,7 @@ ${yaml.dump(spec, { lineWidth: -1, noRefs: true, quotingType: '"' })}`;
 
   // Write SINGLE unified spec (no .internal or .external suffix)
   fs.writeFileSync(path.join(servicePath, `openapi.yaml`), yamlContent);
-  console.log(`✅ Generated openapi.yaml with HybridAuth`);
+  console.log(`[OK] Generated openapi.yaml with HybridAuth`);
 }
 
 // CLI interface

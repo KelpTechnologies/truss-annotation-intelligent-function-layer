@@ -467,9 +467,13 @@ class StructuredLogger {
     const resourceContext = extractResourceContext(event);
     const layer = this.layer || detectLayer(path);
 
+    // Capture X-Ray trace ID for cross-referencing with X-Ray console
+    const xrayTraceId = process.env._X_AMZN_TRACE_ID || null;
+
     const context = {
       requestId,
       correlationId,
+      xrayTraceId,
       method,
       path,
       route: `${method} ${path}`,
@@ -642,6 +646,7 @@ class StructuredLogger {
       resourceId: requestContext.resourceId || null,
       resourceType: requestContext.resourceType || null,
       operationRunId: requestContext.operationRunId || null,
+      xrayTraceId: requestContext.xrayTraceId || null,
       ...additionalFields,
     };
 
