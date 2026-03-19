@@ -16,7 +16,7 @@ const DATABASE_CONFIG = {
 const BIGQUERY_DATASETS = {
   dev: "api_dev",
   develop: "api_dev",
-  staging: "api_staging",
+  staging: "api",
   prod: "api",
   production: "api",
   default: "api_staging", // Fallback for unknown stages
@@ -36,7 +36,7 @@ function getBigQueryDataset(stageOverride = null) {
 const POSTGRES_SCHEMAS = {
   dev: "api_dev",
   develop: "api_dev",
-  staging: "api_staging",
+  staging: "api",
   prod: "api",
   production: "api",
   default: "api_staging",

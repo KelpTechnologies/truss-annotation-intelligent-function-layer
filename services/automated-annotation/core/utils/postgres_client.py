@@ -41,8 +41,8 @@ _cache: Dict[str, Tuple[Any, float]] = {}
 def _get_api_schema() -> str:
     """Map STAGE env var to Postgres schema name (matches BQ dataset names)."""
     stage = os.getenv("STAGE", "dev").lower()
-    mapping = {"dev": "api_Dev", "staging": "api_staging", "prod": "api"}
-    return mapping.get(stage, "api_Dev")
+    mapping = {"dev": "api_dev", "staging": "api", "prod": "api"}
+    return mapping.get(stage, "api_dev")
 
 
 def _cache_key(sql: str, params: list) -> str:
