@@ -1,21 +1,11 @@
 /**
- * AUTO-GENERATED FILE - DO NOT EDIT DIRECTLY
- * 
- * This file is managed by truss-api-platform/logging-toolkit
- * To update, run: npm run copy:toolkit from truss-api-platform
- * 
- * Source: truss-api-platform/logging-toolkit/structured-logger.js
- * Generated: 2026-02-17T11:54:08.272Z
- */
-
-/**
  * Structured Logger - Standardized logging toolkit for all Truss services
  * Emits logs in schema v2 format for downstream processing by the log monitor
  *
- * @version 2.0.0
+ * @version 2.2.0
  */
 
-const LOG_SCHEMA_VERSION = 2.1;
+const LOG_SCHEMA_VERSION = 2.2;
 
 /**
  * Log types
@@ -77,7 +67,6 @@ const DEFAULT_REDACT_FIELDS = [
   "secret",
   "creditCard",
   "ssn",
-  "image", // Often contains base64 or URLs
 ];
 
 /**
@@ -312,6 +301,124 @@ function extractUserContext(event) {
 }
 
 /**
+ * Resource type mapping from path prefixes
+ */
+const RESOURCE_TYPE_MAP = {
+  "/products": "product",
+  "/prices": "product",
+  "/analytics": "product",
+  "/listings": "listing",
+  "/discounts": "product",
+  "/forecasts": "product",
+  "/brands": "brand",
+  "/accounts": "account",
+  "/knowledge": "knowledge",
+  "/images": "image",
+  "/automations/annotation": "annotation",
+  "/automations/pricing": "pricing",
+};
+
+const SORTED_RESOURCE_PREFIXES = Object.keys(RESOURCE_TYPE_MAP).sort(
+  (a, b) => b.length - a.length
+);
+
+/**
+ * Extract resource ID from URL path segments
+ * Looks for UUID or numeric ID in the path after the resource prefix
+ * e.g. /products/abc-123-uuid → "abc-123-uuid"
+ * e.g. /products/12345 → "12345"
+ */
+function extractIdFromPath(path) {
+  if (!path || typeof path !== "string") return null;
+
+  const segments = path.split("/").filter(Boolean);
+  // Walk segments from the end — first UUID or numeric ID wins
+  for (let i = segments.length - 1; i >= 1; i--) {
+    const seg = segments[i];
+    // UUID
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg)) {
+      return seg;
+    }
+    // Numeric ID (5+ digits to avoid matching small route params like page numbers)
+    if (/^\d{5,}$/.test(seg)) {
+      return seg;
+    }
+    // Processing ID
+    if (/^proc_[a-zA-Z0-9]+$/.test(seg)) {
+      return seg;
+    }
+  }
+  return null;
+}
+
+/**
+ * Detect resource type from URL path prefix
+ * e.g. /products/123 → "product"
+ */
+function detectResourceTypeFromPath(path) {
+  if (!path || typeof path !== "string") return null;
+
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+
+  for (const prefix of SORTED_RESOURCE_PREFIXES) {
+    if (
+      normalizedPath.startsWith(prefix) &&
+      (normalizedPath.length === prefix.length ||
+        normalizedPath[prefix.length] === "/")
+    ) {
+      return RESOURCE_TYPE_MAP[prefix];
+    }
+  }
+  return null;
+}
+
+/**
+ * Safely parse a field from JSON body string
+ * Tries multiple field names in priority order
+ */
+function parseBodyField(bodyStr, fieldNames) {
+  if (!bodyStr || typeof bodyStr !== "string") return null;
+  try {
+    const body = JSON.parse(bodyStr);
+    for (const field of fieldNames) {
+      if (body[field] != null) return String(body[field]);
+    }
+  } catch (e) {
+    // Body not valid JSON — skip
+  }
+  return null;
+}
+
+/**
+ * Extract resource context from Lambda event
+ * Priority: headers > path > query params > body
+ */
+function extractResourceContext(event) {
+  const headers = event.headers || {};
+  const queryParams = event.queryStringParameters || {};
+  const path = event.path || event.requestContext?.http?.path || "";
+
+  const resourceId =
+    headers["x-entity-id"] ||
+    extractIdFromPath(path) ||
+    queryParams.product_id ||
+    queryParams.entity_id ||
+    parseBodyField(event.body, ["entity_id", "product_id", "processing_id"]) ||
+    null;
+
+  const resourceType =
+    headers["x-entity-type"] ||
+    detectResourceTypeFromPath(path) ||
+    null;
+
+  const operationRunId =
+    headers["x-operation-run-id"] ||
+    null;
+
+  return { resourceId, resourceType, operationRunId };
+}
+
+/**
  * StructuredLogger class for consistent logging
  */
 class StructuredLogger {
@@ -344,6 +451,7 @@ class StructuredLogger {
     const pathParams = event.pathParameters || {};
 
     const userContext = extractUserContext(event);
+    const resourceContext = extractResourceContext(event);
     const layer = this.layer || detectLayer(path);
 
     const context = {
@@ -358,6 +466,9 @@ class StructuredLogger {
       userId: userContext.userId,
       tenantId: userContext.tenantId,
       authType: userContext.authType,
+      resourceId: resourceContext.resourceId,
+      resourceType: resourceContext.resourceType,
+      operationRunId: resourceContext.operationRunId,
       startTime: Date.now(),
       queryParams: event.queryStringParameters || {},
       pathParams,
@@ -511,6 +622,9 @@ class StructuredLogger {
       userId: requestContext.userId || null,
       tenantId: requestContext.tenantId || null,
       authType: requestContext.authType || "unknown",
+      resourceId: requestContext.resourceId || null,
+      resourceType: requestContext.resourceType || null,
+      operationRunId: requestContext.operationRunId || null,
       ...additionalFields,
     };
 
@@ -584,6 +698,7 @@ module.exports = {
   LOG_TYPES,
   LOG_LEVELS,
   LAYER_MAP,
+  RESOURCE_TYPE_MAP,
   StructuredLogger,
   createLogger,
   detectLayer,
@@ -594,6 +709,9 @@ module.exports = {
   generateRequestId,
   generateCorrelationId,
   extractUserContext,
+  extractResourceContext,
+  extractIdFromPath,
+  detectResourceTypeFromPath,
   calculateQueryComplexity,
 };
 
