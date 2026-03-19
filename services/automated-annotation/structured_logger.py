@@ -29,6 +29,27 @@ import re
 
 LOG_SCHEMA_VERSION = 2.2
 
+# Log levels
+LOG_LEVELS = {
+    "ERROR": 0,
+    "WARN": 1,
+    "INFO": 2,
+    "DEBUG": 3,
+}
+
+# Map log types to minimum required log level
+LOG_TYPE_LEVELS = {
+    "ERROR": LOG_LEVELS["ERROR"],     # 0 — always emits
+    "WARNING": LOG_LEVELS["WARN"],    # 1
+    "REQUEST": LOG_LEVELS["INFO"],    # 2
+    "RESPONSE": LOG_LEVELS["INFO"],   # 2
+    "METRIC": LOG_LEVELS["INFO"],     # 2
+    "DEBUG": LOG_LEVELS["DEBUG"],     # 3
+}
+
+import os
+_current_log_level = LOG_LEVELS.get(os.environ.get("LOG_LEVEL", "INFO").upper(), LOG_LEVELS["INFO"])
+
 # Layer detection mapping (matches JavaScript implementation)
 LAYER_MAP = {
     "/automations/annotation": "aifl",
@@ -405,12 +426,17 @@ class StructuredLogger:
     def _emit(self, log_type: str, ctx: dict, extra: Optional[Dict[str, Any]] = None):
         """
         Internal method to emit a structured log.
-        
+
         Args:
             log_type: Type of log (REQUEST, RESPONSE, ERROR, METRIC, DEBUG)
             ctx: Request context
             extra: Additional fields to include
         """
+        # Gate by LOG_LEVEL
+        required_level = LOG_TYPE_LEVELS.get(log_type, LOG_LEVELS["INFO"])
+        if _current_log_level < required_level:
+            return
+
         payload = {
             "schemaVersion": LOG_SCHEMA_VERSION,
             "logType": log_type,

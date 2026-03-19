@@ -55,6 +55,19 @@ const SORTED_PREFIXES = Object.keys(LAYER_MAP).sort(
 );
 
 /**
+ * Map log types to minimum required log level
+ * Controls which logs emit at each LOG_LEVEL setting
+ */
+const LOG_TYPE_LEVELS = {
+  [LOG_TYPES.ERROR]: LOG_LEVELS.ERROR,     // 0 — always emits
+  [LOG_TYPES.WARNING]: LOG_LEVELS.WARN,    // 1
+  [LOG_TYPES.REQUEST]: LOG_LEVELS.INFO,    // 2
+  [LOG_TYPES.RESPONSE]: LOG_LEVELS.INFO,   // 2
+  [LOG_TYPES.METRIC]: LOG_LEVELS.INFO,     // 2
+  [LOG_TYPES.DEBUG]: LOG_LEVELS.DEBUG,     // 3
+};
+
+/**
  * Default fields to redact from logs
  */
 const DEFAULT_REDACT_FIELDS = [
@@ -609,6 +622,10 @@ class StructuredLogger {
    * Internal emit function
    */
   _emit(logType, requestContext, additionalFields = {}) {
+    // Gate by LOG_LEVEL — skip if current level is below required level for this log type
+    const requiredLevel = LOG_TYPE_LEVELS[logType] ?? LOG_LEVELS.INFO;
+    if (currentLogLevel < requiredLevel) return;
+
     const payload = {
       schemaVersion: LOG_SCHEMA_VERSION,
       logType,
@@ -698,6 +715,7 @@ module.exports = {
   LOG_TYPES,
   LOG_LEVELS,
   LAYER_MAP,
+  LOG_TYPE_LEVELS,
   RESOURCE_TYPE_MAP,
   StructuredLogger,
   createLogger,
