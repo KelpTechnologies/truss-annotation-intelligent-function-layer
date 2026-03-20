@@ -325,6 +325,15 @@ def execute_brand_classification_for_api(
         env = get_stage()
 
     from agent_orchestration.brand_classification_orchestration import run_brand_classification_workflow
+    from agent_orchestration.regex_brand_lookup import BrandMasterIndex
+
+    # Singleton brand index — loaded once per Lambda cold start
+    if not hasattr(execute_brand_classification_for_api, "_brand_index"):
+        try:
+            execute_brand_classification_for_api._brand_index = BrandMasterIndex()
+        except Exception:
+            execute_brand_classification_for_api._brand_index = None
+    brand_index = execute_brand_classification_for_api._brand_index
 
     text_input = api_input.get("text_input") or api_input.get("text_dump")
     if not text_input and (api_input.get("title") or api_input.get("description")):
@@ -353,6 +362,7 @@ def execute_brand_classification_for_api(
         env=env,
         verbose=False,
         req_ctx=req_ctx,
+        brand_index=brand_index,
     )
 
     if result.get("workflow_status") != "success":

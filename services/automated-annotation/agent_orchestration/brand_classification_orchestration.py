@@ -30,6 +30,7 @@ from agent_architecture.validation import AgentResult, AgentStatus
 from agent_orchestration.csv_config_loader import ConfigLoader
 from agent_utils.bigquery_brand_tool import search_brand_database
 from agent_telemetry import agent_telemetry, StepTimer, generate_workflow_id
+from agent_orchestration.regex_brand_lookup import BrandMasterIndex
 
 
 def extract_brand_candidates_deterministic(raw_text: str, known_synonyms: Optional[Dict[str, List[str]]] = None) -> List[str]:
@@ -318,7 +319,7 @@ def run_agent2_brand_classification(
             config_loader = ConfigLoader(mode='dynamo', env=env, fallback_env='staging')
         try:
             with timer.step("config_load"):
-                base_config = config_loader.load_full_agent_config('brand-classification-v1')
+                base_config = config_loader.load_full_agent_config('brand-classification-v2-test')
         except Exception as e:
             if verbose:
                 print(f"ERROR: Could not load brand classification config: {e}")
@@ -421,7 +422,7 @@ Select the most appropriate brand ID based on the product information."""
             timing.update(agent_result.metadata["step_timing"])
         agent_telemetry.log_execution(
             req_ctx=req_ctx, agent_result=agent_result, timing=timing,
-            config_id="brand-classification-v1", input_data=input_data,
+            config_id="brand-classification-v2-test", input_data=input_data,
             workflow_id=workflow_id, workflow_step="brand_classification",
         )
 
@@ -503,9 +504,14 @@ def run_brand_classification_workflow(
     agent1_config: Optional[Dict[str, Any]] = None,
     agent2_base_config: Optional[Dict[str, Any]] = None,
     req_ctx: Optional[dict] = None,
+    brand_index: Optional[BrandMasterIndex] = None,
+    use_regex: bool = True,
 ) -> Dict[str, Any]:
     """
-    Run the complete two-agent brand classification workflow.
+    Run the complete brand classification workflow.
+
+    Primary path: regex CSV lookup → Agent 2 classification.
+    Fallback: Agent 1 LLM extraction + DB lookup → Agent 2 (if regex returns 0 or >300 matches).
 
     Args:
         raw_text: Raw text input
@@ -517,10 +523,14 @@ def run_brand_classification_workflow(
         agent1: Pre-built Agent1 instance (thread-safe, can be shared)
         agent1_config: Pre-loaded Agent1 config (used if agent1 not provided)
         agent2_base_config: Pre-loaded Agent2 base config (schema injected per call)
+        brand_index: Pre-loaded BrandMasterIndex for regex lookup
+        use_regex: If True (default), use regex CSV lookup first
 
     Returns:
         Complete workflow result
     """
+    import time as _time
+
     if verbose:
         print("="*70)
         print("BRAND CLASSIFICATION WORKFLOW")
@@ -531,54 +541,89 @@ def run_brand_classification_workflow(
         print("="*70)
 
     workflow_id = generate_workflow_id()
+    extraction_method = None
+    _t = _time.perf_counter
+    stage_timing = {}
 
-    if config_loader is None and (agent1 is None and agent1_config is None):
-        config_loader = ConfigLoader(mode='dynamo', env=env, fallback_env='staging')
+    # --- Primary path: regex CSV lookup ---
+    agent1_result = None
+    t_extract_start = _t()
+    if use_regex and brand_index is not None:
+        search_text = raw_text
+        if name:
+            search_text = f"{name} {raw_text}"
 
-    agent1_result = run_agent1_brand_extraction(
-        raw_text=raw_text,
-        name=name,
-        known_synonyms=known_synonyms,
-        config_loader=config_loader,
-        env=env,
-        verbose=verbose,
-        agent=agent1,
-        full_config=agent1_config,
-        req_ctx=req_ctx,
-        workflow_id=workflow_id,
-    )
+        regex_result = brand_index.search(search_text, verbose=verbose)
+        match_count = regex_result.get("regex_match_count", 0)
+
+        if 0 < match_count <= 300:
+            extraction_method = "regex"
+            agent1_result = regex_result
+            if verbose:
+                print(f"  Regex lookup: {match_count} brands proposed (using regex path)")
+        else:
+            reason = "0 matches" if match_count == 0 else f"{match_count} matches (>300)"
+            if verbose:
+                print(f"  Regex lookup failed ({reason}), falling back to Agent 1 LLM...")
+
+    # --- Fallback: Agent 1 LLM extraction + DB lookup ---
+    if agent1_result is None:
+        extraction_method = "agent1"
+
+        if config_loader is None and (agent1 is None and agent1_config is None):
+            config_loader = ConfigLoader(mode='dynamo', env=env, fallback_env='staging')
+
+        agent1_result = run_agent1_brand_extraction(
+            raw_text=raw_text,
+            name=name,
+            known_synonyms=known_synonyms,
+            config_loader=config_loader,
+            env=env,
+            verbose=verbose,
+            agent=agent1,
+            full_config=agent1_config,
+            req_ctx=req_ctx,
+            workflow_id=workflow_id,
+        )
+
+    stage_timing["extraction_ms"] = round((_t() - t_extract_start) * 1000, 1)
 
     if not agent1_result.get('success', False):
         error_msg = agent1_result.get('error', 'No brands found')
         if verbose:
-            print(f"\nAgent 1 failed or found no brands: {error_msg}")
+            print(f"\nExtraction failed ({extraction_method}): {error_msg}")
         return {
             "workflow_status": "failed",
+            "extraction_method": extraction_method,
             "agent1_result": agent1_result,
             "agent2_result": None,
             "final_brand": None,
             "final_brand_id": None,
             "confidence": 0.0,
+            "stage_timing": stage_timing,
             "error": error_msg
         }
-    
+
     matched_brands = agent1_result.get('matched_brands', [])
     if not matched_brands:
-        error_msg = agent1_result.get('error', 'No brands found in database')
+        error_msg = agent1_result.get('error', 'No brands found')
         if verbose:
-            print(f"\nNo matched brands from BigQuery: {error_msg}")
+            print(f"\nNo matched brands from {extraction_method}")
         return {
             "workflow_status": "failed",
+            "extraction_method": extraction_method,
             "agent1_result": agent1_result,
             "agent2_result": None,
             "final_brand": None,
             "final_brand_id": None,
             "confidence": 0.0,
+            "stage_timing": stage_timing,
             "error": error_msg
         }
-    
+
     if verbose:
-        print("\nProceeding to Agent 2 (brand classifier)...")
+        print(f"\nProceeding to Agent 2 with {len(matched_brands)} brands from {extraction_method}...")
+    t_agent2_start = _t()
     agent2_result = run_agent2_brand_classification(
         raw_text=raw_text,
         name=name,
@@ -590,22 +635,27 @@ def run_brand_classification_workflow(
         req_ctx=req_ctx,
         workflow_id=workflow_id,
     )
+    stage_timing["agent2_ms"] = round((_t() - t_agent2_start) * 1000, 1)
 
     if verbose:
         print("\n" + "="*70)
         print("WORKFLOW COMPLETE")
         print("="*70)
+        print(f"Extraction method: {extraction_method}")
         print(f"Final Brand: {agent2_result.get('brand_name', 'N/A')}")
         print(f"Confidence: {agent2_result.get('confidence', 0.0):.2f}")
+        print(f"Timing: extraction={stage_timing['extraction_ms']:.0f}ms  agent2={stage_timing['agent2_ms']:.0f}ms")
         print("="*70)
-    
+
     return {
         "workflow_status": "success",
+        "extraction_method": extraction_method,
         "agent1_result": agent1_result,
         "agent2_result": agent2_result,
         "final_brand": agent2_result.get('brand_name'),
         "final_brand_id": agent2_result.get('prediction_id'),
         "confidence": agent2_result.get('confidence'),
+        "stage_timing": stage_timing,
         "error": None
     }
 
@@ -617,7 +667,9 @@ def run_brand_classification_bulk(
     max_workers: int = 200,
     batch_size: Optional[int] = None,
     verbose: bool = False,
-    progress_callback: Optional[Callable[[int, int], None]] = None
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+    brand_index: Optional[BrandMasterIndex] = None,
+    use_regex: bool = True,
 ) -> pd.DataFrame:
     """
     Run brand classification on all rows in parallel (bulk mode).
@@ -660,7 +712,7 @@ def run_brand_classification_bulk(
         }] * total)
     
     try:
-        agent2_base_config = config_loader.load_full_agent_config('brand-classification-v1')
+        agent2_base_config = config_loader.load_full_agent_config('brand-classification-v2-test')
         print(f"[Brand Bulk] Agent2 base config loaded successfully")
     except Exception as e:
         print(f"[Brand Bulk] ERROR: Failed to load Agent2 config: {e}")
@@ -692,7 +744,9 @@ def run_brand_classification_bulk(
                     env=env,
                     verbose=verbose,
                     agent1=agent1,
-                    agent2_base_config=agent2_base_config
+                    agent2_base_config=agent2_base_config,
+                    brand_index=brand_index,
+                    use_regex=use_regex,
                 )
                 
                 if workflow_result.get('workflow_status') == 'success':
