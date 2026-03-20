@@ -22,6 +22,7 @@ from agent_orchestration.classifier_orchestration import (
     get_name_from_schema
 )
 from agent_orchestration.root_property_lookup import lookup_material_root, lookup_model_root
+from agent_telemetry import agent_telemetry, StepTimer
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,8 @@ def classify_for_api(
     text_metadata: Optional[Dict[str, Any]] = None,
     input_mode: str = "auto",
     env: Optional[str] = None,
-    get_image_url_fn: Optional[callable] = None
+    get_image_url_fn: Optional[callable] = None,
+    req_ctx: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """
     Classify using agent architecture - API-compatible orchestration function.
@@ -79,19 +81,21 @@ def classify_for_api(
         }
     """
     start_time = time.time()
-    
+    timer = StepTimer()
+
     if env is None:
         env = 'staging'  # Default environment
-    
+
     logger.info(f"Starting API classification - config_id: {config_id}, env: {env}")
-    
+
     # Initialize config loader
     config_loader = ConfigLoader(mode='dynamo', env=env, fallback_env='staging')
-    
+
     # Load full agent config
     logger.info(f"Loading agent config: {config_id}")
     try:
-        full_config = config_loader.load_full_agent_config(config_id)
+        with timer.step("config_load"):
+            full_config = config_loader.load_full_agent_config(config_id)
     except Exception as e:
         logger.error(f"Failed to load agent config {config_id}: {str(e)}")
         raise ValueError(f"Agent config '{config_id}' not found: {str(e)}")
@@ -102,25 +106,26 @@ def classify_for_api(
         logger.info(f"Fetching signed URL for image: {image_id}")
         max_retries = 3
         retry_delay = 5
-        for attempt in range(max_retries):
-            try:
-                image_url = get_image_url_fn(image_id)
-                logger.info(
-                    "Fetched signed URL for image_id=%s url_present=%s",
-                    image_id,
-                    bool(image_url)
-                )
-                break
-            except Exception as e:
-                if attempt < max_retries - 1 and ("404" in str(e) or "Not Found" in str(e)):
-                    logger.warning(
-                        "Image %s not ready (attempt %d/%d), retrying in %ds...",
-                        image_id, attempt + 1, max_retries, retry_delay * (attempt + 1)
+        with timer.step("image_download"):
+            for attempt in range(max_retries):
+                try:
+                    image_url = get_image_url_fn(image_id)
+                    logger.info(
+                        "Fetched signed URL for image_id=%s url_present=%s",
+                        image_id,
+                        bool(image_url)
                     )
-                    time.sleep(retry_delay * (attempt + 1))
-                else:
-                    logger.error(f"Failed to fetch image URL for {image_id}: {str(e)}")
-                    raise ValueError(f"Failed to fetch image URL: {str(e)}")
+                    break
+                except Exception as e:
+                    if attempt < max_retries - 1 and ("404" in str(e) or "Not Found" in str(e)):
+                        logger.warning(
+                            "Image %s not ready (attempt %d/%d), retrying in %ds...",
+                            image_id, attempt + 1, max_retries, retry_delay * (attempt + 1)
+                        )
+                        time.sleep(retry_delay * (attempt + 1))
+                    else:
+                        logger.error(f"Failed to fetch image URL for {image_id}: {str(e)}")
+                        raise ValueError(f"Failed to fetch image URL: {str(e)}")
     
     # Build input_data for agent
     input_data = {
@@ -160,7 +165,20 @@ def classify_for_api(
     agent_result = agent.execute(input_data=input_data)
     agent_elapsed = time.time() - agent_start
     logger.info(f"Agent execution completed in {agent_elapsed:.2f}s - Status: {agent_result.status.value}")
-    
+
+    # Emit agent telemetry
+    timing = timer.finish()
+    if agent_result.metadata.get("step_timing"):
+        timing.update(agent_result.metadata["step_timing"])
+    if req_ctx:
+        agent_telemetry.log_execution(
+            req_ctx=req_ctx,
+            agent_result=agent_result,
+            timing=timing,
+            config_id=config_id,
+            input_data=input_data,
+        )
+
     # Process result
     total_elapsed = time.time() - start_time
     

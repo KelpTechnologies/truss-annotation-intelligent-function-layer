@@ -29,6 +29,7 @@ from agent_architecture import LLMAnnotationAgent
 from agent_architecture.validation import AgentResult, AgentStatus
 from agent_orchestration.csv_config_loader import ConfigLoader
 from agent_utils.bigquery_brand_tool import search_brand_database
+from agent_telemetry import agent_telemetry, StepTimer, generate_workflow_id
 
 
 def extract_brand_candidates_deterministic(raw_text: str, known_synonyms: Optional[Dict[str, List[str]]] = None) -> List[str]:
@@ -102,7 +103,9 @@ def run_agent1_brand_extraction(
     env: str = 'staging',
     verbose: bool = False,
     agent: Optional[LLMAnnotationAgent] = None,
-    full_config: Optional[Dict[str, Any]] = None
+    full_config: Optional[Dict[str, Any]] = None,
+    req_ctx: Optional[dict] = None,
+    workflow_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Agent 1: Extract brand candidates and search BigQuery.
@@ -125,12 +128,15 @@ def run_agent1_brand_extraction(
         print("AGENT 1: BRAND EXTRACTION")
         print("="*70)
     
+    timer = StepTimer()
+
     if agent is None:
         if full_config is None:
             if config_loader is None:
                 config_loader = ConfigLoader(mode='dynamo', env=env, fallback_env='staging')
             try:
-                full_config = config_loader.load_full_agent_config('brand-extraction-v1')
+                with timer.step("config_load"):
+                    full_config = config_loader.load_full_agent_config('brand-extraction-v1')
             except Exception as e:
                 if verbose:
                     print(f"ERROR: Could not load brand extraction config: {e}")
@@ -142,7 +148,7 @@ def run_agent1_brand_extraction(
                     "error": str(e)
                 }
         agent = LLMAnnotationAgent(full_config=full_config, log_IO=False)
-    
+
     input_text = raw_text
     if name:
         input_text = f"Product Name: {name}\n\n{raw_text}"
@@ -166,7 +172,18 @@ def run_agent1_brand_extraction(
     }
     
     agent_result = agent.execute(input_data=input_data)
-    
+
+    # Emit telemetry for brand extraction step
+    if req_ctx:
+        timing = timer.finish()
+        if agent_result.metadata.get("step_timing"):
+            timing.update(agent_result.metadata["step_timing"])
+        agent_telemetry.log_execution(
+            req_ctx=req_ctx, agent_result=agent_result, timing=timing,
+            config_id="brand-extraction-v1", input_data=input_data,
+            workflow_id=workflow_id, workflow_step="brand_extraction",
+        )
+
     if agent_result.status != AgentStatus.SUCCESS:
         error_msg = agent_result.error_report.message if agent_result.error_report else "Unknown error"
         if verbose:
@@ -184,8 +201,10 @@ def run_agent1_brand_extraction(
 
     if verbose:
         print("\nSearching brand database...")
+    timer_bq = StepTimer()
     try:
-        search_results = search_brand_database(search_terms, verbose=verbose)
+        with timer_bq.step("bq_search"):
+            search_results = search_brand_database(search_terms, verbose=verbose)
         
         if search_results is None:
             if verbose:
@@ -258,7 +277,9 @@ def run_agent2_brand_classification(
     config_loader: Optional[ConfigLoader] = None,
     env: str = 'staging',
     verbose: bool = False,
-    base_config: Optional[Dict[str, Any]] = None
+    base_config: Optional[Dict[str, Any]] = None,
+    req_ctx: Optional[dict] = None,
+    workflow_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Agent 2: Classify which brand(s) apply from matched brands.
@@ -290,11 +311,14 @@ def run_agent2_brand_classification(
             "reasoning": "No brands found in database"
         }
     
+    timer = StepTimer()
+
     if base_config is None:
         if config_loader is None:
             config_loader = ConfigLoader(mode='dynamo', env=env, fallback_env='staging')
         try:
-            base_config = config_loader.load_full_agent_config('brand-classification-v1')
+            with timer.step("config_load"):
+                base_config = config_loader.load_full_agent_config('brand-classification-v1')
         except Exception as e:
             if verbose:
                 print(f"ERROR: Could not load brand classification config: {e}")
@@ -389,7 +413,18 @@ Select the most appropriate brand ID based on the product information."""
     }
     
     agent_result = agent.execute(input_data=input_data)
-    
+
+    # Emit telemetry for brand classification step
+    if req_ctx:
+        timing = timer.finish()
+        if agent_result.metadata.get("step_timing"):
+            timing.update(agent_result.metadata["step_timing"])
+        agent_telemetry.log_execution(
+            req_ctx=req_ctx, agent_result=agent_result, timing=timing,
+            config_id="brand-classification-v1", input_data=input_data,
+            workflow_id=workflow_id, workflow_step="brand_classification",
+        )
+
     valid_brand_ids = set()
     id_to_brand_map = {}
     
@@ -466,7 +501,8 @@ def run_brand_classification_workflow(
     config_loader: Optional[ConfigLoader] = None,
     agent1: Optional[LLMAnnotationAgent] = None,
     agent1_config: Optional[Dict[str, Any]] = None,
-    agent2_base_config: Optional[Dict[str, Any]] = None
+    agent2_base_config: Optional[Dict[str, Any]] = None,
+    req_ctx: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """
     Run the complete two-agent brand classification workflow.
@@ -494,6 +530,8 @@ def run_brand_classification_workflow(
             print(f"Product name: {name}")
         print("="*70)
 
+    workflow_id = generate_workflow_id()
+
     if config_loader is None and (agent1 is None and agent1_config is None):
         config_loader = ConfigLoader(mode='dynamo', env=env, fallback_env='staging')
 
@@ -505,7 +543,9 @@ def run_brand_classification_workflow(
         env=env,
         verbose=verbose,
         agent=agent1,
-        full_config=agent1_config
+        full_config=agent1_config,
+        req_ctx=req_ctx,
+        workflow_id=workflow_id,
     )
 
     if not agent1_result.get('success', False):
@@ -546,7 +586,9 @@ def run_brand_classification_workflow(
         config_loader=config_loader,
         env=env,
         verbose=verbose,
-        base_config=agent2_base_config
+        base_config=agent2_base_config,
+        req_ctx=req_ctx,
+        workflow_id=workflow_id,
     )
 
     if verbose:

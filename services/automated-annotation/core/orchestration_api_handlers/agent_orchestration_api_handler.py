@@ -128,7 +128,8 @@ def execute_classification_for_api(
     api_input: Dict[str, Any],
     env: Optional[str] = None,
     max_workers: int = DEFAULT_MAX_WORKERS,
-    batch_size: Optional[int] = None
+    batch_size: Optional[int] = None,
+    req_ctx: Optional[dict] = None,
 ) -> Any:
     """
     Execute classification orchestration for API request.
@@ -231,7 +232,8 @@ def execute_classification_for_api(
         text_metadata=text_metadata if text_metadata else None,
         input_mode=input_mode,
         env=env,
-        get_image_url_fn=get_signed_image_url  # Lambda-specific utility
+        get_image_url_fn=get_signed_image_url,  # Lambda-specific utility
+        req_ctx=req_ctx,
     )
     
     return result
@@ -312,6 +314,7 @@ def format_classification_for_legacy_api(
 def execute_brand_classification_for_api(
     api_input: Dict[str, Any],
     env: Optional[str] = None,
+    req_ctx: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """
     Execute brand classification via brand_classification_orchestration (Agent1 -> BigQuery -> Agent2).
@@ -349,6 +352,7 @@ def execute_brand_classification_for_api(
         name=name,
         env=env,
         verbose=False,
+        req_ctx=req_ctx,
     )
 
     if result.get("workflow_status") != "success":
@@ -415,7 +419,8 @@ def execute_size_classification_for_api(
     api_input: Dict[str, Any],
     env: Optional[str] = None,
     max_workers: int = DEFAULT_MAX_WORKERS,
-    batch_size: Optional[int] = None
+    batch_size: Optional[int] = None,
+    req_ctx: Optional[dict] = None,
 ) -> Any:
     """
     Execute size classification orchestration for API request.
@@ -502,7 +507,8 @@ def execute_size_classification_for_api(
     result = run_model_size_classification_workflow(
         raw_text=text_input,
         model_id=model_id_int,
-        env=env
+        env=env,
+        req_ctx=req_ctx,
     )
     
     # Transform result to match API format
@@ -543,7 +549,8 @@ def execute_keyword_classification_for_api(
     api_input: Dict[str, Any],
     env: Optional[str] = None,
     max_workers: int = DEFAULT_MAX_WORKERS,
-    batch_size: Optional[int] = None
+    batch_size: Optional[int] = None,
+    req_ctx: Optional[dict] = None,
 ) -> Any:
     """
     Execute keyword classification orchestration for API request.
@@ -621,7 +628,8 @@ def execute_keyword_classification_for_api(
         general_input_text=general_input_text,
         text_to_avoid=text_to_avoid,
         full_config=full_config,
-        item_id=item_id
+        item_id=item_id,
+        req_ctx=req_ctx,
     )
     
     # Transform result to match API format
