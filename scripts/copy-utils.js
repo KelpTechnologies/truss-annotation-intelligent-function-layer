@@ -150,7 +150,7 @@ function copyUtilsToServices() {
     // Only copy JavaScript utils to Node.js services
     if (runtime === "python") {
       console.log(
-        `⏭️  Skipping ${serviceName} (Python service - no Python utils available)`
+        `Skipping ${serviceName} (Python service - no Python utils available)`
       );
       skippedCount++;
       continue;
@@ -165,30 +165,30 @@ function copyUtilsToServices() {
       // Copy utils directory to service
       copyDirectory(utilsSourceDir, utilsDestDir);
 
-      console.log(`✅ Successfully copied utils to ${serviceName}`);
+      console.log(`[OK] Successfully copied utils to ${serviceName}`);
       successCount++;
     } catch (error) {
       console.error(
-        `❌ Failed to copy utils to ${serviceName}:`,
+        `[ERROR] Failed to copy utils to ${serviceName}:`,
         error.message
       );
       errorCount++;
     }
   }
 
-  console.log("\n📊 Copy Summary:");
-  console.log(`✅ Successful: ${successCount}`);
-  console.log(`⏭️  Skipped (Python): ${skippedCount}`);
-  console.log(`❌ Failed: ${errorCount}`);
-  console.log(`📁 Total services: ${serviceDirs.length}`);
+  console.log("\nCopy Summary:");
+  console.log(`[OK] Successful: ${successCount}`);
+  console.log(`Skipped (Python): ${skippedCount}`);
+  console.log(`[ERROR] Failed: ${errorCount}`);
+  console.log(`Total services: ${serviceDirs.length}`);
 
   if (errorCount > 0) {
     console.log(
-      "\n⚠️  Some services failed to receive utils. Please check the errors above."
+      "\n[WARN]  Some services failed to receive utils. Please check the errors above."
     );
     process.exit(1);
   } else {
-    console.log("\n🎉 All Node.js services successfully received utils!");
+    console.log("\nAll Node.js services successfully received utils!");
   }
 }
 
@@ -218,7 +218,7 @@ function copyUtilsToService(serviceName) {
   const runtime = detectServiceRuntime(serviceDir);
   if (runtime === "python") {
     console.log(
-      `⏭️  Skipping ${serviceName} (Python service - no Python utils available)`
+      `Skipping ${serviceName} (Python service - no Python utils available)`
     );
     process.exit(0);
   }
@@ -230,9 +230,9 @@ function copyUtilsToService(serviceName) {
     // Copy utils directory to service
     copyDirectory(utilsSourceDir, utilsDestDir);
 
-    console.log(`✅ Successfully copied utils to ${serviceName}`);
+    console.log(`[OK] Successfully copied utils to ${serviceName}`);
   } catch (error) {
-    console.error(`❌ Failed to copy utils to ${serviceName}:`, error.message);
+    console.error(`[ERROR] Failed to copy utils to ${serviceName}:`, error.message);
     process.exit(1);
   }
 }

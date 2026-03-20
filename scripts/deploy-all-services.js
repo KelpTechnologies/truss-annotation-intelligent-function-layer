@@ -19,22 +19,22 @@ async function deployAllServices(options = {}) {
     continueOnError = false,
   } = options;
 
-  console.log(`🚀 Deploying all services (${stage} stage)`);
+  console.log(`Deploying all services (${stage} stage)`);
   console.log(`   Mode: ${parallel ? "Parallel" : "Sequential"}`);
   if (parallel) {
     console.log(`   Max Concurrency: ${maxConcurrency}`);
   }
 
   // Copy utils to all services before deployment
-  console.log(`📁 Copying utils to all services...`);
+  console.log(`Copying utils to all services...`);
   try {
     const copyUtilsScript = path.join(__dirname, "copy-utils.js");
     require("child_process").execSync(`node "${copyUtilsScript}"`, {
       stdio: "inherit",
     });
-    console.log(`✅ Utils copied successfully`);
+    console.log(`[OK] Utils copied successfully`);
   } catch (error) {
-    console.error(`❌ Failed to copy utils: ${error.message}`);
+    console.error(`[ERROR] Failed to copy utils: ${error.message}`);
     if (!continueOnError) {
       throw new Error(`Utils copying failed: ${error.message}`);
     }
@@ -48,11 +48,11 @@ async function deployAllServices(options = {}) {
   );
 
   if (services.length === 0) {
-    console.log("❌ No services found to deploy");
+    console.log("[ERROR] No services found to deploy");
     return;
   }
 
-  console.log(`📦 Found ${services.length} services to deploy:`);
+  console.log(`Found ${services.length} services to deploy:`);
   services.forEach((service) => {
     console.log(`   - ${service.name} (${service.path})`);
   });
@@ -82,7 +82,7 @@ async function deployAllServices(options = {}) {
 }
 
 function discoverServices(servicesDir, includeServices, excludeServices) {
-  console.log(`🔍 Discovering services in ${servicesDir}/`);
+  console.log(`Discovering services in ${servicesDir}/`);
 
   // Helper function to check if directory is a service
   function isServiceDirectory(dir) {
@@ -132,7 +132,7 @@ function discoverServices(servicesDir, includeServices, excludeServices) {
               });
             } catch (error) {
               console.warn(
-                `   ⚠️  Invalid config.json in ${relativePath}: ${error.message}`
+                `   [WARN]  Invalid config.json in ${relativePath}: ${error.message}`
               );
             }
           } else if (currentDepth < maxDepth) {
@@ -143,7 +143,7 @@ function discoverServices(servicesDir, includeServices, excludeServices) {
       }
     } catch (error) {
       console.warn(
-        `   ⚠️  Could not read directory ${baseDir}: ${error.message}`
+        `   [WARN]  Could not read directory ${baseDir}: ${error.message}`
       );
     }
   }
@@ -183,7 +183,7 @@ function discoverServices(servicesDir, includeServices, excludeServices) {
 }
 
 async function deployServicesSequential(services, stage, options, results) {
-  console.log("\n📋 Starting sequential deployment...");
+  console.log("\nStarting sequential deployment...");
 
   for (let i = 0; i < services.length; i++) {
     const service = services[i];
@@ -202,9 +202,9 @@ async function deployServicesSequential(services, stage, options, results) {
         result: result,
       });
 
-      console.log(`✅ ${service.name} deployed successfully`);
+      console.log(`[OK] ${service.name} deployed successfully`);
     } catch (error) {
-      console.error(`❌ ${service.name} deployment failed: ${error.message}`);
+      console.error(`[ERROR] ${service.name} deployment failed: ${error.message}`);
 
       results.failed.push({
         service: service.name,
@@ -213,7 +213,7 @@ async function deployServicesSequential(services, stage, options, results) {
 
       if (!options.continueOnError) {
         console.error(
-          "❌ Stopping deployment due to error (use --continue-on-error to continue)"
+          "[ERROR] Stopping deployment due to error (use --continue-on-error to continue)"
         );
         break;
       }
@@ -222,7 +222,7 @@ async function deployServicesSequential(services, stage, options, results) {
 }
 
 async function deployServicesParallel(services, stage, options, results) {
-  console.log("\n🔄 Starting parallel deployment...");
+  console.log("\n[REFRESH] Starting parallel deployment...");
 
   const semaphore = new Semaphore(options.maxConcurrency);
   const promises = services.map(async (service, index) => {
@@ -245,9 +245,9 @@ async function deployServicesParallel(services, stage, options, results) {
         result: result,
       });
 
-      console.log(`✅ ${service.name} completed`);
+      console.log(`[OK] ${service.name} completed`);
     } catch (error) {
-      console.error(`❌ ${service.name} failed: ${error.message}`);
+      console.error(`[ERROR] ${service.name} failed: ${error.message}`);
 
       results.failed.push({
         service: service.name,
@@ -266,7 +266,7 @@ async function deployServicesParallel(services, stage, options, results) {
     await Promise.all(promises);
   } catch (error) {
     if (!options.continueOnError) {
-      console.error("❌ Parallel deployment stopped due to error");
+      console.error("[ERROR] Parallel deployment stopped due to error");
     }
   }
 }
@@ -300,7 +300,7 @@ class Semaphore {
 }
 
 function printDeploymentSummary(results, duration, stage) {
-  console.log("\n🎉 Deployment Complete!");
+  console.log("\nDeployment Complete!");
   console.log("═".repeat(50));
   console.log(`Stage: ${stage}`);
   console.log(`Duration: ${duration}s`);
@@ -309,26 +309,26 @@ function printDeploymentSummary(results, duration, stage) {
       results.successful.length + results.failed.length + results.skipped.length
     }`
   );
-  console.log(`✅ Successful: ${results.successful.length}`);
-  console.log(`❌ Failed: ${results.failed.length}`);
-  console.log(`⏭️  Skipped: ${results.skipped.length}`);
+  console.log(`[OK] Successful: ${results.successful.length}`);
+  console.log(`[ERROR] Failed: ${results.failed.length}`);
+  console.log(`Skipped: ${results.skipped.length}`);
 
   if (results.successful.length > 0) {
-    console.log("\n✅ Successfully Deployed:");
+    console.log("\n[OK] Successfully Deployed:");
     results.successful.forEach(({ service, result }) => {
       console.log(`   - ${service} (${result.functionName})`);
     });
   }
 
   if (results.failed.length > 0) {
-    console.log("\n❌ Failed Deployments:");
+    console.log("\n[ERROR] Failed Deployments:");
     results.failed.forEach(({ service, error }) => {
       console.log(`   - ${service}: ${error}`);
     });
   }
 
   if (results.skipped.length > 0) {
-    console.log("\n⏭️  Skipped Services:");
+    console.log("\nSkipped Services:");
     results.skipped.forEach(({ service, reason }) => {
       console.log(`   - ${service}: ${reason}`);
     });
@@ -428,7 +428,7 @@ async function main() {
       process.exit(1);
     }
   } catch (error) {
-    console.error(`❌ Bulk deployment failed: ${error.message}`);
+    console.error(`[ERROR] Bulk deployment failed: ${error.message}`);
     process.exit(1);
   }
 }
