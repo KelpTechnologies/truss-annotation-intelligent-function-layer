@@ -275,7 +275,7 @@ def query_dynamodb(ids: list, table_name: str = None) -> Dict[str, Dict]:
                     'root_model': root_model
                 }
             else:
-                print(f"  ⚠️  ID {image_id} not found in DynamoDB")
+                print(f"  [WARN]  ID {image_id} not found in DynamoDB")
                 results[image_id] = {
                     'model': None,
                     'root_model': None

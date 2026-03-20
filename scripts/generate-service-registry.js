@@ -118,11 +118,11 @@ function discoverServices() {
           }
         });
         console.log(
-          `✅ Discovered service: ${config.service.name} at ${serviceDir} (${endpoints.length} endpoints)`
+          `[OK] Discovered service: ${config.service.name} at ${serviceDir} (${endpoints.length} endpoints)`
         );
       } catch (error) {
         console.warn(
-          `⚠️  Could not parse config for ${serviceDir}:`,
+          `[WARN]  Could not parse config for ${serviceDir}:`,
           error.message
         );
       }
@@ -168,7 +168,7 @@ function buildRegistry(services, options = {}) {
  * This function is now exportable.
  */
 function generateServiceRegistry() {
-  console.log("🔍 Discovering services...");
+  console.log("Discovering services...");
 
   const allDiscovered = discoverServices();
 
@@ -210,7 +210,7 @@ function writeRegistry(registry, outputPath) {
   // Write the registry
   fs.writeFileSync(outputPath, JSON.stringify(registry, null, 2));
 
-  console.log(`📝 Service registry written to: ${outputPath}`);
+  console.log(`Service registry written to: ${outputPath}`);
 }
 
 // Main execution function for when the script is run directly
@@ -242,13 +242,13 @@ function runMain() {
       }
     });
 
-    console.log("✅ Service registry generation complete!");
-    console.log(`📊 Combined services: ${combinedRegistry.total_services}`);
+    console.log("[OK] Service registry generation complete!");
+    console.log(`Combined services: ${combinedRegistry.total_services}`);
     Object.entries(perRootRegistries).forEach(([root, reg]) => {
-      console.log(`📊 ${root} services: ${reg.total_services}`);
+      console.log(`${root} services: ${reg.total_services}`);
     });
   } catch (error) {
-    console.error("❌ Service registry generation failed:", error);
+    console.error("[ERROR] Service registry generation failed:", error);
     process.exit(1);
   }
 }

@@ -69,7 +69,7 @@ async function handleConfidenceMetricsRequest(
     // Extract and validate query parameters
     const queryParams = event.queryStringParameters || {};
     console.log(
-      "🔍 Raw query parameters:",
+      "Raw query parameters:",
       JSON.stringify(queryParams, null, 2)
     );
 
@@ -79,7 +79,7 @@ async function handleConfidenceMetricsRequest(
       options.endpoint || "default"
     );
     console.log(
-      "✅ Validated parameters:",
+      "[OK] Validated parameters:",
       JSON.stringify(validatedParams, null, 2)
     );
 
@@ -87,7 +87,7 @@ async function handleConfidenceMetricsRequest(
     const queryMode = validateAndProcessQueryMode(queryParams, serviceConfig, {
       allowFallback: options.allowFallback !== false,
     });
-    console.log("🔧 Query mode:", queryMode);
+    console.log("Query mode:", queryMode);
 
     // Determine endpoint-level metrics policy from service config (if provided)
     let endpointMetrics = null;
@@ -100,13 +100,13 @@ async function handleConfidenceMetricsRequest(
         endpointMetrics = apiEndpoint.metrics[queryMode];
       }
     } catch (e) {
-      console.log("ℹ️ No endpoint-level metrics override found", e?.message);
+      console.log("No endpoint-level metrics override found", e?.message);
     }
-    console.log("🔧 Endpoint metrics override:", endpointMetrics);
+    console.log("Endpoint metrics override:", endpointMetrics);
 
     // Build the SQL query using the generic query builder
     console.log(
-      "🔧 Building SQL query with options:",
+      "Building SQL query with options:",
       JSON.stringify(options, null, 2)
     );
     // Ensure valueField is provided - this is required for proper service configuration
@@ -127,9 +127,9 @@ async function handleConfidenceMetricsRequest(
       ? require("./bigquery-query-builder")
       : require("./query-builder");
 
-    console.log("🔧 Using query builder:", isBigQuery ? "BigQuery" : "MySQL");
+    console.log("Using query builder:", isBigQuery ? "BigQuery" : "MySQL");
     console.log(
-      "🔧 Database connection type:",
+      "Database connection type:",
       serviceConfig.database?.connection_type
     );
 
@@ -155,8 +155,8 @@ async function handleConfidenceMetricsRequest(
             options.queryOptions || {},
             options.route || null
           );
-    console.log("🔧 Built SQL query:", queryResult.sql);
-    console.log("🔧 SQL arguments:", queryResult.args);
+    console.log("Built SQL query:", queryResult.sql);
+    console.log("SQL arguments:", queryResult.args);
 
     // Execute the query
     logDatabaseQuery(
@@ -170,17 +170,17 @@ async function handleConfidenceMetricsRequest(
       serviceConfig
     );
     console.log(
-      "📊 Raw SQL results (first 5):",
+      "Raw SQL results (first 5):",
       JSON.stringify(results.slice(0, 5), null, 2)
     );
-    console.log("📊 Raw SQL results length:", results.length);
+    console.log("Raw SQL results length:", results.length);
     if (results.length > 0) {
-      console.log("📊 Raw SQL results structure:", Object.keys(results[0]));
+      console.log("Raw SQL results structure:", Object.keys(results[0]));
     }
     logDatabaseResults(results, serviceConfig.service.name);
 
     // Process the results with confidence metrics
-    console.log("🔧 Processing results with confidence metrics...");
+    console.log("Processing results with confidence metrics...");
     let processedData = processConfidenceMetrics(
       results,
       queryMode,
@@ -210,10 +210,10 @@ async function handleConfidenceMetricsRequest(
       }
     }
     console.log(
-      "📊 Processed data (first 5):",
+      "Processed data (first 5):",
       JSON.stringify(processedData.slice(0, 5), null, 2)
     );
-    console.log("📊 Processed data length:", processedData.length);
+    console.log("Processed data length:", processedData.length);
 
     // Apply calc (e.g., percentage_change) if requested
     let finalData = processedData;
@@ -222,7 +222,7 @@ async function handleConfidenceMetricsRequest(
       const groupByStr = Array.isArray(validatedParams.group_by)
         ? validatedParams.group_by.join(",")
         : validatedParams.group_by || "";
-      console.log("🔧 Applying calc:", calc, "group_by:", groupByStr);
+      console.log("Applying calc:", calc, "group_by:", groupByStr);
       finalData = postAggregationCalcs(
         finalData,
         calc,
@@ -231,25 +231,25 @@ async function handleConfidenceMetricsRequest(
         queryParams
       );
       console.log(
-        "📊 After calc processing (first 5):",
+        "After calc processing (first 5):",
         JSON.stringify(finalData.slice(0, 5), null, 2)
       );
-      console.log("📊 After calc processing length:", finalData.length);
+      console.log("After calc processing length:", finalData.length);
     }
 
     // Map database field names to API field names (e.g., material_parent -> material)
-    console.log("🔧 Mapping database fields to API fields...");
+    console.log("Mapping database fields to API fields...");
     const beforeMapping = [...finalData];
     finalData = mapAllEntities(finalData);
     console.log(
-      "📊 Before field mapping (first 3):",
+      "Before field mapping (first 3):",
       JSON.stringify(beforeMapping.slice(0, 3), null, 2)
     );
     console.log(
-      "📊 After field mapping (first 3):",
+      "After field mapping (first 3):",
       JSON.stringify(finalData.slice(0, 3), null, 2)
     );
-    console.log("📊 After field mapping length:", finalData.length);
+    console.log("After field mapping length:", finalData.length);
 
     // Determine allowed metrics list for filtering based on endpoint metrics override
     let allowedMetrics = null;
@@ -258,7 +258,7 @@ async function handleConfidenceMetricsRequest(
     }
 
     // Filter out internal calculation fields, honoring endpoint-defined metric set
-    console.log("🔧 Filtering internal calculation fields...");
+    console.log("Filtering internal calculation fields...");
     const beforeFiltering = [...finalData];
     finalData = filterInternalCalculationFields(
       finalData,
@@ -287,14 +287,14 @@ async function handleConfidenceMetricsRequest(
       }
     }
     console.log(
-      "📊 Before internal field filtering (first 3):",
+      "Before internal field filtering (first 3):",
       JSON.stringify(beforeFiltering.slice(0, 3), null, 2)
     );
     console.log(
-      "📊 After internal field filtering (first 3):",
+      "After internal field filtering (first 3):",
       JSON.stringify(finalData.slice(0, 3), null, 2)
     );
-    console.log("📊 After internal field filtering length:", finalData.length);
+    console.log("After internal field filtering length:", finalData.length);
 
     // Build response metadata with confidence information and reflect endpoint metrics
     const metadata = {
@@ -343,9 +343,9 @@ async function handleConfidenceMetricsRequest(
       finalData.length
     );
 
-    console.log("📊 Final data length:", finalData.length);
+    console.log("Final data length:", finalData.length);
     console.log(
-      "📊 Final data (first 3):",
+      "Final data (first 3):",
       JSON.stringify(finalData.slice(0, 3), null, 2)
     );
 
@@ -403,7 +403,7 @@ async function handleAggregationRequest(
     // Extract and validate query parameters
     const queryParams = event.queryStringParameters || {};
     console.log(
-      "🔍 Raw query parameters:",
+      "Raw query parameters:",
       JSON.stringify(queryParams, null, 2)
     );
 
@@ -413,7 +413,7 @@ async function handleAggregationRequest(
       options.endpoint || "default"
     );
     console.log(
-      "✅ Validated parameters:",
+      "[OK] Validated parameters:",
       JSON.stringify(validatedParams, null, 2)
     );
 
@@ -421,7 +421,7 @@ async function handleAggregationRequest(
     const queryMode = validateAndProcessQueryMode(queryParams, serviceConfig, {
       allowFallback: options.allowFallback !== false,
     });
-    console.log("🔧 Query mode:", queryMode);
+    console.log("Query mode:", queryMode);
 
     // Determine endpoint-level metrics policy from service config (if provided)
     let endpointMetrics = null;
@@ -434,9 +434,9 @@ async function handleAggregationRequest(
         endpointMetrics = apiEndpoint.metrics[queryMode];
       }
     } catch (e) {
-      console.log("ℹ️ No endpoint-level metrics override found", e?.message);
+      console.log("No endpoint-level metrics override found", e?.message);
     }
-    console.log("🔧 Endpoint metrics override:", endpointMetrics);
+    console.log("Endpoint metrics override:", endpointMetrics);
 
     // Determine aggregation type and field from valueField
     let aggregationType = "avg";
@@ -463,25 +463,25 @@ async function handleAggregationRequest(
       alias: "value",
     };
     console.log(
-      "🔧 Aggregation config:",
+      "Aggregation config:",
       JSON.stringify(aggregationConfig, null, 2)
     );
 
     // Use the service's valueField directly - don't override it with confidence metrics
-    console.log("🔧 Using service valueField:", options.valueField);
+    console.log("Using service valueField:", options.valueField);
 
     // Build the complete SQL query
-    console.log("🔧 Building complete SQL query...");
+    console.log("Building complete SQL query...");
     const useMarketShare =
       options.marketShare === true ||
       (options.endpoint || "") === "market-share";
-    console.log("🔍 Checking for custom query builder...");
+    console.log("Checking for custom query builder...");
     console.log(
-      "🔍 options.customQueryBuilder type:",
+      "options.customQueryBuilder type:",
       typeof options.customQueryBuilder
     );
-    console.log("🔍 options.customQueryBuilder:", options.customQueryBuilder);
-    console.log("🔍 useMarketShare:", useMarketShare);
+    console.log("options.customQueryBuilder:", options.customQueryBuilder);
+    console.log("useMarketShare:", useMarketShare);
 
     // Determine which query builder to use based on database connection type
     const isBigQuery = serviceConfig.database?.connection_type === "bigquery";
@@ -489,9 +489,9 @@ async function handleAggregationRequest(
       ? require("./bigquery-query-builder")
       : require("./query-builder");
 
-    console.log("🔧 Using query builder:", isBigQuery ? "BigQuery" : "MySQL");
+    console.log("Using query builder:", isBigQuery ? "BigQuery" : "MySQL");
     console.log(
-      "🔧 Database connection type:",
+      "Database connection type:",
       serviceConfig.database?.connection_type
     );
 
@@ -527,8 +527,8 @@ async function handleAggregationRequest(
             options.queryOptions || {},
             options.route || null
           );
-    console.log("🔧 Built SQL query:", queryResult.sql);
-    console.log("🔧 SQL arguments:", queryResult.args);
+    console.log("Built SQL query:", queryResult.sql);
+    console.log("SQL arguments:", queryResult.args);
 
     // Execute the query
     logDatabaseQuery(
@@ -542,17 +542,17 @@ async function handleAggregationRequest(
       serviceConfig
     );
     console.log(
-      "📊 Raw SQL results (first 5):",
+      "Raw SQL results (first 5):",
       JSON.stringify(results.slice(0, 5), null, 2)
     );
-    console.log("📊 Raw SQL results length:", results.length);
+    console.log("Raw SQL results length:", results.length);
     if (results.length > 0) {
-      console.log("📊 Raw SQL results structure:", Object.keys(results[0]));
+      console.log("Raw SQL results structure:", Object.keys(results[0]));
     }
     logDatabaseResults(results, serviceConfig.service.name);
 
     // Process the results with confidence metrics
-    console.log("🔧 Processing results with confidence metrics...");
+    console.log("Processing results with confidence metrics...");
     let processedData = processConfidenceMetrics(
       results,
       queryMode,
@@ -582,10 +582,10 @@ async function handleAggregationRequest(
       }
     }
     console.log(
-      "📊 Processed data (first 5):",
+      "Processed data (first 5):",
       JSON.stringify(processedData.slice(0, 5), null, 2)
     );
-    console.log("📊 Processed data length:", processedData.length);
+    console.log("Processed data length:", processedData.length);
 
     // Apply calc (e.g., percentage_change) if requested
     let finalData = processedData;
@@ -594,7 +594,7 @@ async function handleAggregationRequest(
       const groupByStr = Array.isArray(validatedParams.group_by)
         ? validatedParams.group_by.join(",")
         : validatedParams.group_by || "";
-      console.log("🔧 Applying calc:", calc, "group_by:", groupByStr);
+      console.log("Applying calc:", calc, "group_by:", groupByStr);
       finalData = postAggregationCalcs(
         finalData,
         calc,
@@ -603,25 +603,25 @@ async function handleAggregationRequest(
         queryParams
       );
       console.log(
-        "📊 After calc processing (first 5):",
+        "After calc processing (first 5):",
         JSON.stringify(finalData.slice(0, 5), null, 2)
       );
-      console.log("📊 After calc processing length:", finalData.length);
+      console.log("After calc processing length:", finalData.length);
     }
 
     // Map database field names to API field names (e.g., material_parent -> material)
-    console.log("🔧 Mapping database fields to API fields...");
+    console.log("Mapping database fields to API fields...");
     const beforeMapping = [...finalData];
     finalData = mapAllEntities(finalData);
     console.log(
-      "📊 Before field mapping (first 3):",
+      "Before field mapping (first 3):",
       JSON.stringify(beforeMapping.slice(0, 3), null, 2)
     );
     console.log(
-      "📊 After field mapping (first 3):",
+      "After field mapping (first 3):",
       JSON.stringify(finalData.slice(0, 3), null, 2)
     );
-    console.log("📊 After field mapping length:", finalData.length);
+    console.log("After field mapping length:", finalData.length);
 
     // Determine allowed metrics list for filtering based on endpoint metrics override
     let allowedMetrics = null;
@@ -630,7 +630,7 @@ async function handleAggregationRequest(
     }
 
     // Filter out internal calculation fields, honoring endpoint-defined metric set
-    console.log("🔧 Filtering internal calculation fields...");
+    console.log("Filtering internal calculation fields...");
     const beforeFiltering = [...finalData];
     finalData = filterInternalCalculationFields(
       finalData,
@@ -659,14 +659,14 @@ async function handleAggregationRequest(
       }
     }
     console.log(
-      "📊 Before internal field filtering (first 3):",
+      "Before internal field filtering (first 3):",
       JSON.stringify(beforeFiltering.slice(0, 3), null, 2)
     );
     console.log(
-      "📊 After internal field filtering (first 3):",
+      "After internal field filtering (first 3):",
       JSON.stringify(finalData.slice(0, 3), null, 2)
     );
-    console.log("📊 After internal field filtering length:", finalData.length);
+    console.log("After internal field filtering length:", finalData.length);
 
     // Build response metadata
     const metadata = {
@@ -714,9 +714,9 @@ async function handleAggregationRequest(
       finalData.length
     );
 
-    console.log("📊 Final data length:", finalData.length);
+    console.log("Final data length:", finalData.length);
     console.log(
-      "📊 Final data (first 3):",
+      "Final data (first 3):",
       JSON.stringify(finalData.slice(0, 3), null, 2)
     );
 
@@ -845,14 +845,14 @@ async function handleGenericRoute(event, context, serviceConfig, routeConfig) {
     const partitions = serviceConfig?.api?.partitions;
     if (partitions && partitions.routes) {
       // Find matching partition by base_path prefix (e.g., /bags/analytics, /all/analytics)
-      console.log("🔍 Looking for partition match for path:", path);
-      console.log("🔍 Available partitions:", Object.keys(partitions.routes));
+      console.log("Looking for partition match for path:", path);
+      console.log("Available partitions:", Object.keys(partitions.routes));
       const partitionEntry = Object.entries(partitions.routes).find(
         ([, cfg]) => {
           const matches =
             typeof cfg?.base_path === "string" &&
             path.startsWith(cfg.base_path);
-          console.log(`🔍 Checking partition ${cfg?.base_path}: ${matches}`);
+          console.log(`Checking partition ${cfg?.base_path}: ${matches}`);
           return matches;
         }
       );
@@ -861,7 +861,7 @@ async function handleGenericRoute(event, context, serviceConfig, routeConfig) {
         const [partKey, partitionCfg] = partitionEntry;
         partitionKey = partKey;
         console.log(
-          "🔍 Found matching partition:",
+          "Found matching partition:",
           partKey,
           "with config:",
           partitionCfg
@@ -960,24 +960,24 @@ async function handleGenericRoute(event, context, serviceConfig, routeConfig) {
         // Apply default_filters from partition configuration
         if (partitionCfg.default_filters) {
           console.log(
-            "🔍 Applying default_filters:",
+            "Applying default_filters:",
             partitionCfg.default_filters
           );
           Object.entries(partitionCfg.default_filters).forEach(
             ([key, value]) => {
               if (qs[key] === undefined) {
-                console.log(`🔍 Adding default filter: ${key} = ${value}`);
+                console.log(`Adding default filter: ${key} = ${value}`);
                 qs[key] = value;
               } else {
                 console.log(
-                  `🔍 Default filter already exists: ${key} = ${qs[key]}`
+                  `Default filter already exists: ${key} = ${qs[key]}`
                 );
               }
             }
           );
-          console.log("🔍 Query params after applying default filters:", qs);
+          console.log("Query params after applying default filters:", qs);
         } else {
-          console.log("🔍 No default_filters found in partition config");
+          console.log("No default_filters found in partition config");
         }
 
         // Attach back into event for downstream handlers
@@ -1004,13 +1004,13 @@ async function handleGenericRoute(event, context, serviceConfig, routeConfig) {
     routeConfig.aggregationEndpoints &&
     routeConfig.aggregationEndpoints.includes(route)
   ) {
-    console.log("🔧 Routing to aggregation handler for route:", route);
+    console.log("Routing to aggregation handler for route:", route);
     console.log(
-      "🔧 routeConfig.queryFunction:",
+      "routeConfig.queryFunction:",
       typeof routeConfig.queryFunction
     );
     console.log(
-      "🔧 routeConfig.queryFunction value:",
+      "routeConfig.queryFunction value:",
       routeConfig.queryFunction
     );
 
@@ -1075,7 +1075,7 @@ async function handleGenericRoute(event, context, serviceConfig, routeConfig) {
  * @returns {object} Complete route configuration
  */
 function createRouteConfig(options = {}) {
-  console.log("🔧 createRouteConfig called with options:", {
+  console.log("createRouteConfig called with options:", {
     aggregationEndpoints: options.aggregationEndpoints,
     confidenceEndpoints: options.confidenceEndpoints,
     queryFunction: typeof options.queryFunction,
@@ -1121,7 +1121,7 @@ function createRouteConfig(options = {}) {
     queryFunction: options.queryFunction || null,
   };
 
-  console.log("🔧 createRouteConfig returning config:", {
+  console.log("createRouteConfig returning config:", {
     queryFunction: typeof config.queryFunction,
     queryFunctionValue: config.queryFunction,
   });

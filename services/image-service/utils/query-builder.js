@@ -679,20 +679,20 @@ function buildSelectClause(
   config = null,
   options = {}
 ) {
-  console.log("🔧 buildSelectClause called");
-  console.log("🔧 Query params:", JSON.stringify(queryParams, null, 2));
-  console.log("🔧 Value field:", valueField);
-  console.log("🔧 Item type:", itemType);
-  console.log("🔧 Price field:", priceField);
-  console.log("🔧 Temporal date field:", temporalDateField);
+  console.log("buildSelectClause called");
+  console.log("Query params:", JSON.stringify(queryParams, null, 2));
+  console.log("Value field:", valueField);
+  console.log("Item type:", itemType);
+  console.log("Price field:", priceField);
+  console.log("Temporal date field:", temporalDateField);
 
   const groupByParams = queryParams.group_by
     ? queryParams.group_by.split(",").map((f) => f.trim())
     : [];
-  console.log("🔧 Group by params:", groupByParams);
+  console.log("Group by params:", groupByParams);
 
   const validFields = FIELD_MAPPINGS;
-  console.log("🔧 Valid fields mapping:", JSON.stringify(validFields, null, 2));
+  console.log("Valid fields mapping:", JSON.stringify(validFields, null, 2));
 
   // Check if we're using BigQuery
   const isBigQuery = config?.database?.connection_type === "bigquery";
@@ -740,17 +740,17 @@ function buildSelectClause(
       return null;
     })
     .filter(Boolean);
-  console.log("🔧 Select fields:", selectFields);
+  console.log("Select fields:", selectFields);
 
   const selectList =
     selectFields.length > 0 ? selectFields.join(", ") + "," : "";
-  console.log("🔧 Select list:", selectList);
+  console.log("Select list:", selectList);
 
   // Check if confidence metrics are enabled and what mode to use
   const queryMode = queryParams.query_mode || "basic";
   const confidenceEnabled = config?.confidence_metrics?.enabled;
-  console.log("🔧 Query mode:", queryMode);
-  console.log("🔧 Confidence enabled:", confidenceEnabled);
+  console.log("Query mode:", queryMode);
+  console.log("Confidence enabled:", confidenceEnabled);
 
   // Ensure we have a valueField - this is required for proper service configuration
   if (!valueField) {
@@ -772,8 +772,8 @@ function buildSelectClause(
     // Extract the actual field name from the aggregation function
     const fieldMatch = valueField.match(/\((.*?)\)/);
     const actualField = fieldMatch ? fieldMatch[1] : priceField;
-    console.log("🔧 Aggregation type:", aggregationType);
-    console.log("🔧 Actual field:", actualField);
+    console.log("Aggregation type:", aggregationType);
+    console.log("Actual field:", actualField);
 
     // Check if this is a complex expression (like DATEDIFF)
     const isComplexExpression =
@@ -782,7 +782,7 @@ function buildSelectClause(
     if (isComplexExpression) {
       // For complex expressions like DATEDIFF, we need to use a different approach
       // We'll create a CTE-like structure using a subquery in the FROM clause
-      console.log("🔧 Complex expression detected, using CTE approach");
+      console.log("Complex expression detected, using CTE approach");
 
       // For complex expressions, we'll use a simpler approach that works with MySQL
       // We'll calculate the basic metrics and let the application handle complex statistics
@@ -817,7 +817,7 @@ function buildSelectClause(
     // Use basic metrics (fast mode or confidence disabled)
     valueCalculation = valueField;
   }
-  console.log("🔧 Value calculation:", valueCalculation);
+  console.log("Value calculation:", valueCalculation);
 
   // Always expose a count column in basic mode to populate processConfidenceMetrics
   let finalSelect;
@@ -826,7 +826,7 @@ function buildSelectClause(
   } else {
     finalSelect = `${selectList} ${valueCalculation}`;
   }
-  console.log("🔧 Final SELECT clause:", finalSelect);
+  console.log("Final SELECT clause:", finalSelect);
 
   return finalSelect;
 }
@@ -858,20 +858,20 @@ function buildCompleteQuery(
   options = {},
   route = null
 ) {
-  console.log("🔧 buildCompleteQuery called");
-  console.log("🔧 Query params:", JSON.stringify(queryParams, null, 2));
-  console.log("🔧 Value field:", valueField);
-  console.log("🔧 Item type:", itemType);
-  console.log("🔧 Price field:", priceField);
-  console.log("🔧 Sort order:", sortOrder);
-  console.log("🔧 Limit:", limit);
-  console.log("🔧 Offset:", offset);
-  console.log("🔧 Temporal date field:", temporalDateField);
-  console.log("🔧 Route:", route);
+  console.log("buildCompleteQuery called");
+  console.log("Query params:", JSON.stringify(queryParams, null, 2));
+  console.log("Value field:", valueField);
+  console.log("Item type:", itemType);
+  console.log("Price field:", priceField);
+  console.log("Sort order:", sortOrder);
+  console.log("Limit:", limit);
+  console.log("Offset:", offset);
+  console.log("Temporal date field:", temporalDateField);
+  console.log("Route:", route);
 
   // Get table name from route configuration
   const tableName = getTableName(config, route);
-  console.log("🔧 Using table name:", tableName);
+  console.log("Using table name:", tableName);
 
   // Build WHERE clause
   const { whereClause, queryArgs } = buildWhereClause(
@@ -880,8 +880,8 @@ function buildCompleteQuery(
     priceField,
     temporalDateField
   );
-  console.log("🔧 WHERE clause:", whereClause);
-  console.log("🔧 Query args:", queryArgs);
+  console.log("WHERE clause:", whereClause);
+  console.log("Query args:", queryArgs);
 
   // Build GROUP BY clause
   const groupByClause = buildGroupByClause(
@@ -890,7 +890,7 @@ function buildCompleteQuery(
     priceField,
     temporalDateField
   );
-  console.log("🔧 GROUP BY clause:", groupByClause);
+  console.log("GROUP BY clause:", groupByClause);
 
   // Build SELECT clause with confidence metrics support
   const selectClause = buildSelectClause(
@@ -902,18 +902,18 @@ function buildCompleteQuery(
     config,
     options
   );
-  console.log("🔧 SELECT clause:", selectClause);
+  console.log("SELECT clause:", selectClause);
 
   // Build HAVING clause for min_samples filtering
   const { havingClause, havingArgs } = buildHavingClause(queryParams);
-  console.log("🔧 HAVING clause:", havingClause);
-  console.log("🔧 HAVING args:", havingArgs);
+  console.log("HAVING clause:", havingClause);
+  console.log("HAVING args:", havingArgs);
 
   // Determine the correct ORDER BY field based on query mode
   const orderByField =
     options.orderByField ||
     (queryParams.query_mode === "basic_diagnostics" ? "final_value" : "value");
-  console.log("🔧 ORDER BY field:", orderByField);
+  console.log("ORDER BY field:", orderByField);
 
   // Build complete SQL
   const sql = `
@@ -927,7 +927,7 @@ function buildCompleteQuery(
   `
     .replace(/\s+/g, " ")
     .trim();
-  console.log("🔧 Complete SQL:", sql);
+  console.log("Complete SQL:", sql);
 
   // Calculate dynamic limit for temporal groupings
   let dynamicLimit = limit;
@@ -945,8 +945,8 @@ function buildCompleteQuery(
       dynamicLimit = Math.floor(limit / temporalMultiplier);
     }
   }
-  console.log("🔧 Dynamic limit:", dynamicLimit);
-  console.log("🔧 Temporal multiplier:", temporalMultiplier);
+  console.log("Dynamic limit:", dynamicLimit);
+  console.log("Temporal multiplier:", temporalMultiplier);
 
   const result = {
     sql,
@@ -954,7 +954,7 @@ function buildCompleteQuery(
     dynamicLimit,
     temporalMultiplier,
   };
-  console.log("🔧 Final query result:", JSON.stringify(result, null, 2));
+  console.log("Final query result:", JSON.stringify(result, null, 2));
 
   return result;
 }
@@ -994,7 +994,7 @@ function buildMarketShareQuery(
 
   // Get table name from route configuration
   const tableName = getTableName(config, route);
-  console.log("🔧 buildMarketShareQuery using table name:", tableName);
+  console.log("buildMarketShareQuery using table name:", tableName);
 
   const groupByParams = queryParams.group_by
     ? queryParams.group_by.split(",").map((f) => f.trim())
@@ -1183,26 +1183,26 @@ function buildHavingClause(queryParams) {
   const havingArgs = [];
 
   console.log(
-    "🔧 buildHavingClause called with:",
+    "buildHavingClause called with:",
     JSON.stringify(queryParams, null, 2)
   );
-  console.log("🔧 min_samples value:", queryParams.min_samples);
-  console.log("🔧 query_mode:", queryParams.query_mode);
+  console.log("min_samples value:", queryParams.min_samples);
+  console.log("query_mode:", queryParams.query_mode);
 
   // Add min_samples filtering if specified
   if (queryParams.min_samples !== undefined && queryParams.min_samples > 0) {
     // For basic mode, filter on count field
     if (queryParams.query_mode === "basic_diagnostics") {
       havingConditions.push("n >= ?");
-      console.log("🔧 Adding HAVING n >= ? for basic_diagnostics mode");
+      console.log("Adding HAVING n >= ? for basic_diagnostics mode");
     } else {
       havingConditions.push("count >= ?");
-      console.log("🔧 Adding HAVING count >= ? for basic mode");
+      console.log("Adding HAVING count >= ? for basic mode");
     }
     havingArgs.push(queryParams.min_samples);
-    console.log("🔧 HAVING args:", havingArgs);
+    console.log("HAVING args:", havingArgs);
   } else {
-    console.log("🔧 No min_samples filtering applied");
+    console.log("No min_samples filtering applied");
   }
 
   const havingClause =
@@ -1210,7 +1210,7 @@ function buildHavingClause(queryParams) {
       ? `HAVING ${havingConditions.join(" AND ")}`
       : "";
 
-  console.log("🔧 Final HAVING clause:", havingClause);
+  console.log("Final HAVING clause:", havingClause);
 
   return { havingClause, havingArgs };
 }

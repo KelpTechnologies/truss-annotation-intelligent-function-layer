@@ -66,7 +66,7 @@ async function getSecrets() {
   const client = getSecretsClient();
 
   try {
-    console.log("🔐 Retrieving secrets from AWS Secrets Manager...");
+    console.log("Retrieving secrets from AWS Secrets Manager...");
     const response = await client.send(
       new GetSecretValueCommand({ SecretId: secretArn })
     );
@@ -74,10 +74,10 @@ async function getSecrets() {
     cachedSecrets = JSON.parse(response.SecretString);
     cacheTimestamp = Date.now();
 
-    console.log("✅ Secrets retrieved and cached successfully");
+    console.log("[OK] Secrets retrieved and cached successfully");
     return cachedSecrets;
   } catch (error) {
-    console.error("❌ Failed to retrieve secrets:", error.message);
+    console.error("[ERROR] Failed to retrieve secrets:", error.message);
     throw new Error(
       `Failed to retrieve secrets from Secrets Manager: ${error.message}`
     );
@@ -147,7 +147,7 @@ async function getInternalApiKeys() {
 function clearCache() {
   cachedSecrets = null;
   cacheTimestamp = null;
-  console.log("🔄 Secrets cache cleared");
+  console.log("[REFRESH] Secrets cache cleared");
 }
 
 module.exports = {

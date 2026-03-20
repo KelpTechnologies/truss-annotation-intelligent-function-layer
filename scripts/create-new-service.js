@@ -31,11 +31,11 @@ function createNewService(parentFolder, serviceName, options = {}) {
 
   // Check if service already exists
   if (fs.existsSync(servicePath)) {
-    console.error(`❌ Service already exists: ${servicePath}`);
+    console.error(`[ERROR] Service already exists: ${servicePath}`);
     process.exit(1);
   }
 
-  console.log(`🚀 Creating new ${runtime} service: ${serviceName}`);
+  console.log(`Creating new ${runtime} service: ${serviceName}`);
 
   // Create service directory
   fs.mkdirSync(servicePath, { recursive: true });
@@ -46,15 +46,15 @@ function createNewService(parentFolder, serviceName, options = {}) {
   generatePackageFile(servicePath, serviceName, runtime);
   generateReadme(servicePath, serviceName, runtime, options);
 
-  console.log(`✅ Created ${runtime} service at: ${servicePath}`);
-  console.log(`📁 Files created:`);
+  console.log(`[OK] Created ${runtime} service at: ${servicePath}`);
+  console.log(`Files created:`);
   console.log(`   - config.json`);
   console.log(`   - index.${runtime === "nodejs" ? "js" : "py"}`);
   console.log(
     `   - ${runtime === "nodejs" ? "package.json" : "requirements.txt"}`
   );
   console.log(`   - README.md`);
-  console.log(`\n🔧 Next steps:`);
+  console.log(`\nNext steps:`);
   console.log(`   1. Edit config.json to customize your service`);
   console.log(
     `   2. Implement your endpoints in index.${
@@ -932,7 +932,7 @@ function main() {
 
   // Validate runtime
   if (options.runtime && !["nodejs", "python"].includes(options.runtime)) {
-    console.error('❌ Invalid runtime. Must be "nodejs" or "python"');
+    console.error('[ERROR] Invalid runtime. Must be "nodejs" or "python"');
     process.exit(1);
   }
 
@@ -943,7 +943,7 @@ function main() {
       (mode) => !validModes.includes(mode)
     );
     if (invalidModes.length > 0) {
-      console.error(`❌ Invalid security modes: ${invalidModes.join(", ")}`);
+      console.error(`[ERROR] Invalid security modes: ${invalidModes.join(", ")}`);
       console.error(`Valid modes: ${validModes.join(", ")}`);
       process.exit(1);
     }

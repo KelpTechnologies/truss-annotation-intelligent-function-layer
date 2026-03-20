@@ -66,11 +66,11 @@ function buildWhereClause(
   route = null
 ) {
   console.log(
-    "🔍 buildWhereClause called with params:",
+    "buildWhereClause called with params:",
     JSON.stringify(params, null, 2)
   );
-  console.log("🔍 Route:", route);
-  console.log("🔍 Config:", config ? "provided" : "not provided");
+  console.log("Route:", route);
+  console.log("Config:", config ? "provided" : "not provided");
 
   const conditions = [];
   const args = [];
@@ -87,7 +87,7 @@ function buildWhereClause(
 
   // First check if root_type is explicitly provided in params
   if (params.root_type) {
-    console.log("🔍 root_type found in params:", params.root_type);
+    console.log("root_type found in params:", params.root_type);
     rootTypeToUse = params.root_type;
   }
   // If not in params, check route configuration for default_filters
@@ -105,14 +105,14 @@ function buildWhereClause(
       routeConfig.default_filters.root_type
     ) {
       console.log(
-        "🔍 root_type found in route config:",
+        "root_type found in route config:",
         routeConfig.default_filters.root_type
       );
       rootTypeToUse = routeConfig.default_filters.root_type;
     }
     // Check if root_type should be suppressed for this route
     else if (routeConfig && routeConfig.suppress_root_type) {
-      console.log("🔍 root_type suppressed for route:", route);
+      console.log("root_type suppressed for route:", route);
     }
   }
 
@@ -132,11 +132,11 @@ function buildWhereClause(
     });
 
     console.log(
-      "🔍 Added root_type condition:",
+      "Added root_type condition:",
       `root_type IN (${rootTypePlaceholders})`
     );
   } else {
-    console.log("🔍 No root_type filter applied");
+    console.log("No root_type filter applied");
   }
 
   // Brand filter
@@ -475,8 +475,8 @@ function buildGroupByClause(
   priceField = "sold_price",
   temporalDateField = "sold_date"
 ) {
-  console.log("🔍 buildGroupByClause called - NEW VERSION v2");
-  console.log("🔍 queryParams:", JSON.stringify(queryParams));
+  console.log("buildGroupByClause called - NEW VERSION v2");
+  console.log("queryParams:", JSON.stringify(queryParams));
 
   if (!queryParams.group_by) {
     return "";
@@ -563,8 +563,8 @@ function buildGroupByClause(
   // Return GROUP BY clause without AS aliases for BigQuery compatibility
   const result =
     groupByClauses.length > 0 ? `GROUP BY ${groupByClauses.join(", ")}` : "";
-  console.log("🔍 buildGroupByClause result:", result);
-  console.log("🔍 groupByClauses array:", groupByClauses);
+  console.log("buildGroupByClause result:", result);
+  console.log("groupByClauses array:", groupByClauses);
   return result;
 }
 
@@ -819,11 +819,11 @@ function buildHavingClause(queryParams) {
   const havingArgs = [];
 
   console.log(
-    "🔧 buildHavingClause called with:",
+    "buildHavingClause called with:",
     JSON.stringify(queryParams, null, 2)
   );
-  console.log("🔧 min_samples value:", queryParams.min_samples);
-  console.log("🔧 query_mode:", queryParams.query_mode);
+  console.log("min_samples value:", queryParams.min_samples);
+  console.log("query_mode:", queryParams.query_mode);
 
   // Add min_samples filtering if specified
   if (queryParams.min_samples !== undefined && queryParams.min_samples > 0) {
@@ -831,22 +831,22 @@ function buildHavingClause(queryParams) {
     if (queryParams.query_mode === "basic_diagnostics") {
       havingConditions.push("n >= @param_" + havingArgs.length);
       console.log(
-        "🔧 Adding HAVING n >= @param_" +
+        "Adding HAVING n >= @param_" +
           havingArgs.length +
           " for basic_diagnostics mode"
       );
     } else {
       havingConditions.push("count >= @param_" + havingArgs.length);
       console.log(
-        "🔧 Adding HAVING count >= @param_" +
+        "Adding HAVING count >= @param_" +
           havingArgs.length +
           " for basic mode"
       );
     }
     havingArgs.push(queryParams.min_samples);
-    console.log("🔧 HAVING args:", havingArgs);
+    console.log("HAVING args:", havingArgs);
   } else {
-    console.log("🔧 No min_samples filtering applied");
+    console.log("No min_samples filtering applied");
   }
 
   const havingClause =
@@ -854,8 +854,8 @@ function buildHavingClause(queryParams) {
       ? `HAVING ${havingConditions.join(" AND ")}`
       : "";
 
-  console.log("🔧 Final HAVING clause:", havingClause);
-  console.log("🔧 Final HAVING args:", havingArgs);
+  console.log("Final HAVING clause:", havingClause);
+  console.log("Final HAVING args:", havingArgs);
 
   return { havingClause, havingArgs };
 }
