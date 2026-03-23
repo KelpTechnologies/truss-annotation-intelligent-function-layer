@@ -58,7 +58,7 @@ def handle_health(req_ctx):
         logger.error(f"Health check failed: {str(e)}")
         status = {"status": "unhealthy", "error": str(e), "stage": get_stage()}
 
-    response = create_response(200, {"component_type": "health_check", "data": [status], "metadata": {}}, methods="GET,OPTIONS")
+    response = create_response(200, {"component_type": "health_check", "data": [status], "metadata": {}})
     structured_logger.log_response(req_ctx, status_code=200)
     return response
 
