@@ -265,7 +265,13 @@ async function packageService(
         fs.copyFileSync(stageUrlsPath, destStageUrls);
         console.log(`     Copied stage_urls.py`);
       }
-      
+      const agentTelemetryPath = path.join(servicePath, "agent_telemetry.py");
+      if (fs.existsSync(agentTelemetryPath)) {
+        const destAgentTelemetry = path.join(tempDir, "agent_telemetry.py");
+        fs.copyFileSync(agentTelemetryPath, destAgentTelemetry);
+        console.log(`     Copied agent_telemetry.py`);
+      }
+
       // Copy all Python package directories (core, agent_*, vector-classifiers)
       // Note: dsl/ is legacy and not used by index.py
       const pythonPackages = [
