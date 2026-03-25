@@ -102,6 +102,7 @@ Resources:
                   - lambda:InvokeFunction
                 Resource:
                   - "arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-data-service-*"
+                  - "arn:aws:lambda:eu-west-2:193757560043:function:truss-data-service-*"
               - Effect: Allow
                 Action:
                   - xray:PutTraceSegments

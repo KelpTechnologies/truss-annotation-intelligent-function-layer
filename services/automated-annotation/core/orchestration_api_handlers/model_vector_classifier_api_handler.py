@@ -112,27 +112,46 @@ def classify_model(payload: dict):
     
     logger.info(f"Vector classifier result - model: {predicted_model}, root_model: {predicted_root_model}, confidence: {confidence}")
 
-    # Always lookup root from knowledge service
+    # Always lookup root from knowledge service (via direct Lambda invoke)
     root_lookup_result = None
     if predicted_model:
         logger.info(f"Looking up root for predicted model: {predicted_model}")
-        api_base_url = get_dsl_url()
-        api_key = os.getenv("DSL_API_KEY")
-        logger.info(f"Using DSL URL for stage '{get_stage()}': {api_base_url}")
-        
-        api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key, auth_headers=get_request_auth_headers())
         category = payload.get("category", "bags")
         partition = category
         root_type = "Bags" if category == "bags" else None
-        
-        root_lookup_result = lookup_root_from_child(
-            api_client=api_client,
-            property_type="model",
-            value=predicted_model,
-            brand=brand,
-            root_type=root_type,
-            partition=partition
-        )
+
+        from core.utils.lambda_invoke import invoke_dsl
+        try:
+            query_params = {
+                "property_type": "model",
+                "value": predicted_model,
+            }
+            if brand:
+                query_params["brand"] = brand
+            if root_type:
+                query_params["root_type"] = root_type
+
+            lookup_response = invoke_dsl(
+                "knowledge",
+                "GET",
+                f"/{partition}/knowledge/lookup-root",
+                query_params=query_params,
+            )
+
+            data = lookup_response.get("data", lookup_response)
+            if isinstance(data, list) and len(data) > 0:
+                data = data[0]
+
+            if data.get("found"):
+                root_lookup_result = {
+                    "root": data.get("root"),
+                    "root_id": data.get("root_id"),
+                    "child_id": data.get("model_id"),
+                }
+            else:
+                logger.info(f"No root found for model='{predicted_model}'")
+        except Exception as e:
+            logger.error(f"Root lookup failed for model='{predicted_model}': {e}")
         
         # Use lookup result if available, otherwise use predicted_root_model
         root_model = root_lookup_result.get('root') if root_lookup_result else predicted_root_model
