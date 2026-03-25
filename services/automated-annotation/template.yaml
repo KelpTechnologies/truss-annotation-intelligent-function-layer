@@ -99,6 +99,11 @@ Resources:
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-prompt-templates-prod/index/*"
               - Effect: Allow
                 Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - "arn:aws:lambda:eu-west-2:193757560043:function:truss-annotation-data-service-*"
+              - Effect: Allow
+                Action:
                   - xray:PutTraceSegments
                   - xray:PutTelemetryRecords
                   - xray:GetSamplingRules

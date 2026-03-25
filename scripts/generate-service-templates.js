@@ -207,6 +207,17 @@ ${dynamoActions.map((a) => `                  - ${a}`).join("\n")}
                   - !Sub "arn:aws:dynamodb:\${AWS::Region}:\${AWS::AccountId}:table/truss-image-processing-\${StageName}"`;
   }
 
+  // Add Lambda invoke permissions if specified in config
+  const lambdaInvokePermissions = config.deployment?.lambda_invoke_permissions || [];
+  if (lambdaInvokePermissions.length > 0) {
+    template += `
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+${lambdaInvokePermissions.map((arn) => `                  - "${arn}"`).join("\n")}`;
+  }
+
   // X-Ray tracing permissions
   template += `
               - Effect: Allow

@@ -418,60 +418,13 @@ def _ensure_gcp_adc():
 _request_auth_headers = {}
 
 def _get_signed_image_url(image: str) -> str:
-    """Get signed image URL from annotation-data-service-layer image-service."""
-    global _request_auth_headers
-    start_time = time.time()
-    logger.info(f"Fetching signed image URL for image ID: {image}")  # MIGRATION: image URL fetch
-    
-    api_base_url = get_annotation_dsl_url()
-    api_key = os.getenv("ANNOTATION_API_KEY")
-    
-    logger.info(f"Using ANNOTATION_DSL URL for stage '{get_stage()}': {api_base_url}")  # MIGRATION: image URL fetch
+    """Get signed image URL from annotation-data-service-layer image-service.
 
-    url = f"{api_base_url.rstrip('/')}/images/processed/{image}"
-    logger.debug(f"Image service URL: {url}")  # DECOMMISSION: URL debug
-    
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
-    
-    # First try to use pass-through auth from original request
-    if _request_auth_headers.get('x-api-key'):
-        headers['x-api-key'] = _request_auth_headers['x-api-key']
-        logger.debug("Using pass-through x-api-key from original request")  # MIGRATION: auth routing
-    elif _request_auth_headers.get('Authorization'):
-        headers['Authorization'] = _request_auth_headers['Authorization']
-        logger.debug("Using pass-through Authorization from original request")  # MIGRATION: auth routing
-    elif api_key:
-        # Fall back to configured API key
-        headers['x-api-key'] = api_key
-        logger.debug("Using configured ANNOTATION_API_KEY")  # MIGRATION: auth routing
-    else:
-        logger.warning("No authentication available for image service request")  # MIGRATION: auth routing
-        
-    try:
-        logger.debug(f"Making GET request to image service for image: {image}")  # MIGRATION: request with entity ID
-        response = requests.get(url, headers=headers, timeout=10)
-        elapsed_time = time.time() - start_time
-        logger.info(f"Image service response received in {elapsed_time:.2f}s - Status: {response.status_code}")  # MIGRATION: response timing
-        
-        response.raise_for_status()
-        
-        result = response.json()
-        logger.debug(f"Image service response: {json.dumps(result, default=str)[:500]}")  # DECOMMISSION: response dump
-        
-        data = result.get('data', result)
-        processed_image = data.get('processedImage', {})
-        download_url = processed_image.get('downloadUrl')
-        
-        if not download_url:
-            logger.error(f"No downloadUrl found in image service response for image '{image}'. Response: {json.dumps(result, default=str)[:500]}")  # MIGRATION: missing field
-            raise ValueError(f"No downloadUrl found in image service response for image '{image}'")
-        
-        logger.info(f"Successfully retrieved signed image URL for image {image} in {elapsed_time:.2f}s")  # MIGRATION: success with timing
-        return download_url
-    except requests.exceptions.RequestException as e:
-        elapsed_time = time.time() - start_time
-        logger.error(f"Failed to fetch image URL for {image} after {elapsed_time:.2f}s: {str(e)}")  # MIGRATION: error with entity ID
-        raise
+    Delegates to shared image_service utility which uses direct Lambda invocation
+    with internal auth (bypasses API Gateway).
+    """
+    from core.utils.image_service import get_signed_image_url
+    return get_signed_image_url(image)
 
 
 def _lookup_root_from_child(api_client: DSLAPIClient, property_type: str, value: str, brand: str = None, root_type: str = None, partition: str = "bags") -> dict:
