@@ -141,11 +141,8 @@ def lambda_handler(event, context):
     # Start structured logging for metrics (captures request timing)
     req_ctx = structured_logger.start_request(event)
     
-    logger.info("=" * 80)  # DECOMMISSION: separator
     logger.info(f"Lambda invocation started - Request ID: {request_id}")  # MIGRATION: request lifecycle
     logger.info(f"Event method: {event.get('httpMethod', 'UNKNOWN')}, path: {event.get('path', 'UNKNOWN')}")  # MIGRATION: routing
-    logger.debug(f"Full event: {json.dumps(event, default=str)[:1000]}")  # DECOMMISSION: event dump
-    
     # Extract auth headers from original request for pass-through to downstream services
     incoming_headers = event.get("headers") or {}
     auth_headers = {}
@@ -169,8 +166,6 @@ def lambda_handler(event, context):
         # Strip custom domain base path prefix if present (e.g., /agents from api.trussarchive.io/agents/...)
         if path.startswith("/agents/"):
             path = path[7:]  # Remove "/agents" prefix, keep leading "/"
-            logger.info(f"Stripped /agents prefix from path")  # DECOMMISSION: path strip detail
-        
         logger.info(f"Processing {method} request to {path}")  # MIGRATION: request routing
 
         # Handle OPTIONS (CORS preflight)
@@ -179,8 +174,6 @@ def lambda_handler(event, context):
 
         # Parse path segments
         segments = [segment for segment in path.strip("/").split("/") if segment]
-        logger.debug(f"Path segments: {segments}")  # DECOMMISSION: path segments debug
-
         # Route: POST /automations/annotation/{category}/classify/{target}
         # Handles both model and property classification
         if (
@@ -262,4 +255,3 @@ def lambda_handler(event, context):
     finally:
         total_elapsed = time.time() - request_start_time
         logger.info(f"Lambda invocation completed in {total_elapsed:.2f}s - Request ID: {request_id}")  # MIGRATION: completion timing
-        logger.info("=" * 80)  # DECOMMISSION: separator

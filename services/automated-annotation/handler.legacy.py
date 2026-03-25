@@ -108,13 +108,11 @@ def _response(status_code: int, body: dict, methods: str = "POST,GET,OPTIONS"):
 
 
 def _parse_body(event):
-    logger.debug("Parsing request body")  # DECOMMISSION: parse marker
     if not event.get("body"):
         logger.debug("No body found in event")  # MIGRATION: no body found
         return {}
     try:
         body = json.loads(event["body"]) if isinstance(event["body"], str) else event["body"]
-        logger.debug(f"Successfully parsed body: {json.dumps(body, default=str)[:500]}")  # DECOMMISSION: parsed body dump
         return body
     except Exception as e:
         logger.error(f"Failed to parse body: {str(e)}")  # MIGRATION: parse error
@@ -152,8 +150,6 @@ def _load_gcp_credentials_from_secrets():
     # Parse as JSON to validate and extract
     try:
         secret_data = json.loads(secret_string)
-        logger.debug(f"Secret parsed as JSON, keys: {list(secret_data.keys()) if isinstance(secret_data, dict) else 'not a dict'}")  # DECOMMISSION: secret keys debug
-        
         # If it's a dict, try to extract the service account JSON
         if isinstance(secret_data, dict):
             # NEW: Check for centralized 'bigquery' key (truss-platform-secrets structure)
@@ -233,7 +229,6 @@ def _get_platform_secrets():
 def _ensure_pinecone_api_key():
     """Ensure PINECONE_API_KEY environment variable is set from centralized secrets."""
     if os.getenv("PINECONE_API_KEY"):
-        logger.info("PINECONE_API_KEY already set in environment")  # DECOMMISSION: env var state
         return
     
     logger.info("Loading Pinecone API key from centralized secrets")  # MIGRATION: pinecone key
@@ -288,36 +283,26 @@ def _ensure_gcp_adc():
         raise ValueError("GCP credentials not available - cannot proceed with LLM classification")
 
     logger.info(f"Setting up GCP credentials at {creds_path}")  # MIGRATION: GCP setup
-    logger.debug(f"GCP credentials length: {len(sa_json)} chars")  # DECOMMISSION: credential format debug
-    
     # Parse JSON content
     if sa_json.strip().startswith("{"):
         content = sa_json
-        logger.debug("GCP credentials are JSON format")  # DECOMMISSION: credential format debug
     else:
         try:
             content = base64.b64decode(sa_json).decode("utf-8")
-            logger.debug("GCP credentials decoded from base64")  # DECOMMISSION: credential format debug
         except Exception as e:
             raise ValueError(f"Failed to decode base64 credentials: {str(e)}")
 
     # Validate JSON content and ensure private key has proper newlines
     try:
         creds_dict = json.loads(content)
-        logger.debug("Credentials JSON is valid")  # DECOMMISSION: credential format debug
-
         # Ensure private key has actual newlines (not escaped \n)
         if 'private_key' in creds_dict:
             private_key = creds_dict['private_key']
             # Replace escaped newlines with actual newlines if needed
             if '\\n' in private_key and '\n' not in private_key:
-                logger.debug("Converting escaped newlines in private key to actual newlines")  # DECOMMISSION: credential format debug
                 creds_dict['private_key'] = private_key.replace('\\n', '\n')
                 content = json.dumps(creds_dict)
-                logger.debug("Private key newlines fixed")  # DECOMMISSION: credential format debug
             elif '\n' in private_key:
-                logger.debug("Private key already has proper newlines")  # DECOMMISSION: credential format debug
-
         # Re-validate after potential modification
         json.loads(content)
     except json.JSONDecodeError as e:
@@ -326,8 +311,6 @@ def _ensure_gcp_adc():
     # Ensure directory exists
     creds_dir = os.path.dirname(creds_path)
     os.makedirs(creds_dir, exist_ok=True)
-    logger.debug(f"Created credentials directory: {creds_dir}")  # DECOMMISSION: credential format debug
-
     # Write credentials file with proper permissions (readable by owner only for security)
     with open(creds_path, "w", encoding="utf-8") as f:
         f.write(content)
@@ -383,8 +366,6 @@ def _ensure_gcp_adc():
         os.environ["GOOGLE_CLOUD_PROJECT"] = vertexai_project
         logger.info(f"Set GOOGLE_CLOUD_PROJECT={vertexai_project}")  # MIGRATION: GCP config
     else:
-        logger.debug(f"GOOGLE_CLOUD_PROJECT already set to {os.getenv('GOOGLE_CLOUD_PROJECT')}")  # DECOMMISSION: env state
-    
     # Also set VERTEXAI_PROJECT if not already set
     if not os.getenv("VERTEXAI_PROJECT"):
         os.environ["VERTEXAI_PROJECT"] = vertexai_project
@@ -441,16 +422,12 @@ def _lookup_root_from_child(api_client: DSLAPIClient, property_type: str, value:
             partition=partition
         )
         elapsed_time = time.time() - start_time
-        logger.debug(f"Lookup API response received in {elapsed_time:.2f}s: {json.dumps(lookup_result, default=str)[:500]}")  # DECOMMISSION: lookup debug
-        
         data = lookup_result.get('data', lookup_result)
         if isinstance(data, list) and len(data) > 0:
             data = data[0]
-            logger.debug(f"Extracted first item from list response")  # DECOMMISSION: lookup debug
         elif not isinstance(data, dict):
             data = lookup_result
-            logger.debug("Using lookup_result directly as data")  # DECOMMISSION: lookup debug
-            
+
         if not data.get('found'):
             logger.info(f"No root found for {property_type}='{value}' (lookup completed in {elapsed_time:.2f}s)")  # MIGRATION: lookup results
             return None
@@ -480,7 +457,7 @@ MIN_MODEL_CONFIDENCE_THRESHOLD = 57.14
 def _classify_model(payload: dict):
     """Classify model using a pre-computed image vector from the image-processing table."""
     start_time = time.time()
-    logger.info(f"Starting model classification - payload: {json.dumps(payload, default=str)}")  # DECOMMISSION: full payload dump
+    logger.info(f"Starting model classification")
     
     # Ensure Pinecone API key is available before classification
     _ensure_pinecone_api_key()
@@ -615,8 +592,6 @@ def _classify_property(category: str, target: str, request_payload: dict):
     if not text_dump:
         raise ValueError("'text_dump' is required for property classification")
 
-    logger.debug(f"Text dump length: {len(text_dump)} chars")  # DECOMMISSION: text dump size
-
     classification_payload = {
         "property": internal_property_name,
         "root_type_id": category_config["root_type_id"],
@@ -640,7 +615,6 @@ def _classify_property(category: str, target: str, request_payload: dict):
         try:
             original_value = primary_value
             primary_value = primary_value.split(":", 1)[1].strip()
-            logger.debug(f"Extracted value from ID format: '{original_value}' -> '{primary_value}'")  # DECOMMISSION: format conversion debug
         except Exception as e:
             logger.warning(f"Failed to parse ID format value '{primary_value}': {str(e)}")  # MIGRATION: parse error
 
@@ -648,7 +622,6 @@ def _classify_property(category: str, target: str, request_payload: dict):
     if target and target.lower() in ['color', 'colour'] and isinstance(primary_value, str):
         if primary_value.lower() == 'beige':
             primary_value = 'Neutrals'
-            logger.info(f"Replaced 'Beige' with 'Neutrals' for color classification in _classify_property")  # DECOMMISSION: format conversion debug
 
     # Lookup root for model and material properties
     root_lookup_result = None
@@ -728,8 +701,6 @@ def _classify_item(payload: dict):
     text_metadata = _build_text_metadata(payload)
     
     logger.info(f"Classification parameters - property: {property_name}, root_type_id: {root_type_id}, input_mode: {input_mode}, brand: {brand}")  # MIGRATION: LLM params
-    logger.debug(f"Text metadata length: {len(text_metadata) if text_metadata else 0} chars")  # DECOMMISSION: input size
-
     # Ensure GCP Application Default Credentials are set up (required for Vertex AI)
     logger.info("Ensuring GCP Application Default Credentials")  # MIGRATION: credential validation
     _ensure_gcp_adc()
@@ -769,8 +740,7 @@ def _classify_item(payload: dict):
 
             logger.info(f"Credentials file validated - contains all required fields")  # MIGRATION: credential validation
             logger.info(f"Service account: {creds_check.get('client_email')}, Project: {creds_check.get('project_id')}")  # MIGRATION: credential validation
-            logger.debug(f"Private key length: {len(private_key)} chars, starts with BEGIN: {private_key.startswith('-----BEGIN')}")  # DECOMMISSION: key format debug
-    except json.JSONDecodeError as e:
+            except json.JSONDecodeError as e:
         logger.error(f"Failed to parse credentials file as JSON: {str(e)}")  # MIGRATION: credential validation
         raise ValueError(f"Credentials file is not valid JSON: {str(e)}")
     except Exception as e:
@@ -787,8 +757,6 @@ def _classify_item(payload: dict):
     logger.info(f"Classifier config loaded in {config_elapsed:.2f}s")  # MIGRATION: config/template loading
     
     config = api_response.get('data', api_response)
-    logger.debug(f"Classifier config: {json.dumps(config, default=str)[:500]}")  # DECOMMISSION: config dump
-
     template_id = config.get('prompt_template')
     if not template_id:
         logger.error(f"No prompt_template in config: {json.dumps(config, default=str)}")  # MIGRATION: config/template loading
@@ -807,8 +775,6 @@ def _classify_item(payload: dict):
     logger.info(f"Context data loaded in {context_elapsed:.2f}s")  # MIGRATION: config/template loading
     
     context_size = len(json.dumps(context_data, default=str)) if context_data else 0
-    logger.debug(f"Context data size: {context_size} chars")  # DECOMMISSION: data size
-
     model_name = config.get('model')
     if not model_name:
         raise ValueError("Model name not specified in classifier config")
@@ -839,10 +805,6 @@ def _classify_item(payload: dict):
         location = os.getenv('VERTEXAI_LOCATION')
     if not location:
         location = 'us-central1'  # Default VertexAI location (like old system)
-        logger.info(f"Using default VertexAI location: {location}")  # DECOMMISSION: location selection
-    else:
-        logger.info(f"Using VertexAI location: {location}")  # DECOMMISSION: location selection
-    
     logger.info(f"Initializing LLM classifier - model: {model_name}, project: {project_id}, location: {location}")  # MIGRATION: LLM init
     classifier = LLMAnnotationAgent(
         model_name=model_name,
@@ -878,8 +840,6 @@ def _classify_item(payload: dict):
     primary = result.primary
     alternatives = result.alternatives
     
-    logger.debug(f"Raw result - primary: {primary}, alternatives: {alternatives}, confidence: {result.confidence}")  # DECOMMISSION: raw result dump
-
     if resolve_names:
         logger.info("Resolving names from ID mapping")  # MIGRATION: name resolution
         id_map = load_property_id_mapping_api(context_data.get('data', context_data))
@@ -894,7 +854,6 @@ def _classify_item(payload: dict):
                         if property_name and property_name.lower() in ['color', 'colour']:
                             if name.lower() == 'beige':
                                 name = 'Neutrals'
-                                logger.info(f"Replaced 'Beige' with 'Neutrals' for color classification")  # DECOMMISSION: business rule
                         return f"ID {pred_id}: {name}"
                     return val
             except Exception as e:
@@ -904,8 +863,6 @@ def _classify_item(payload: dict):
 
         primary = _fmt(primary)
         alternatives = [_fmt(a) for a in alternatives]
-        logger.debug(f"Resolved names - primary: {primary}, alternatives: {alternatives}")  # DECOMMISSION: resolved names dump
-
     total_elapsed = time.time() - start_time
     response = {
         "garment_id": garment_id,
@@ -934,12 +891,9 @@ def lambda_handler(event, context):
     # Start structured logging for metrics (captures request timing)
     req_ctx = structured_logger.start_request(event)
     
-    logger.info("=" * 80)  # DECOMMISSION: separator
     # MIGRATION: request lifecycle
     logger.info(f"Lambda invocation started - Request ID: {request_id}")
     logger.info(f"Event method: {event.get('httpMethod', 'UNKNOWN')}, path: {event.get('path', 'UNKNOWN')}")
-    logger.debug(f"Full event: {json.dumps(event, default=str)[:1000]}")  # DECOMMISSION: event dump
-    
     # Extract auth headers from original request for pass-through to downstream services
     incoming_headers = event.get("headers") or {}
     _request_auth_headers = {}
@@ -960,19 +914,14 @@ def lambda_handler(event, context):
         # Strip custom domain base path prefix if present (e.g., /agents from api.trussarchive.io/agents/...)
         if path.startswith("/agents/"):
             path = path[7:]  # Remove "/agents" prefix, keep leading "/"
-            logger.info(f"Stripped /agents prefix from path")  # DECOMMISSION: path strip
-        
         logger.info(f"Processing {method} request to {path}")  # MIGRATION: routing
 
         if method == "OPTIONS":
-            logger.info("Handling OPTIONS request")  # DECOMMISSION: OPTIONS marker
             response = _response(200, {"ok": True})
             structured_logger.log_response(req_ctx, status_code=200)
             return response
 
         segments = [segment for segment in path.strip("/").split("/") if segment]
-        logger.debug(f"Path segments: {segments}")  # DECOMMISSION: path segments
-
         if (
             len(segments) >= 5
             and segments[0] == "automations"
@@ -1071,7 +1020,6 @@ def lambda_handler(event, context):
                 client = DSLAPIClient(base_url=api_base_url, api_key=api_key, auth_headers=_request_auth_headers)
                 status = client.health_check()
                 status["stage"] = get_stage()
-                logger.info(f"Health check result: {json.dumps(status, default=str)}")  # DECOMMISSION: health status dump
             except Exception as e:
                 logger.error(f"Health check failed: {str(e)}")  # MIGRATION: health check
                 status = {"status": "unhealthy", "error": str(e), "stage": get_stage()}
@@ -1098,4 +1046,3 @@ def lambda_handler(event, context):
     finally:
         total_elapsed = time.time() - request_start_time
         logger.info(f"Lambda invocation completed in {total_elapsed:.2f}s - Request ID: {request_id}")  # MIGRATION: completion timing
-        logger.info("=" * 80)  # DECOMMISSION: separator

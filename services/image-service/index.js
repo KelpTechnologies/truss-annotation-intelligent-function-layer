@@ -30,15 +30,6 @@ const PROCESSED_BUCKET = `truss-annotation-image-processed-${STAGE}`;
 const PROCESSING_TABLE = `truss-image-processing-${STAGE}`;
 const CLOUDFRONT_URL = `https://truss-annotation-image-processed-${STAGE}.s3.eu-west-2.amazonaws.com`;
 
-// DECOMMISSION: config dump
-console.log("Configuration:", {
-  STAGE,
-  SOURCE_BUCKET,
-  PROCESSED_BUCKET,
-  PROCESSING_TABLE,
-  CLOUDFRONT_URL,
-});
-
 /**
  * Main Lambda handler for image service API endpoints
  */
@@ -46,25 +37,10 @@ exports.handler = async (event) => {
   // Start structured logging for metrics (captures request timing)
   const reqCtx = structuredLogger.startRequest(event);
 
-  // DECOMMISSION: full event dump
-  console.log(
-    "Image service Lambda triggered:",
-    JSON.stringify(event, null, 2)
-  );
-
   try {
     const { httpMethod, path, pathParameters, queryStringParameters, body } =
       event;
     const pathInfo = parsePath(path);
-
-    // DECOMMISSION: verbose request details
-    console.log("Request details:", {
-      httpMethod,
-      path,
-      pathInfo,
-      queryStringParameters,
-      body: body ? JSON.parse(body) : null,
-    });
 
     // Route requests based on HTTP method and path
     let response;
@@ -121,8 +97,6 @@ function parsePath(path) {
  * Handle GET requests
  */
 async function handleGetRequest(pathInfo, queryParams) {
-  console.log("GET request handler:", { pathInfo, queryParams }); // DECOMMISSION: routing noise
-
   switch (pathInfo.endpoint) {
     case "upload-url":
       return await generateUploadUrl(queryParams);
@@ -230,10 +204,6 @@ async function getProcessingStatus(processingId) {
       return createResponse(400, { error: "Processing ID is required" });
     }
 
-    // DECOMMISSION: debug spam
-    console.log("Getting processing status for ID:", processingId);
-    console.log("Using table:", PROCESSING_TABLE);
-
     const params = {
       TableName: PROCESSING_TABLE,
       Key: {
@@ -241,13 +211,7 @@ async function getProcessingStatus(processingId) {
       },
     };
 
-    // DECOMMISSION: full params dump
-    console.log("DynamoDB query params:", JSON.stringify(params, null, 2));
-
     const result = await dynamodb.send(new GetCommand(params));
-
-    // DECOMMISSION: full result dump
-    console.log("DynamoDB result:", JSON.stringify(result, null, 2));
 
     if (!result.Item) {
       console.log("No item found for processingId:", processingId); // MIGRATION: entity not found
@@ -324,24 +288,12 @@ async function getProcessedImages(processingId) {
 
     const result = await dynamodb.send(new GetCommand(params));
 
-    // DECOMMISSION: full object dump
-    console.log(
-      "DynamoDB record for processed images:",
-      JSON.stringify(result.Item, null, 2)
-    );
-
     if (!result.Item) {
       return createResponse(404, { error: "Processing record not found" });
     }
 
     // Return the single processed image
     const processedImage = result.Item.processedImage;
-
-    // DECOMMISSION: full object dump
-    console.log(
-      "Processed image from record:",
-      JSON.stringify(processedImage, null, 2)
-    );
 
     if (!processedImage) {
       return createResponse(404, { error: "No processed image found" });
@@ -538,19 +490,12 @@ function extractSizeType(key) {
  */
 async function debugTable() {
   try {
-    // DECOMMISSION: debug endpoint noise
-    console.log("Debug: Listing all records in table:", PROCESSING_TABLE);
-
     const params = {
       TableName: PROCESSING_TABLE,
       Limit: 10,
     };
 
     const result = await dynamodb.send(new ScanCommand(params));
-
-    // DECOMMISSION: debug endpoint noise
-    console.log("Debug: Found", result.Count, "records");
-    console.log("Debug: Records:", JSON.stringify(result.Items, null, 2));
 
     return createResponse(200, {
       tableName: PROCESSING_TABLE,
@@ -559,7 +504,7 @@ async function debugTable() {
       lastEvaluatedKey: result.LastEvaluatedKey,
     });
   } catch (error) {
-    console.error("Debug error:", error); // DECOMMISSION: debug endpoint noise
+    console.error("Debug table scan error:", error);
     return createResponse(500, {
       error: "Debug failed",
       details: error.message,

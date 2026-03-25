@@ -27,19 +27,6 @@ const VECTORIZATION_API_URL =
   "https://image-vectorization-api-gpu-94434742359.us-central1.run.app/vectorize";
 const VECTORIZATION_API_KEY = process.env.VECTORIZATION_API_KEY || null;
 
-// Log configuration on cold start (only log non-sensitive values)
-// DECOMMISSION: config spam
-console.log("Image Processing Lambda Configuration:", {
-  STAGE,
-  SOURCE_BUCKET,
-  PROCESSED_BUCKET,
-  PROCESSING_TABLE,
-  VECTORIZATION_API_URL,
-  VECTORIZATION_API_KEY_PRESENT: !!VECTORIZATION_API_KEY,
-  NODE_ENV: process.env.NODE_ENV || "production",
-  AWS_REGION: process.env.AWS_REGION || "not-set",
-});
-
 // Validate required configuration
 if (!SOURCE_BUCKET) {
   console.error("ERROR: SOURCE_BUCKET environment variable is not set"); // MIGRATION: critical env var error
@@ -57,17 +44,6 @@ if (!PROCESSING_TABLE) {
  */
 exports.handler = async (event) => {
   const startTime = Date.now();
-  // DECOMMISSION: separators + startup
-  console.log("=".repeat(80));
-  console.log("Image processing Lambda triggered");
-  console.log("Event summary:", {
-    recordCount: event.Records?.length || 0,
-    eventSource: event.Records?.[0]?.eventSource || "unknown",
-    eventTime: event.Records?.[0]?.eventTime || "unknown",
-  });
-  // DECOMMISSION: full event dump + separator
-  console.log("Full event:", JSON.stringify(event, null, 2));
-  console.log("=".repeat(80));
 
   // Validate event structure
   if (
@@ -117,15 +93,11 @@ exports.handler = async (event) => {
     // Process each S3 record
     const results = await Promise.all(
       s3Records.map((record, index) => {
-        console.log(`Processing record ${index + 1}/${s3Records.length}`); // DECOMMISSION: per-record progress
         return processImageRecord(record);
       })
     );
 
     const processingTime = Date.now() - startTime;
-    // DECOMMISSION: separator + success marker
-    console.log("=".repeat(80));
-    console.log("Processing completed successfully");
     // MIGRATION: batch summary
     console.log("Summary:", {
       totalRecords: s3Records.length,
@@ -134,10 +106,6 @@ exports.handler = async (event) => {
       totalProcessingTimeMs: processingTime,
       averageTimePerRecordMs: Math.round(processingTime / s3Records.length),
     });
-    // DECOMMISSION: results dump + separator
-    console.log("Results:", JSON.stringify(results, null, 2));
-    console.log("=".repeat(80));
-
     return {
       statusCode: 200,
       body: JSON.stringify({
@@ -151,7 +119,6 @@ exports.handler = async (event) => {
     };
   } catch (error) {
     const processingTime = Date.now() - startTime;
-    console.error("=".repeat(80)); // DECOMMISSION: error separator
     // MIGRATION: fatal error with details
     console.error("FATAL ERROR processing images");
     console.error("Error details:", {
@@ -160,7 +127,6 @@ exports.handler = async (event) => {
       name: error.name,
       processingTimeMs: processingTime,
     });
-    console.error("=".repeat(80)); // DECOMMISSION: error separator
     throw error;
   }
 };
@@ -173,7 +139,6 @@ async function processImageRecord(record) {
   const bucket = record.s3.bucket.name;
   const key = decodeURIComponent(record.s3.object.key.replace(/\+/g, " "));
 
-  console.log("-".repeat(80)); // DECOMMISSION: separator
   // MIGRATION: record routing + metadata
   console.log(`Processing image record: ${bucket}/${key}`);
   console.log("S3 Record details:", {
@@ -198,8 +163,6 @@ async function processImageRecord(record) {
     );
 
     // Update processing status
-    // DECOMMISSION: status marker
-    console.log(`Updating DynamoDB status to 'processing' for ${processingId}`);
     await updateProcessingStatus(processingId, key, "processing");
 
     // Download image from source bucket
@@ -213,7 +176,6 @@ async function processImageRecord(record) {
     );
 
     // Process the image
-    console.log(`Starting image processing with Sharp`); // DECOMMISSION: step marker
     const processStartTime = Date.now();
     const {
       processedImage,
@@ -295,8 +257,6 @@ async function processImageRecord(record) {
     }
 
     // Update processing status to completed
-    // DECOMMISSION: status marker
-    console.log(`Updating DynamoDB status to 'completed' for ${processingId}`);
     await updateProcessingStatus(
       processingId,
       key,
@@ -308,7 +268,6 @@ async function processImageRecord(record) {
 
     const totalTime = Date.now() - recordStartTime;
     console.log(`Record processing completed in ${totalTime}ms`); // MIGRATION: record timing
-    console.log("-".repeat(80)); // DECOMMISSION: separator
 
     return {
       processingId,
@@ -339,8 +298,6 @@ async function processImageRecord(record) {
     const processingId = filename.split(".")[0]; // Remove file extension
 
     // Update processing status to failed
-    // DECOMMISSION: status marker
-    console.log(`Updating DynamoDB status to 'failed' for ${processingId}`);
     await updateProcessingStatus(
       processingId,
       key,
@@ -349,7 +306,6 @@ async function processImageRecord(record) {
       error.message
     );
 
-    console.error("-".repeat(80)); // DECOMMISSION: separator
     throw error;
   }
 }
@@ -476,13 +432,6 @@ async function processImage(imageBuffer, originalKey) {
         // MIGRATION: AVIF error
         console.error(
           "AVIF format may not be supported by Sharp in this Lambda environment."
-        );
-        // DECOMMISSION: instructional text
-        console.error(
-          "Possible solutions:",
-          "1. Ensure Sharp is built with AVIF support (requires libavif)",
-          "2. Update Sharp to latest version with AVIF support",
-          "3. Pre-convert AVIF images before uploading"
         );
       }
 
@@ -627,7 +576,6 @@ async function vectorizeImage(jpegBuffer, originalKey, processingId) {
     }
 
     // Get image metadata for logging
-    console.log("Extracting image metadata for vectorization"); // DECOMMISSION: step marker
     const metadata = await sharp(jpegBuffer).metadata();
     // MIGRATION: buffer metadata
     console.log("JPEG buffer metadata for vectorization:", {
@@ -644,12 +592,6 @@ async function vectorizeImage(jpegBuffer, originalKey, processingId) {
     const contentType = "image/jpeg";
     const baseName = originalKey.replace(/\.[^/.]+$/, "");
     const filename = `${baseName.split("/").pop() || "image"}.jpg`;
-
-    console.log("Preparing multipart form-data:", { // DECOMMISSION: request prep
-      filename,
-      contentType,
-      bufferSize: jpegBuffer.length,
-    });
 
     // Create multipart form-data with proper 3-tuple format: (filename, buffer, content-type)
     // This is CRITICAL to avoid the 500 error from the API
@@ -751,7 +693,7 @@ async function vectorizeImage(jpegBuffer, originalKey, processingId) {
         timeout: error.config?.timeout,
       });
     } else {
-      console.error("Error setting up request:", error.message); // DECOMMISSION: generic error
+      console.error("Error setting up vectorization request:", error.message);
     }
 
     return {
@@ -798,7 +740,6 @@ async function updateProcessingStatus(
 
   if (processedImage) {
     params.Item.processedImage = processedImage;
-    console.log("Added processedImage to DynamoDB item"); // DECOMMISSION: verbose field tracking
   }
 
   if (error) {
@@ -814,11 +755,6 @@ async function updateProcessingStatus(
       if (vectorResult.timings) {
         params.Item.vectorizationTimings = vectorResult.timings;
       }
-      console.log("Added vectorization result to DynamoDB:", { // DECOMMISSION: verbose field tracking
-        dimension: vectorResult.dimension,
-        vectorLength: vectorResult.vector?.length,
-        hasTimings: !!vectorResult.timings,
-      });
     } else {
       // Store error information if vectorization failed
       params.Item.vectorizationError = {
@@ -827,21 +763,10 @@ async function updateProcessingStatus(
         statusText: vectorResult.statusText,
         details: vectorResult.details,
       };
-      // DECOMMISSION: verbose field tracking
-      console.log(
-        "Added vectorization error to DynamoDB:",
-        params.Item.vectorizationError
-      );
     }
   }
 
   try {
-    console.log("DynamoDB put request:", { // DECOMMISSION: verbose field tracking
-      table: PROCESSING_TABLE,
-      itemKeys: Object.keys(params.Item),
-      itemSize: JSON.stringify(params.Item).length,
-    });
-
     await dynamodb.send(new PutCommand(params));
 
     // MIGRATION: DB update confirmation
