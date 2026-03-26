@@ -2,6 +2,12 @@
  * Common constants used across all services
  */
 
+// Field mappings — imported from single source of truth
+const {
+  FIELD_MAPPINGS,
+  GROUP_BY_FIELDS,
+} = require("./field-dictionary");
+
 // Database configuration
 const DATABASE_CONFIG = {
   NAME: "api_staging",
@@ -80,48 +86,7 @@ const CONFIDENCE_METRICS = {
   CONFIDENCE_LEVEL_99: 0.99,
 };
 
-// Valid group by fields mapping
-const GROUP_BY_FIELDS = {
-  brand: "brand",
-  type: "type",
-  material: "material",
-  color: "colour",
-  condition: "condition",
-  size: "size",
-  vendor: "vendor",
-  gender: "gender",
-  model: "model",
-  decade: "decade",
-  location: "sold_location",
-  hardware: "hardware",
-  monthly: "listed_date",
-  // Root taxonomy fields
-  root_model: "root_model",
-  root_material: "root_material",
-  root_type: "root_type",
-  root_hardware: "root_hardware",
-};
-const FIELD_MAPPINGS = {
-  brand: "brand",
-  type: "type",
-  material: "material",
-  color: "colour",
-  condition: "condition",
-  size: "size",
-  vendor: "vendor",
-  gender: "gender",
-  model: "model",
-  decade: "decade",
-  location: "sold_location",
-  hardware: "hardware",
-  key_word: "listing_title", // maps to listing_title for text search
-  monthly: "listed_date",
-  // Root taxonomy fields
-  root_model: "root_model",
-  root_material: "root_material",
-  root_type: "root_type",
-  root_hardware: "root_hardware",
-};
+// GROUP_BY_FIELDS and FIELD_MAPPINGS imported from field-dictionary.js above
 
 // Item types for filtering
 const ITEM_TYPES = {

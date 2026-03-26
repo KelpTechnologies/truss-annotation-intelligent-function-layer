@@ -2,6 +2,12 @@
  * Common constants used across all services
  */
 
+// Field mappings — imported from single source of truth
+const {
+  FIELD_MAPPINGS,
+  GROUP_BY_FIELDS,
+} = require("./field-dictionary");
+
 // Database configuration
 const DATABASE_CONFIG = {
   NAME: "api_staging",
@@ -10,6 +16,47 @@ const DATABASE_CONFIG = {
   TIMEOUT: 60000,
   SSL: false,
 };
+
+// BigQuery dataset mapping by stage
+// Maps deployment stage to BigQuery dataset name
+const BIGQUERY_DATASETS = {
+  dev: "api_dev",
+  develop: "api_dev",
+  staging: "api",
+  prod: "api",
+  production: "api",
+  default: "api_staging", // Fallback for unknown stages
+};
+
+/**
+ * Gets the BigQuery dataset name for the current stage
+ * @param {string|null} stageOverride - Optional stage override (defaults to STAGE env var)
+ * @returns {string} The dataset name for the current stage
+ */
+function getBigQueryDataset(stageOverride = null) {
+  const stage = stageOverride || process.env.STAGE || "staging";
+  return BIGQUERY_DATASETS[stage.toLowerCase()] || BIGQUERY_DATASETS.default;
+}
+
+// Postgres schema mapping by stage (mirrors BigQuery dataset mapping)
+const POSTGRES_SCHEMAS = {
+  dev: "api_dev",
+  develop: "api_dev",
+  staging: "api",
+  prod: "api",
+  production: "api",
+  default: "api_staging",
+};
+
+/**
+ * Gets the Postgres schema name for the current stage
+ * @param {string|null} stageOverride - Optional stage override
+ * @returns {string} Schema name
+ */
+function getPostgresSchema(stageOverride = null) {
+  const stage = stageOverride || process.env.STAGE || "staging";
+  return POSTGRES_SCHEMAS[stage.toLowerCase()] || POSTGRES_SCHEMAS.default;
+}
 
 // Pagination defaults
 const PAGINATION = {
@@ -39,38 +86,7 @@ const CONFIDENCE_METRICS = {
   CONFIDENCE_LEVEL_99: 0.99,
 };
 
-// Valid group by fields mapping
-const GROUP_BY_FIELDS = {
-  brand: "brand",
-  type: "type",
-  material: "material",
-  color: "colour",
-  condition: "condition",
-  size: "size",
-  vendor: "vendor",
-  gender: "gender",
-  model: "model",
-  decade: "decade",
-  location: "sold_location",
-  hardware: "hardware",
-  monthly: "listed_date",
-};
-const FIELD_MAPPINGS = {
-  brand: "brand",
-  type: "type",
-  material: "material",
-  color: "colour",
-  condition: "condition",
-  size: "size",
-  vendor: "vendor",
-  gender: "gender",
-  model: "model",
-  decade: "decade",
-  location: "sold_location",
-  hardware: "hardware",
-  key_word: "listing_title", // maps to listing_title for text search
-  monthly: "listed_date",
-};
+// GROUP_BY_FIELDS and FIELD_MAPPINGS imported from field-dictionary.js above
 
 // Item types for filtering
 const ITEM_TYPES = {
@@ -191,6 +207,10 @@ const CORS_HEADERS = {
 
 module.exports = {
   DATABASE_CONFIG,
+  BIGQUERY_DATASETS,
+  getBigQueryDataset,
+  POSTGRES_SCHEMAS,
+  getPostgresSchema,
   PAGINATION,
   SORT_ORDERS,
   QUERY_MODES,

@@ -52,7 +52,7 @@ logger.info(f"   ANNOTATION_IFL_API_BASE_URL: {get_annotation_ifl_url()}")
 #    - Returns: model, model_id, root_model, root_model_id, confidence
 #
 # 2. POST /automations/annotation/{category}/classify/{property}
-#    - Classify a property (type, material, colour, etc.) using LLM
+#    - Classify a property (type, material, color, etc.) using LLM
 #    - Mapped to: New agent system via orchestrator
 #    - Supports both single-item and batch processing modes
 #    - Single mode: Standard payload with property fields

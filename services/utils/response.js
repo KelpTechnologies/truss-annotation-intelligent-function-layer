@@ -34,7 +34,7 @@ const CORS_CONFIG = {
  * @param {string} origin - Request origin
  * @returns {object} An object containing CORS headers.
  */
-function getCorsHeaders(origin = "*") {
+function getCorsHeaders(origin = "*", options = {}) {
   const headers = {
     "Access-Control-Allow-Methods": CORS_CONFIG.allowedMethods.join(","),
     "Access-Control-Allow-Headers": CORS_CONFIG.allowedHeaders.join(","),
@@ -42,6 +42,11 @@ function getCorsHeaders(origin = "*") {
     "Content-Type": "application/json; charset=utf-8",
     ...SECURITY_HEADERS,
   };
+
+  // Include correlation ID in response headers for tracing
+  if (options.correlationId) {
+    headers["x-correlation-id"] = options.correlationId;
+  }
 
   // Handle CORS origin
   if (CORS_CONFIG.allowedOrigins.includes("*")) {
@@ -140,7 +145,10 @@ function createErrorResponse(
   statusCode = 500,
   additionalInfo = {}
 ) {
-  const headers = getCorsHeaders();
+  const correlationId =
+    additionalInfo.correlationId ||
+    `corr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const headers = getCorsHeaders("*", { correlationId });
   const timestamp = new Date().toISOString();
 
   // Determine error type and status code
@@ -156,6 +164,7 @@ function createErrorResponse(
       details: errorInfo.details || null,
       timestamp: timestamp,
       request_id: generateRequestId(),
+      correlation_id: correlationId,
       service: config.service.name,
       endpoint: additionalInfo.endpoint || "unknown",
       ...additionalInfo,
