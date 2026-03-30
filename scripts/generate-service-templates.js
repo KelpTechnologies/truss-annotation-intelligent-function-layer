@@ -67,6 +67,15 @@ function generateCloudFormationTemplate(
 Transform: AWS::Serverless-2016-10-31
 Description: "${config.service.description}"
 
+Mappings:
+  StageToDbStage:
+    dev:
+      DbStage: staging
+    staging:
+      DbStage: prod
+    prod:
+      DbStage: prod
+
 Parameters:
   StageName:
     Type: String
@@ -168,12 +177,17 @@ Resources:
                 Action:
 ${dynamoActions.map((a) => `                  - ${a}`).join("\n")}
                 Resource:`;
+    // Uses DbStage mapping: dev->staging, staging->prod, prod->prod
     config.database.tables.forEach((table) => {
       if (table.includes("${STAGE}")) {
-        const tableName = table.replace("${STAGE}", "${StageName}");
+        const tableName = table.replace("${STAGE}", "${DbStage}");
         template += `
-                  - !Sub "arn:aws:dynamodb:${config.aws.region}:${config.aws.account_id}:table/${tableName}"
-                  - !Sub "arn:aws:dynamodb:${config.aws.region}:${config.aws.account_id}:table/${tableName}/index/*"`;
+                  - !Sub
+                    - "arn:aws:dynamodb:${config.aws.region}:${config.aws.account_id}:table/${tableName}"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
+                  - !Sub
+                    - "arn:aws:dynamodb:${config.aws.region}:${config.aws.account_id}:table/${tableName}/index/*"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]`;
       } else {
         template += `
                   - "arn:aws:dynamodb:${config.aws.region}:${config.aws.account_id}:table/${table}"
@@ -182,6 +196,7 @@ ${dynamoActions.map((a) => `                  - ${a}`).join("\n")}
     });
   }
 
+  // Uses DbStage mapping: dev->staging, staging->prod, prod->prod
   if (requiresImageProcessing) {
     template += `
               - Effect: Allow
@@ -191,10 +206,18 @@ ${dynamoActions.map((a) => `                  - ${a}`).join("\n")}
                   - s3:DeleteObject
                   - s3:ListBucket
                 Resource:
-                  - !Sub "arn:aws:s3:::truss-annotation-image-source-\${StageName}"
-                  - !Sub "arn:aws:s3:::truss-annotation-image-source-\${StageName}/*"
-                  - !Sub "arn:aws:s3:::truss-annotation-image-processed-\${StageName}"
-                  - !Sub "arn:aws:s3:::truss-annotation-image-processed-\${StageName}/*"
+                  - !Sub
+                    - "arn:aws:s3:::truss-annotation-image-source-\${DbStage}"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
+                  - !Sub
+                    - "arn:aws:s3:::truss-annotation-image-source-\${DbStage}/*"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
+                  - !Sub
+                    - "arn:aws:s3:::truss-annotation-image-processed-\${DbStage}"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
+                  - !Sub
+                    - "arn:aws:s3:::truss-annotation-image-processed-\${DbStage}/*"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
@@ -204,7 +227,9 @@ ${dynamoActions.map((a) => `                  - ${a}`).join("\n")}
                   - dynamodb:Query
                   - dynamodb:Scan
                 Resource:
-                  - !Sub "arn:aws:dynamodb:\${AWS::Region}:\${AWS::AccountId}:table/truss-image-processing-\${StageName}"`;
+                  - !Sub
+                    - "arn:aws:dynamodb:\${AWS::Region}:\${AWS::AccountId}:table/truss-image-processing-\${DbStage}"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]`;
   }
 
   // Add Lambda invoke permissions if specified in config
@@ -267,6 +292,7 @@ ${layers}`;
       Environment:
         Variables:
           STAGE: !Ref StageName
+          DB_STAGE: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
           SERVICE_NAME: "${config.service.name}"
           LAYER_NAME: "${LAYER_CONFIG.layerName}"
           TRUSS_SECRETS_ARN: "arn:aws:secretsmanager:${LAYER_CONFIG.region}:${LAYER_CONFIG.accountId}:secret:truss-platform-secrets-yVuz1R"`;
@@ -283,11 +309,18 @@ ${layers}`;
           DB_HOST: !Ref DatabaseHost`;
   }
 
+  // Uses DbStage mapping: dev->staging, staging->prod, prod->prod
   if (requiresImageProcessing) {
     template += `
-          SOURCE_BUCKET: !Sub "truss-annotation-image-source-\${StageName}"
-          PROCESSED_BUCKET: !Sub "truss-annotation-image-processed-\${StageName}"
-          PROCESSING_TABLE: !Sub "truss-image-processing-\${StageName}"`;
+          SOURCE_BUCKET: !Sub
+            - "truss-annotation-image-source-\${DbStage}"
+            - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
+          PROCESSED_BUCKET: !Sub
+            - "truss-annotation-image-processed-\${DbStage}"
+            - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
+          PROCESSING_TABLE: !Sub
+            - "truss-image-processing-\${DbStage}"
+            - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]`;
   }
 
   template += `

@@ -2,6 +2,15 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: "Automated annotation service using agent architecture for classification tasks. Supports vector-based model classification and LLM-based property classification via orchestration handlers."
 
+Mappings:
+  StageToDbStage:
+    dev:
+      DbStage: staging
+    staging:
+      DbStage: prod
+    prod:
+      DbStage: prod
+
 Parameters:
   StageName:
     Type: String
@@ -55,8 +64,12 @@ Resources:
                   - dynamodb:UpdateItem
                   - dynamodb:DeleteItem
                 Resource:
-                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-${StageName}"
-                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-${StageName}/index/*"
+                  - !Sub
+                    - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-${DbStage}"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
+                  - !Sub
+                    - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-${DbStage}/index/*"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-dev"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-dev/index/*"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-staging"
@@ -65,32 +78,48 @@ Resources:
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-image-processing-prod/index/*"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/model_visual_classifier_nodes"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/model_visual_classifier_nodes/index/*"
-                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-${StageName}"
-                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-${StageName}/index/*"
+                  - !Sub
+                    - "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-${DbStage}"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
+                  - !Sub
+                    - "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-${DbStage}/index/*"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-dev"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-dev/index/*"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-staging"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-staging/index/*"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-prod"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/linesheet-upload-csv-configs-prod/index/*"
-                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-${StageName}"
-                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-${StageName}/index/*"
+                  - !Sub
+                    - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-${DbStage}"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
+                  - !Sub
+                    - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-${DbStage}/index/*"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-dev"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-dev/index/*"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-staging"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-staging/index/*"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-prod"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-configs-prod/index/*"
-                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-${StageName}"
-                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-${StageName}/index/*"
+                  - !Sub
+                    - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-${DbStage}"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
+                  - !Sub
+                    - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-${DbStage}/index/*"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-dev"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-dev/index/*"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-staging"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-staging/index/*"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-prod"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-schemas-prod/index/*"
-                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-prompt-templates-${StageName}"
-                  - !Sub "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-prompt-templates-${StageName}/index/*"
+                  - !Sub
+                    - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-prompt-templates-${DbStage}"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
+                  - !Sub
+                    - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-prompt-templates-${DbStage}/index/*"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-prompt-templates-dev"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-prompt-templates-dev/index/*"
                   - "arn:aws:dynamodb:eu-west-2:193757560043:table/truss-agent-prompt-templates-staging"
@@ -132,6 +161,7 @@ Resources:
       Environment:
         Variables:
           STAGE: !Ref StageName
+          DB_STAGE: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
           SERVICE_NAME: "automated-annotation"
           LAYER_NAME: "aifl"
           TRUSS_SECRETS_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:truss-platform-secrets-yVuz1R"

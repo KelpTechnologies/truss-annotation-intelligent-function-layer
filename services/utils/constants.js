@@ -20,12 +20,12 @@ const DATABASE_CONFIG = {
 // BigQuery dataset mapping by stage
 // Maps deployment stage to BigQuery dataset name
 const BIGQUERY_DATASETS = {
-  dev: "api_dev",
-  develop: "api_dev",
-  staging: "api",
-  prod: "api",
+  dev: "api_staging",   // dev -> staging DB
+  develop: "api_staging",
+  staging: "api",       // staging -> prod DB
+  prod: "api",          // prod -> prod DB
   production: "api",
-  default: "api_staging", // Fallback for unknown stages
+  default: "api",       // Fallback -> prod
 };
 
 /**
@@ -40,12 +40,12 @@ function getBigQueryDataset(stageOverride = null) {
 
 // Postgres schema mapping by stage (mirrors BigQuery dataset mapping)
 const POSTGRES_SCHEMAS = {
-  dev: "api_dev",
-  develop: "api_dev",
-  staging: "api",
-  prod: "api",
+  dev: "api_staging",   // dev -> staging DB
+  develop: "api_staging",
+  staging: "api",       // staging -> prod DB
+  prod: "api",          // prod -> prod DB
   production: "api",
-  default: "api_staging",
+  default: "api",       // Fallback -> prod
 };
 
 /**

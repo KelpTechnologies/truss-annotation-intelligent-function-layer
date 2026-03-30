@@ -3,20 +3,25 @@
  */
 let pool = null;
 let mysql = null;
+let poolInitPromise = null; // Track initialization promise for async pool creation
 
-// Import BigQuery module
 // Import BigQuery module
 const bigqueryDb = require("./bigquery-database");
+// Import Postgres module
+const postgresDb = require("./postgres-database");
+
+// Import secrets manager for database credentials
+const { getDatabaseCredentials } = require("./secrets-manager");
 
 /**
- * Lazy load mysql module only when needed
+ * Lazy load mysql2 module only when needed
  */
 function getMysql() {
   if (!mysql) {
     try {
-      mysql = require("mysql");
+      mysql = require("mysql2");
     } catch (error) {
-      console.warn("MySQL module not available:", error.message);
+      console.warn("MySQL2 module not available:", error.message);
       return null;
     }
   }
@@ -26,11 +31,12 @@ function getMysql() {
 /**
  * Initializes the database connection based on the service configuration.
  * Supports both MySQL and BigQuery connection types.
+ * For MySQL, credentials are fetched from AWS Secrets Manager.
  * @param {object} config - Service configuration object
- * @returns {object|null} The database connection object or null if database is not required.
+ * @returns {Promise<object|null>} The database connection object or null if database is not required.
  * @throws {Error} If database is required but connection details are missing.
  */
-function initDatabase(config) {
+async function initDatabase(config) {
   if (!config.database.required) {
     console.log("Database not required for this service.");
     return null;
@@ -42,6 +48,12 @@ function initDatabase(config) {
     return bigqueryDb.initBigQueryClient(config);
   }
 
+  // Handle Postgres connection type (Cloud SQL via IAM)
+  if (config.database.connection_type === "postgres") {
+    console.log("Postgres connection type detected - using Cloud SQL Connector");
+    return postgresDb.getPool();
+  }
+
   // Default to MySQL for backward compatibility
   console.log("MySQL connection type detected - using MySQL connection pool");
 
@@ -50,61 +62,91 @@ function initDatabase(config) {
     return pool;
   }
 
-  // Ensure environment variables are available for database connection
-  if (!process.env.RDS_PROXY_ENDPOINT && !process.env.DB_HOST) {
-    throw new Error(
-      "Database host (RDS_PROXY_ENDPOINT or DB_HOST) environment variable is not set."
-    );
-  }
-  if (!process.env.DB_USER) {
-    throw new Error("Database user (DB_USER) environment variable is not set.");
-  }
-  if (!process.env.DB_PASSWORD) {
-    throw new Error(
-      "Database password (DB_PASSWORD) environment variable is not set."
-    );
+  // If pool is being initialized, wait for it
+  if (poolInitPromise) {
+    return poolInitPromise;
   }
 
-  // Get mysql module
-  const mysqlModule = getMysql();
-  if (!mysqlModule) {
-    throw new Error(
-      "MySQL module not available. Please install mysql package."
-    );
-  }
+  // Start initialization
+  poolInitPromise = (async () => {
+    try {
+      // Get mysql module
+      const mysqlModule = getMysql();
+      if (!mysqlModule) {
+        throw new Error(
+          "MySQL2 module not available. Please install mysql2 package."
+        );
+      }
 
-  // Create the database connection pool with optimized settings for Lambda cold starts
-  pool = mysqlModule.createPool({
-    host: process.env.RDS_PROXY_ENDPOINT || process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: "api_staging",
-    connectionLimit: 3, // Reduced for Lambda - fewer concurrent connections needed
-    acquireTimeout: 15000, // Reduced timeout for faster failure detection
-    timeout: 15000, // Reduced query timeout for faster failure detection
-    ssl: false,
-    // Optimizations for Lambda cold starts
-    reconnect: true, // Automatically reconnect on connection loss
-    idleTimeout: 300000, // 5 minutes - keep connections alive longer
-    queueLimit: 0, // No limit on queued connection requests
-    // Connection validation
-    multipleStatements: false, // Security best practice
-    // Connection pooling optimizations
-    supportBigNumbers: true,
-    bigNumberStrings: true,
-    // Faster connection establishment
-    connectTimeout: 10000, // 10 seconds to establish initial connection
-    // Keep-alive settings
-    keepAliveInitialDelay: 0,
-    enableKeepAlive: true,
-  });
+      // Get credentials - prefer environment variables (injected at deploy time via CloudFormation)
+      // Fall back to Secrets Manager if env vars not set
+      let user, password, host, databaseName;
 
-  console.log("Database connection pool initialized.");
+      if (process.env.DB_USER && process.env.DB_PASSWORD) {
+        console.log("Using database credentials from environment variables");
+        user = process.env.DB_USER;
+        password = process.env.DB_PASSWORD;
+        host = process.env.DB_HOST || process.env.RDS_PROXY_ENDPOINT;
+        databaseName =
+          process.env.DB_NAME || config.database.name || "api_staging";
+      } else {
+        // Fallback to Secrets Manager (requires VPC endpoint or NAT)
+        console.log("Fetching database credentials from Secrets Manager...");
+        const dbCreds = await getDatabaseCredentials();
+        user = dbCreds.user;
+        password = dbCreds.password;
+        host = dbCreds.host;
+        databaseName =
+          config.database.name ||
+          process.env.DB_NAME ||
+          dbCreds.name ||
+          "api_staging";
+      }
 
-  // Pre-warm the connection pool for faster cold starts
-  preWarmConnection(pool);
+      if (!host) {
+        throw new Error(
+          "Database host not available (checked DB_HOST, RDS_PROXY_ENDPOINT env vars, and Secrets Manager)"
+        );
+      }
 
-  return pool;
+      // Create the database connection pool with optimized settings for Lambda cold starts
+      // Note: mysql2 has different options than mysql - removed invalid: acquireTimeout, timeout, reconnect, idleTimeout
+      pool = mysqlModule.createPool({
+        host: host,
+        user: user,
+        password: password,
+        database: databaseName,
+        // Pool settings
+        connectionLimit: 3, // Reduced for Lambda - fewer concurrent connections needed
+        queueLimit: 0, // No limit on queued connection requests
+        waitForConnections: true, // Wait for available connection instead of erroring
+        // Connection settings
+        connectTimeout: 10000, // 10 seconds to establish initial connection
+        ssl: false,
+        // Data handling
+        multipleStatements: false, // Security best practice
+        supportBigNumbers: true,
+        bigNumberStrings: true,
+        // Keep-alive settings for connection reuse
+        enableKeepAlive: true,
+        keepAliveInitialDelay: 0,
+      });
+
+      console.log(
+        `Database connection pool initialized for ${databaseName} on ${host}`
+      );
+
+      // Pre-warm the connection pool for faster cold starts
+      preWarmConnection(pool);
+
+      return pool;
+    } catch (error) {
+      poolInitPromise = null; // Reset so retry is possible
+      throw error;
+    }
+  })();
+
+  return poolInitPromise;
 }
 
 /**
@@ -130,7 +172,7 @@ function preWarmConnection(pool) {
         console.warn("Pre-warm query failed:", queryErr.message);
       } else {
         console.log(
-          `✅ Database pre-warmed successfully (${totalTime}ms total, ${connectionTime}ms connection)`
+          `[OK] Database pre-warmed successfully (${totalTime}ms total, ${connectionTime}ms connection)`
         );
       }
 
@@ -153,11 +195,16 @@ function preWarmConnection(pool) {
 async function query(sql, args = [], config, options = {}, maxRetries = 3) {
   // Handle BigQuery connection type
   if (config.database.connection_type === "bigquery") {
-    return bigqueryDb.query(sql, args, config, options, maxRetries);
+    return bigqueryDb.query(sql, args, config, options);
   }
 
-  // Default to MySQL for backward compatibility
-  const connectionPool = initDatabase(config);
+  // Handle Postgres connection type
+  if (config.database.connection_type === "postgres") {
+    return postgresDb.query(sql, args, config, options);
+  }
+
+  // Default to MySQL for backward compatibility - await since initDatabase is now async
+  const connectionPool = await initDatabase(config);
   if (!connectionPool) {
     throw new Error("Database not configured for query execution.");
   }
@@ -170,7 +217,7 @@ async function query(sql, args = [], config, options = {}, maxRetries = 3) {
 
       if (attempt > 1) {
         console.log(
-          `✅ Query succeeded on attempt ${attempt} (${queryTime}ms)`
+          `[OK] Query succeeded on attempt ${attempt} (${queryTime}ms)`
         );
       }
 
@@ -246,8 +293,8 @@ async function checkConnectionHealth(config) {
     return bigqueryDb.checkConnectionHealth(config);
   }
 
-  // Default to MySQL for backward compatibility
-  const connectionPool = initDatabase(config);
+  // Default to MySQL for backward compatibility - await since initDatabase is now async
+  const connectionPool = await initDatabase(config);
   if (!connectionPool) {
     return { healthy: false, error: "Database not configured" };
   }

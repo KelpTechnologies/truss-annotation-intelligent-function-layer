@@ -23,12 +23,12 @@ const structuredLogger = createLogger({
   serviceName: "image-service",
 });
 
-// Configuration from environment variables
-const STAGE = process.env.STAGE || "prod";
-const SOURCE_BUCKET = `truss-annotation-image-source-${STAGE}`;
-const PROCESSED_BUCKET = `truss-annotation-image-processed-${STAGE}`;
-const PROCESSING_TABLE = `truss-image-processing-${STAGE}`;
-const CLOUDFRONT_URL = `https://truss-annotation-image-processed-${STAGE}.s3.eu-west-2.amazonaws.com`;
+// Configuration from environment variables (DB_STAGE maps to the target DB environment)
+const DB_STAGE = process.env.DB_STAGE || process.env.STAGE || "prod";
+const SOURCE_BUCKET = process.env.SOURCE_BUCKET || `truss-annotation-image-source-${DB_STAGE}`;
+const PROCESSED_BUCKET = process.env.PROCESSED_BUCKET || `truss-annotation-image-processed-${DB_STAGE}`;
+const PROCESSING_TABLE = process.env.PROCESSING_TABLE || `truss-image-processing-${DB_STAGE}`;
+const CLOUDFRONT_URL = `https://${PROCESSED_BUCKET}.s3.eu-west-2.amazonaws.com`;
 
 /**
  * Main Lambda handler for image service API endpoints
