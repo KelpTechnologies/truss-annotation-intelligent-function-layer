@@ -23,10 +23,12 @@ const structuredLogger = createLogger({
   serviceName: "image-service",
 });
 
-// Configuration from environment variables (DB_STAGE maps to the target DB environment)
-const DB_STAGE = process.env.DB_STAGE || process.env.STAGE || "prod";
-const SOURCE_BUCKET = process.env.SOURCE_BUCKET || `truss-annotation-image-source-${DB_STAGE}`;
-const PROCESSED_BUCKET = process.env.PROCESSED_BUCKET || `truss-annotation-image-processed-${DB_STAGE}`;
+// Configuration from environment variables
+// S3 buckets use STAGE (uploads are stage-specific), DynamoDB uses DB_STAGE (remapped)
+const STAGE = process.env.STAGE || "prod";
+const DB_STAGE = process.env.DB_STAGE || STAGE;
+const SOURCE_BUCKET = process.env.SOURCE_BUCKET || `truss-annotation-image-source-${STAGE}`;
+const PROCESSED_BUCKET = process.env.PROCESSED_BUCKET || `truss-annotation-image-processed-${STAGE}`;
 const PROCESSING_TABLE = process.env.PROCESSING_TABLE || `truss-image-processing-${DB_STAGE}`;
 const CLOUDFRONT_URL = `https://${PROCESSED_BUCKET}.s3.eu-west-2.amazonaws.com`;
 
