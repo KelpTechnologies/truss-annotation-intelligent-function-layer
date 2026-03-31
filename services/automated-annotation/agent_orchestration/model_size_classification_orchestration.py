@@ -603,7 +603,7 @@ def run_model_size_classification_workflow(
         print(f"Retrieved {len(size_options)} size option(s)")
         for opt in size_options[:5]:
             print(f"  - ID {opt['id']}: {opt.get('size', 'N/A')}")
-        
+
     except Exception as e:
         print(f"ERROR: Failed to retrieve size options: {e}")
         return {
@@ -611,7 +611,26 @@ def run_model_size_classification_workflow(
             "error": f"BigQuery error: {e}",
             "size_options": []
         }
-    
+
+    # Short-circuit: if the only size option is "One Size", return it directly
+    if len(size_options) == 1 and size_options[0].get('size', '').lower() == 'one size':
+        one_size = size_options[0]
+        print(f"\n[SHORT-CIRCUIT] Only size option is 'One Size' (ID:{one_size['id']}) — skipping pipelines")
+        final_result = {
+            "success": True,
+            "prediction_id": one_size['id'],
+            "size": one_size['size'],
+            "confidence": 1.0,
+            "reasoning": "Model has only one size option: One Size"
+        }
+        return {
+            "workflow_status": "success",
+            "final_result": final_result,
+            "size_options": size_options,
+            "model_id": model_id,
+            "error": None
+        }
+
     # Step 2: Run both pipelines
     print("\n[STEP 2] Running parallel pipelines...")
     
