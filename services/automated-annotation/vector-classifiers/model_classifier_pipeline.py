@@ -75,8 +75,8 @@ def _get_image_processing_table_name(table_name: Optional[str] = None) -> str:
     if env_table:
         return env_table
 
-    # Fallback to default naming convention if env not provided
-    stage = os.getenv("STAGE", "dev")
+    # Fallback: use DB_STAGE (remapped database stage) over STAGE
+    stage = os.getenv("DB_STAGE") or os.getenv("STAGE", "dev")
     return f"truss-image-processing-{stage}"
 
 
