@@ -144,15 +144,15 @@ def _get_bigquery_client():
 
 
 def _get_api_env_name() -> str:
-    """Map STAGE environment variable to BigQuery dataset name."""
-    stage = os.getenv("STAGE", "dev").lower()
+    """Map DB_STAGE environment variable to BigQuery dataset name."""
+    stage = (os.getenv("DB_STAGE") or os.getenv("STAGE", "dev")).lower()
     mapping = {
-        "dev": "api_dev",
+        "dev": "api_staging",
         "staging": "api",
         "prod": "api"
     }
-    env_name = mapping.get(stage, "api_dev")
-    logger.info(f"[BigQuery] Mapped STAGE={stage} to API environment: {env_name}")
+    env_name = mapping.get(stage, "api")
+    logger.info(f"[BigQuery] Mapped DB_STAGE={stage} to API environment: {env_name}")
     return env_name
 
 
