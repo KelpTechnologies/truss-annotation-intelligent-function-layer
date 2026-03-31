@@ -33,6 +33,11 @@ def get_stage():
     return os.getenv("STAGE", "dev")
 
 
+def get_db_stage():
+    """Get the database stage — uses DB_STAGE (remapped by CloudFormation) with STAGE fallback."""
+    return os.getenv("DB_STAGE") or os.getenv("STAGE", "dev")
+
+
 def get_url(url_key):
     """
     Get a URL for the current stage.
