@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Semaphore
 from typing import Dict, Any, Optional, Callable, List, Tuple
 
-from stage_urls import get_stage
+from stage_urls import get_stage, get_db_stage
 from core.utils.credentials import ensure_gcp_adc
 from core.utils.image_service import get_signed_image_url
 
@@ -197,7 +197,7 @@ def execute_classification_for_api(
     ensure_gcp_adc()
     
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
     
     # Import orchestration function (lazy import to avoid circular dependencies)
     from agent_orchestration.classifier_api_orchestration import classify_for_api
@@ -333,7 +333,7 @@ def execute_brand_classification_for_api(
     """
     ensure_gcp_adc()
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
 
     from agent_orchestration.brand_classification_orchestration import run_brand_classification_workflow
     from agent_orchestration.regex_brand_lookup import BrandMasterIndex
@@ -406,7 +406,7 @@ def execute_model_classification_for_api(
     """
     ensure_gcp_adc()
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
 
     from agent_orchestration.classifier_model_orchestration import get_model_config_id
 
@@ -490,7 +490,7 @@ def execute_size_classification_for_api(
     ensure_gcp_adc()
     
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
     
     # Import orchestration function (lazy import to avoid circular dependencies)
     from agent_orchestration.model_size_classification_orchestration import run_model_size_classification_workflow
@@ -619,7 +619,7 @@ def execute_keyword_classification_for_api(
     ensure_gcp_adc()
     
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
     
     # Import orchestration function (lazy import to avoid circular dependencies)
     from agent_orchestration.keyword_classifier_orchestration import run_keyword_classification
@@ -869,7 +869,7 @@ def execute_size_classification_batch_for_api(
     ensure_gcp_adc()
     
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
     
     # Import orchestration function (lazy import to avoid circular dependencies)
     from agent_orchestration.model_size_classification_orchestration import run_model_size_classification_workflow
@@ -1010,7 +1010,7 @@ def execute_keyword_classification_batch_for_api(
     ensure_gcp_adc()
     
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
     
     # Import orchestration function (lazy import to avoid circular dependencies)
     from agent_orchestration.keyword_classifier_orchestration import run_keyword_classification
@@ -1173,7 +1173,7 @@ def execute_classification_batch_for_api(
     ensure_gcp_adc()
     
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
     
     # Import orchestration function (lazy import to avoid circular dependencies)
     from agent_orchestration.classifier_api_orchestration import classify_for_api
@@ -1272,7 +1272,7 @@ def execute_csv_config_generation_for_api(
     ensure_gcp_adc()
     
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
     
     # Import orchestration functions (lazy import to avoid circular dependencies)
     from agent_orchestration.csv_config_orchestration import format_csv_sample_for_prompt

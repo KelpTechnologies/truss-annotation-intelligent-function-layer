@@ -42,7 +42,7 @@ from typing import Dict, Any, Optional
 from agent_architecture import LLMAnnotationAgent
 from agent_architecture.validation import AgentStatus
 from agent_orchestration.csv_config_loader import ConfigLoader
-from stage_urls import get_stage
+from stage_urls import get_stage, get_db_stage
 from structured_logger import StructuredLogger
 from core.utils.responses import create_response, parse_body
 from core.utils.credentials import ensure_gcp_adc, get_request_auth_headers
@@ -97,7 +97,7 @@ def handle_agent_execution(req_ctx, payload: dict):
         ensure_gcp_adc()
         
         # Initialize config loader
-        env = get_stage()
+        env = get_db_stage()
         config_loader = ConfigLoader(mode='dynamo', env=env, fallback_env='staging')
         
         # Load full agent config
