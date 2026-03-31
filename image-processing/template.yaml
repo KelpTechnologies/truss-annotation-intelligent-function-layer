@@ -6,7 +6,7 @@ Parameters:
   StageName:
     Type: String
     Default: dev
-    Description: Deployment stage (dev/prod)
+    Description: Deployment stage (dev/staging/prod)
   FunctionName:
     Type: String
     Description: Name of the image processing Lambda function
@@ -22,6 +22,9 @@ Parameters:
   ProcessedBucketName:
     Type: String
     Description: Name of the existing processed S3 bucket
+  ProcessingTableName:
+    Type: String
+    Description: Name of the DynamoDB processing table (may differ from stage due to DB_STAGE mapping)
   VectorizationApiUrl:
     Type: String
     Default: "https://image-vectorization-api-gpu-94434742359.us-central1.run.app/vectorize"
@@ -31,32 +34,16 @@ Parameters:
     Default: ""
     Description: Optional API key for vectorization API authentication (leave empty if not required)
 
-Resources:
-  # DynamoDB table for processing status
-  ProcessingStatusTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub "truss-image-processing-${StageName}"
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: processingId
-          AttributeType: S
-        - AttributeName: timestamp
-          AttributeType: S
-      KeySchema:
-        - AttributeName: processingId
-          KeyType: HASH
-      GlobalSecondaryIndexes:
-        - IndexName: TimestampIndex
-          KeySchema:
-            - AttributeName: timestamp
-              KeyType: HASH
-          Projection:
-            ProjectionType: ALL
-      TimeToLiveSpecification:
-        AttributeName: ttl
-        Enabled: true
+Mappings:
+  StageToDbStage:
+    dev:
+      DbStage: staging
+    staging:
+      DbStage: prod
+    prod:
+      DbStage: prod
 
+Resources:
   # IAM Role for Lambda function
   ImageProcessingRole:
     Type: AWS::IAM::Role
@@ -100,7 +87,8 @@ Resources:
                   - dynamodb:Query
                   - dynamodb:Scan
                 Resource:
-                  - !GetAtt ProcessingStatusTable.Arn
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProcessingTableName}"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ProcessingTableName}/index/*"
 
   # Lambda function for image processing
   ImageProcessingLambda:
@@ -120,7 +108,7 @@ Resources:
           STAGE: !Ref StageName
           SOURCE_BUCKET: !Ref SourceBucketName
           PROCESSED_BUCKET: !Ref ProcessedBucketName
-          PROCESSING_TABLE: !Ref ProcessingStatusTable
+          PROCESSING_TABLE: !Ref ProcessingTableName
           VECTORIZATION_API_URL: !Ref VectorizationApiUrl
           VECTORIZATION_API_KEY: !Ref VectorizationApiKey
       Layers:
@@ -138,7 +126,7 @@ Resources:
 Outputs:
   ProcessingTableName:
     Description: "Name of the processing status DynamoDB table"
-    Value: !Ref ProcessingStatusTable
+    Value: !Ref ProcessingTableName
     Export:
       Name: !Sub "${AWS::StackName}-ProcessingTableName"
 
