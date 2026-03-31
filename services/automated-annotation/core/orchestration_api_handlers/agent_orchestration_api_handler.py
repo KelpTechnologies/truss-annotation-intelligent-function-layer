@@ -74,6 +74,9 @@ def get_config_id_for_input_mode(base_config_id: str, input_mode: str) -> str:
     - text-only: classifier-{property}-{category}-text (e.g. classifier-colour-bags-text)
     - image-only or multimodal: classifier-{property}-{category} (e.g. classifier-colour-bags)
 
+    Some configs have non-standard text variants — these are listed in
+    TEXT_CONFIG_OVERRIDES and take precedence over the default -{base}-text pattern.
+
     Args:
         base_config_id: Base config ID (e.g. classifier-colour-bags), optionally with -text suffix.
         input_mode: One of "text-only", "image-only", "multimodal".
@@ -81,8 +84,15 @@ def get_config_id_for_input_mode(base_config_id: str, input_mode: str) -> str:
     Returns:
         Config ID to use for loading the agent.
     """
+    # Non-standard text config IDs (base -> text override)
+    TEXT_CONFIG_OVERRIDES = {
+        "classifier-hardware-bags": "classifier-hardware-material-bags-text",
+    }
+
     base = base_config_id.rstrip("-text") if base_config_id.endswith("-text") else base_config_id
     if input_mode == "text-only":
+        if base in TEXT_CONFIG_OVERRIDES:
+            return TEXT_CONFIG_OVERRIDES[base]
         return f"{base}-text"
     return base
 
@@ -736,9 +746,11 @@ def execute_hardware_classification_for_api(
         )
     
     # Single item mode
-    # Use the standard classification API handler with hardware config_id
+    # Resolve config_id based on input mode (text-only uses dedicated text config)
+    input_mode = api_input.get("input_mode") or detect_input_mode(api_input)
+    config_id = get_config_id_for_input_mode("classifier-hardware-bags", input_mode)
     return execute_classification_for_api(
-        config_id="classifier-hardware-bags",
+        config_id=config_id,
         api_input=api_input,
         env=env
     )
@@ -1122,9 +1134,13 @@ def execute_hardware_classification_batch_for_api(
     Returns:
         List of hardware classification results in same order as input items
     """
-    # Use the standard classification API handler with hardware config_id
+    # Resolve config_id from first item's input mode (batch items share the same mode)
+    sample_input_mode = "text-only"
+    if items:
+        sample_input_mode = items[0].get("input_mode") or detect_input_mode(items[0])
+    config_id = get_config_id_for_input_mode("classifier-hardware-bags", sample_input_mode)
     return execute_classification_batch_for_api(
-        config_id="classifier-hardware-bags",
+        config_id=config_id,
         items=items,
         max_workers=max_workers,
         batch_size=batch_size,
