@@ -314,10 +314,18 @@ def format_classification_for_legacy_api(
             "brand_id": result.get("primary_id") or result.get("brand_id") or result.get("final_brand_id"),
             "confidence": result.get("confidence", 0.0),
         }
+    elif target in ("color", "colour"):
+        return {
+            **base_fields,
+            "color": result.get("primary_name") or result.get("primary"),
+            "color_id": result.get("primary_id"),
+            "confidence": result.get("confidence", 0.0),
+        }
     else:
         return {
             **base_fields,
             target: result.get("primary_name") or result.get("primary"),
+            f"{target}_id": result.get("primary_id"),
             "confidence": result.get("confidence", 0.0),
         }
 
