@@ -27,6 +27,7 @@ logger.setLevel(logging.INFO)
 # Initialize structured logger for metrics (REQUEST/RESPONSE/ERROR lifecycle events)
 structured_logger = StructuredLogger(layer="aifl", service_name="automated-annotation")
 
+# MIGRATION: stage URL config
 # Log stage-aware URL configuration at module load
 logger.info(f"Stage URL Configuration - Stage: {get_stage()}")
 logger.info(f"   DSL_API_BASE_URL: {get_dsl_url()}")
@@ -51,7 +52,7 @@ logger.info(f"   ANNOTATION_IFL_API_BASE_URL: {get_annotation_ifl_url()}")
 #    - Returns: model, model_id, root_model, root_model_id, confidence
 #
 # 2. POST /automations/annotation/{category}/classify/{property}
-#    - Classify a property (type, material, colour, etc.) using LLM
+#    - Classify a property (type, material, color, etc.) using LLM
 #    - Mapped to: New agent system via orchestrator
 #    - Supports both single-item and batch processing modes
 #    - Single mode: Standard payload with property fields
@@ -140,11 +141,8 @@ def lambda_handler(event, context):
     # Start structured logging for metrics (captures request timing)
     req_ctx = structured_logger.start_request(event)
     
-    logger.info("=" * 80)
-    logger.info(f"Lambda invocation started - Request ID: {request_id}")
-    logger.info(f"Event method: {event.get('httpMethod', 'UNKNOWN')}, path: {event.get('path', 'UNKNOWN')}")
-    logger.debug(f"Full event: {json.dumps(event, default=str)[:1000]}")
-    
+    logger.info(f"Lambda invocation started - Request ID: {request_id}")  # MIGRATION: request lifecycle
+    logger.info(f"Event method: {event.get('httpMethod', 'UNKNOWN')}, path: {event.get('path', 'UNKNOWN')}")  # MIGRATION: routing
     # Extract auth headers from original request for pass-through to downstream services
     incoming_headers = event.get("headers") or {}
     auth_headers = {}
@@ -153,10 +151,10 @@ def lambda_handler(event, context):
         key_lower = key.lower()
         if key_lower == 'authorization':
             auth_headers['Authorization'] = incoming_headers[key]
-            logger.debug("Captured Authorization header for pass-through")
+            logger.debug("Captured Authorization header for pass-through")  # MIGRATION: auth header capture
         elif key_lower == 'x-api-key':
             auth_headers['x-api-key'] = incoming_headers[key]
-            logger.debug("Captured x-api-key header for pass-through")
+            logger.debug("Captured x-api-key header for pass-through")  # MIGRATION: auth header capture
     
     # Set auth headers for use in downstream services
     set_request_auth_headers(auth_headers)
@@ -168,9 +166,7 @@ def lambda_handler(event, context):
         # Strip custom domain base path prefix if present (e.g., /agents from api.trussarchive.io/agents/...)
         if path.startswith("/agents/"):
             path = path[7:]  # Remove "/agents" prefix, keep leading "/"
-            logger.info(f"Stripped /agents prefix from path")
-        
-        logger.info(f"Processing {method} request to {path}")
+        logger.info(f"Processing {method} request to {path}")  # MIGRATION: request routing
 
         # Handle OPTIONS (CORS preflight)
         if method == "OPTIONS":
@@ -178,8 +174,6 @@ def lambda_handler(event, context):
 
         # Parse path segments
         segments = [segment for segment in path.strip("/").split("/") if segment]
-        logger.debug(f"Path segments: {segments}")
-
         # Route: POST /automations/annotation/{category}/classify/{target}
         # Handles both model and property classification
         if (
@@ -192,10 +186,10 @@ def lambda_handler(event, context):
             category = segments[2]
             target = segments[4]
             
-            logger.info(f"Classification request - category: {category}, target: {target}")
+            logger.info(f"Classification request - category: {category}, target: {target}")  # MIGRATION: classification request type
 
             payload = parse_body(event)
-            logger.info(f"Parsed payload keys: {list(payload.keys())}")
+            logger.info(f"Parsed payload keys: {list(payload.keys())}")  # MIGRATION: payload keys
 
             return handle_classification(req_ctx, category, target, payload)
 
@@ -207,7 +201,7 @@ def lambda_handler(event, context):
             and segments[1] == "agents"
             and method == "POST"
         ):
-            logger.info("Agent execution request")
+            logger.info("Agent execution request")  # MIGRATION: agent execution
             payload = parse_body(event)
             return handle_agent_execution(req_ctx, payload)
 
@@ -220,7 +214,7 @@ def lambda_handler(event, context):
             and segments[2] == "csv-config"
             and method == "POST"
         ):
-            logger.info("CSV config generation request")
+            logger.info("CSV config generation request")  # MIGRATION: CSV config
             payload = parse_body(event)
             from core.legacy_routes.handlers import handle_csv_config_generation
             return handle_csv_config_generation(req_ctx, payload)
@@ -234,7 +228,7 @@ def lambda_handler(event, context):
             and segments[2] == "csv-config"
             and method == "POST"
         ):
-            logger.info("CSV config generation request (workflow endpoint)")
+            logger.info("CSV config generation request (workflow endpoint)")  # MIGRATION: CSV workflow
             payload = parse_body(event)
             from core.legacy_routes.handlers import handle_csv_config_generation
             return handle_csv_config_generation(req_ctx, payload)
@@ -244,6 +238,7 @@ def lambda_handler(event, context):
             return handle_health(req_ctx)
 
         # Route not found
+        # MIGRATION: structured_logger 404 warning
         structured_logger.log_warning(req_ctx, f"Endpoint not found - path: {path}, method: {method}", {
             "path": path,
             "method": method,
@@ -259,5 +254,4 @@ def lambda_handler(event, context):
         return create_response(500, {"error": str(e)})
     finally:
         total_elapsed = time.time() - request_start_time
-        logger.info(f"Lambda invocation completed in {total_elapsed:.2f}s - Request ID: {request_id}")
-        logger.info("=" * 80)
+        logger.info(f"Lambda invocation completed in {total_elapsed:.2f}s - Request ID: {request_id}")  # MIGRATION: completion timing

@@ -10,7 +10,7 @@ const registryModule = require("./generate-service-registry");
 const LAYER_CONFIG = (() => {
   const configPath = path.join(__dirname, "layer-config.json");
   if (!fs.existsSync(configPath)) {
-    console.error("❌ layer-config.json not found! Create it first.");
+    console.error("[ERROR] layer-config.json not found! Create it first.");
     process.exit(1);
   }
   return JSON.parse(fs.readFileSync(configPath, "utf-8"));
@@ -32,15 +32,15 @@ function generateServiceTemplates(servicePath, configFileArg, stageArg) {
   // Generate SINGLE unified OpenAPI spec with HybridAuth
   generateUnifiedOpenAPISpec(servicePath, config);
 
-  console.log(`✅ Generated templates for ${config.service.name} service`);
+  console.log(`[OK] Generated templates for ${config.service.name} service`);
 
   // Update service registry
   try {
-    console.log("🔄 Updating overall service-registry.json...");
+    console.log("[REFRESH] Updating overall service-registry.json...");
     registryModule.runMain();
-    console.log("✅ service-registry.json updated successfully.");
+    console.log("[OK] service-registry.json updated successfully.");
   } catch (error) {
-    console.error("❌ Failed to update service-registry.json:", error.message);
+    console.error("[ERROR] Failed to update service-registry.json:", error.message);
     process.exit(1);
   }
 }
@@ -66,6 +66,15 @@ function generateCloudFormationTemplate(
   let template = `AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: "${config.service.description}"
+
+Mappings:
+  StageToDbStage:
+    dev:
+      DbStage: staging
+    staging:
+      DbStage: prod
+    prod:
+      DbStage: prod
 
 Parameters:
   StageName:
@@ -168,12 +177,17 @@ Resources:
                 Action:
 ${dynamoActions.map((a) => `                  - ${a}`).join("\n")}
                 Resource:`;
+    // Uses DbStage mapping: dev->staging, staging->prod, prod->prod
     config.database.tables.forEach((table) => {
       if (table.includes("${STAGE}")) {
-        const tableName = table.replace("${STAGE}", "${StageName}");
+        const tableName = table.replace("${STAGE}", "${DbStage}");
         template += `
-                  - !Sub "arn:aws:dynamodb:${config.aws.region}:${config.aws.account_id}:table/${tableName}"
-                  - !Sub "arn:aws:dynamodb:${config.aws.region}:${config.aws.account_id}:table/${tableName}/index/*"`;
+                  - !Sub
+                    - "arn:aws:dynamodb:${config.aws.region}:${config.aws.account_id}:table/${tableName}"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
+                  - !Sub
+                    - "arn:aws:dynamodb:${config.aws.region}:${config.aws.account_id}:table/${tableName}/index/*"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]`;
       } else {
         template += `
                   - "arn:aws:dynamodb:${config.aws.region}:${config.aws.account_id}:table/${table}"
@@ -182,6 +196,7 @@ ${dynamoActions.map((a) => `                  - ${a}`).join("\n")}
     });
   }
 
+  // S3 buckets stay on StageName (uploads are stage-specific), DynamoDB uses DbStage
   if (requiresImageProcessing) {
     template += `
               - Effect: Allow
@@ -204,8 +219,31 @@ ${dynamoActions.map((a) => `                  - ${a}`).join("\n")}
                   - dynamodb:Query
                   - dynamodb:Scan
                 Resource:
-                  - !Sub "arn:aws:dynamodb:\${AWS::Region}:\${AWS::AccountId}:table/truss-image-processing-\${StageName}"`;
+                  - !Sub
+                    - "arn:aws:dynamodb:\${AWS::Region}:\${AWS::AccountId}:table/truss-image-processing-\${DbStage}"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]`;
   }
+
+  // Add Lambda invoke permissions if specified in config
+  const lambdaInvokePermissions = config.deployment?.lambda_invoke_permissions || [];
+  if (lambdaInvokePermissions.length > 0) {
+    template += `
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+${lambdaInvokePermissions.map((arn) => `                  - "${arn}"`).join("\n")}`;
+  }
+
+  // X-Ray tracing permissions
+  template += `
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                  - xray:GetSamplingRules
+                  - xray:GetSamplingTargets
+                Resource: "*"`;
 
   template += `
 
@@ -231,6 +269,10 @@ ${dynamoActions.map((a) => `                  - ${a}`).join("\n")}
 ${layers}`;
   }
 
+  template += `
+      TracingConfig:
+        Mode: Active`;
+
   if (requiresVPC) {
     template += `
       VpcConfig:
@@ -242,6 +284,7 @@ ${layers}`;
       Environment:
         Variables:
           STAGE: !Ref StageName
+          DB_STAGE: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
           SERVICE_NAME: "${config.service.name}"
           LAYER_NAME: "${LAYER_CONFIG.layerName}"
           TRUSS_SECRETS_ARN: "arn:aws:secretsmanager:${LAYER_CONFIG.region}:${LAYER_CONFIG.accountId}:secret:truss-platform-secrets-yVuz1R"`;
@@ -258,11 +301,14 @@ ${layers}`;
           DB_HOST: !Ref DatabaseHost`;
   }
 
+  // S3 buckets stay on StageName (uploads are stage-specific), DynamoDB uses DbStage
   if (requiresImageProcessing) {
     template += `
           SOURCE_BUCKET: !Sub "truss-annotation-image-source-\${StageName}"
           PROCESSED_BUCKET: !Sub "truss-annotation-image-processed-\${StageName}"
-          PROCESSING_TABLE: !Sub "truss-image-processing-\${StageName}"`;
+          PROCESSING_TABLE: !Sub
+            - "truss-image-processing-\${DbStage}"
+            - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]`;
   }
 
   template += `
@@ -293,7 +339,7 @@ Outputs:
     path.join(servicePath, `template${outputSuffix}.yaml`),
     template,
   );
-  console.log(`✅ Generated template${outputSuffix}.yaml`);
+  console.log(`[OK] Generated template${outputSuffix}.yaml`);
 }
 
 /**
@@ -430,7 +476,7 @@ ${yaml.dump(spec, { lineWidth: -1, noRefs: true, quotingType: '"' })}`;
 
   // Write SINGLE unified spec (no .internal or .external suffix)
   fs.writeFileSync(path.join(servicePath, `openapi.yaml`), yamlContent);
-  console.log(`✅ Generated openapi.yaml with HybridAuth`);
+  console.log(`[OK] Generated openapi.yaml with HybridAuth`);
 }
 
 // CLI interface

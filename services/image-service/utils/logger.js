@@ -270,7 +270,7 @@ function calculateQueryComplexity(params) {
 async function testDatabaseConnection(config) {
   // For BigQuery, use a simple health check since module availability is checked at startup
   if (config.database?.connection_type === "bigquery") {
-    console.log("🔍 Performing BigQuery health check...");
+    console.log("Performing BigQuery health check...");
 
     // Since we fail fast on module loading, if we get here the module is available
     return {

@@ -10,7 +10,7 @@ const glob = require("glob");
 const LAYER_CONFIG = (() => {
   const configPath = path.join(__dirname, "layer-config.json");
   if (!fs.existsSync(configPath)) {
-    console.error("❌ layer-config.json not found! Create it first.");
+    console.error("[ERROR] layer-config.json not found! Create it first.");
     process.exit(1);
   }
   return JSON.parse(fs.readFileSync(configPath, "utf-8"));
@@ -27,23 +27,23 @@ function aggregateOpenAPISpecs(options = {}) {
     stage = "dev",
   } = options;
 
-  console.log(`🔍 Discovering OpenAPI specs in ${servicesDir}/`);
-  console.log(`🔎 Aggregation stage: '${stage}'`);
+  console.log(`Discovering OpenAPI specs in ${servicesDir}/`);
+  console.log(`Aggregation stage: '${stage}'`);
 
   // UNIFIED: Always look for openapi.yaml (no internal/external distinction)
   const openApiPattern = "openapi.yaml";
-  console.log(`🔎 Using unified OpenAPI pattern: '${openApiPattern}'`);
+  console.log(`Using unified OpenAPI pattern: '${openApiPattern}'`);
 
   const openApiFiles = glob.sync(`${servicesDir}/**/${openApiPattern}`);
 
   if (openApiFiles.length === 0) {
     console.warn(
-      `⚠️  No OpenAPI specs found in ${servicesDir}/ for pattern ${openApiPattern}`
+      `[WARN]  No OpenAPI specs found in ${servicesDir}/ for pattern ${openApiPattern}`
     );
     return;
   }
 
-  console.log(`📄 Found ${openApiFiles.length} OpenAPI specs:`);
+  console.log(`Found ${openApiFiles.length} OpenAPI specs:`);
   openApiFiles.forEach((file) => console.log(`   - ${file}`));
 
   // Base unified OpenAPI structure
@@ -98,7 +98,7 @@ function aggregateOpenAPISpecs(options = {}) {
   // Process each service
   for (const openApiFile of openApiFiles) {
     try {
-      console.log(`🔄 Processing ${openApiFile}...`);
+      console.log(`[REFRESH] Processing ${openApiFile}...`);
 
       const servicePath = path.dirname(openApiFile);
       const configPath = path.join(servicePath, "config.json");
@@ -203,9 +203,9 @@ function aggregateOpenAPISpecs(options = {}) {
         });
       }
 
-      console.log(`✅ Merged ${openApiFile}`);
+      console.log(`[OK] Merged ${openApiFile}`);
     } catch (error) {
-      console.error(`❌ Error processing ${openApiFile}:`, error.message);
+      console.error(`[ERROR] Error processing ${openApiFile}:`, error.message);
     }
   }
 
@@ -257,8 +257,8 @@ ${yamlContent}`;
 
   fs.writeFileSync(outputFile, finalContent);
 
-  console.log(`🎉 Unified OpenAPI spec written to: ${outputFile}`);
-  console.log(`📊 Summary:`);
+  console.log(`Unified OpenAPI spec written to: ${outputFile}`);
+  console.log(`Summary:`);
   console.log(`   - Services: ${serviceConfigs.length}`);
   console.log(`   - Paths: ${Object.keys(aggregatedSpec.paths).length}`);
   console.log(`   - Security: HybridAuth (unified)`);
@@ -323,7 +323,7 @@ function main() {
   try {
     aggregateOpenAPISpecs({ servicesDir, outputFile, stage });
   } catch (error) {
-    console.error("❌ Error aggregating OpenAPI specs:", error.message);
+    console.error("[ERROR] Error aggregating OpenAPI specs:", error.message);
     process.exit(1);
   }
 }

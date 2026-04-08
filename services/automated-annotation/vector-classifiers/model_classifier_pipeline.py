@@ -75,8 +75,8 @@ def _get_image_processing_table_name(table_name: Optional[str] = None) -> str:
     if env_table:
         return env_table
 
-    # Fallback to default naming convention if env not provided
-    stage = os.getenv("STAGE", "dev")
+    # Fallback: use DB_STAGE (remapped database stage) over STAGE
+    stage = os.getenv("DB_STAGE") or os.getenv("STAGE", "dev")
     return f"truss-image-processing-{stage}"
 
 
@@ -275,7 +275,7 @@ def query_dynamodb(ids: list, table_name: str = None) -> Dict[str, Dict]:
                     'root_model': root_model
                 }
             else:
-                print(f"  ⚠️  ID {image_id} not found in DynamoDB")
+                print(f"  [WARN]  ID {image_id} not found in DynamoDB")
                 results[image_id] = {
                     'model': None,
                     'root_model': None

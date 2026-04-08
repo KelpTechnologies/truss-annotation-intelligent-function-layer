@@ -31,13 +31,16 @@ from agent_architecture.validation import AgentResult, AgentStatus
 from agent_orchestration.csv_config_loader import ConfigLoader
 from agent_utils.bigquery_model_size_tool import get_model_size_options
 from agent_utils.measurement_utils import convert_to_cm, find_closest_size_match
+from agent_telemetry import agent_telemetry, StepTimer, generate_workflow_id
 
 
 def run_pipeline1_textual_classification(
     raw_text: str,
     size_options: List[Dict[str, Any]],
     config_loader: Optional[ConfigLoader] = None,
-    env: str = 'staging'
+    env: str = 'staging',
+    req_ctx: Optional[dict] = None,
+    workflow_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Pipeline 1: Textual size classification.
@@ -65,13 +68,16 @@ def run_pipeline1_textual_classification(
             "error": "No size options"
         }
     
+    timer = StepTimer()
+
     # Initialize config loader if needed
     if config_loader is None:
         config_loader = ConfigLoader(mode='dynamo', env=env, fallback_env='staging')
-    
+
     # Load textual classifier config
     try:
-        full_config = config_loader.load_full_agent_config('model-size-textual-classifier-v1')
+        with timer.step("config_load"):
+            full_config = config_loader.load_full_agent_config('model-size-textual-classifier-v1')
     except Exception as e:
         print(f"ERROR: Could not load textual classifier config: {e}")
         return {
@@ -82,7 +88,7 @@ def run_pipeline1_textual_classification(
             "reasoning": f"Config error: {e}",
             "error": str(e)
         }
-    
+
     # Build dynamic schema from size options
     schema_content = {}
     for option in size_options:
@@ -127,24 +133,35 @@ Select the most appropriate size ID based on the product information."""
     }
     
     agent_result = agent.execute(input_data=input_data)
-    
+
+    # Emit telemetry for textual classification step
+    if req_ctx:
+        timing = timer.finish()
+        if agent_result.metadata.get("step_timing"):
+            timing.update(agent_result.metadata["step_timing"])
+        agent_telemetry.log_execution(
+            req_ctx=req_ctx, agent_result=agent_result, timing=timing,
+            config_id="model-size-textual-classifier-v1", input_data=input_data,
+            workflow_id=workflow_id, workflow_step="size_textual",
+        )
+
     if agent_result.status == AgentStatus.SUCCESS:
         result = agent_result.result
         prediction_id = result.get('prediction_id')
-        
+
         # Map ID to size name
         size_name = ""
         for option in size_options:
             if option['id'] == prediction_id:
                 size_name = option.get('size', '')
                 break
-        
+
         scores = result.get('scores', [])
         confidence = scores[0]['score'] if scores else 0.0
         reasoning = result.get('reasoning', '')
-        
+
         print(f"Textual classification: {size_name} (ID: {prediction_id}, confidence: {confidence:.2f})")
-        
+
         return {
             "success": True,
             "prediction_id": prediction_id,
@@ -171,7 +188,9 @@ def run_pipeline2_numerical_extraction(
     raw_text: str,
     size_options: List[Dict[str, Any]],
     config_loader: Optional[ConfigLoader] = None,
-    env: str = 'staging'
+    env: str = 'staging',
+    req_ctx: Optional[dict] = None,
+    workflow_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Pipeline 2: Numerical measurement extraction and matching.
@@ -199,13 +218,16 @@ def run_pipeline2_numerical_extraction(
             "error": "No size options"
         }
     
+    timer = StepTimer()
+
     # Initialize config loader if needed
     if config_loader is None:
         config_loader = ConfigLoader(mode='dynamo', env=env, fallback_env='staging')
-    
+
     # Load measurement extraction config
     try:
-        full_config = config_loader.load_full_agent_config('model-size-measurement-extraction-v1')
+        with timer.step("config_load"):
+            full_config = config_loader.load_full_agent_config('model-size-measurement-extraction-v1')
     except Exception as e:
         print(f"ERROR: Could not load measurement extraction config: {e}")
         return {
@@ -216,7 +238,7 @@ def run_pipeline2_numerical_extraction(
             "reasoning": f"Config error: {e}",
             "error": str(e)
         }
-    
+
     # Initialize agent
     agent = LLMAnnotationAgent(full_config=full_config, log_IO=False)
     
@@ -230,7 +252,18 @@ def run_pipeline2_numerical_extraction(
     print("Extracting measurements from text...")
     
     agent_result = agent.execute(input_data=input_data)
-    
+
+    # Emit telemetry for numerical extraction step
+    if req_ctx:
+        timing = timer.finish()
+        if agent_result.metadata.get("step_timing"):
+            timing.update(agent_result.metadata["step_timing"])
+        agent_telemetry.log_execution(
+            req_ctx=req_ctx, agent_result=agent_result, timing=timing,
+            config_id="model-size-measurement-extraction-v1", input_data=input_data,
+            workflow_id=workflow_id, workflow_step="size_measurement",
+        )
+
     if agent_result.status != AgentStatus.SUCCESS:
         error_msg = agent_result.error_report.message if agent_result.error_report else "Unknown error"
         print(f"ERROR: {error_msg}")
@@ -242,7 +275,7 @@ def run_pipeline2_numerical_extraction(
             "reasoning": f"Extraction error: {error_msg}",
             "error": error_msg
         }
-    
+
     # Parse extraction result
     result = agent_result.result
     measurements = result.get('measurements', {})
@@ -528,7 +561,8 @@ def combine_with_majority_vote(
 def run_model_size_classification_workflow(
     raw_text: str,
     model_id: int,
-    env: str = 'staging'
+    env: str = 'staging',
+    req_ctx: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """
     Run the complete model size classification workflow.
@@ -548,12 +582,15 @@ def run_model_size_classification_workflow(
     print(f"Model ID: {model_id}")
     print("="*70)
     
+    workflow_id = generate_workflow_id()
+    timer_bq = StepTimer()
     config_loader = ConfigLoader(mode='dynamo', env=env, fallback_env='staging')
-    
+
     # Step 1: Get size options from BigQuery
     print("\n[STEP 1] Retrieving model size options from BigQuery...")
     try:
-        size_options = get_model_size_options(model_id=model_id, verbose=True)
+        with timer_bq.step("bq_lookup"):
+            size_options = get_model_size_options(model_id=model_id, verbose=True)
         
         if not size_options:
             return {
@@ -582,14 +619,18 @@ def run_model_size_classification_workflow(
         raw_text=raw_text,
         size_options=size_options,
         config_loader=config_loader,
-        env=env
+        env=env,
+        req_ctx=req_ctx,
+        workflow_id=workflow_id,
     )
-    
+
     pipeline2_result = run_pipeline2_numerical_extraction(
         raw_text=raw_text,
         size_options=size_options,
         config_loader=config_loader,
-        env=env
+        env=env,
+        req_ctx=req_ctx,
+        workflow_id=workflow_id,
     )
     
     # Step 3: Combine with majority vote

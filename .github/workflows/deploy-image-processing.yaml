@@ -101,6 +101,17 @@ jobs:
           SOURCE_BUCKET="truss-annotation-image-source-${STAGE}"
           PROCESSED_BUCKET="truss-annotation-image-processed-${STAGE}"
 
+          # Map stage to DB stage (dev→staging, staging→prod, prod→prod)
+          case "${STAGE}" in
+            dev)     DB_STAGE="staging" ;;
+            staging) DB_STAGE="prod" ;;
+            prod)    DB_STAGE="prod" ;;
+            *)       DB_STAGE="${STAGE}" ;;
+          esac
+          PROCESSING_TABLE="truss-image-processing-${DB_STAGE}"
+
+          echo "📊 DB_STAGE mapping: ${STAGE} → ${DB_STAGE} (table: ${PROCESSING_TABLE})"
+
           aws cloudformation deploy \
             --stack-name "${STACK_NAME}" \
             --template-file image-processing/template.yaml \
@@ -111,6 +122,7 @@ jobs:
               CodeS3Key=${S3_KEY} \
               SourceBucketName=${SOURCE_BUCKET} \
               ProcessedBucketName=${PROCESSED_BUCKET} \
+              ProcessingTableName=${PROCESSING_TABLE} \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
 

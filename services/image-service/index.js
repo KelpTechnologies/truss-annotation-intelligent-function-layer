@@ -5,9 +5,16 @@ const { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, DeleteComma
 const { v4: uuidv4 } = require("uuid");
 const { createLogger } = require("./utils");
 
+let captureAWSv3Client;
+try {
+  captureAWSv3Client = require("aws-xray-sdk-core").captureAWSv3Client;
+} catch (e) {
+  captureAWSv3Client = (client) => client;
+}
+
 // Initialize AWS services
-const s3 = new S3Client({ region: process.env.AWS_REGION || "eu-west-2" });
-const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || "eu-west-2" });
+const s3 = captureAWSv3Client(new S3Client({ region: process.env.AWS_REGION || "eu-west-2" }));
+const dynamoClient = captureAWSv3Client(new DynamoDBClient({ region: process.env.AWS_REGION || "eu-west-2" }));
 const dynamodb = DynamoDBDocumentClient.from(dynamoClient);
 
 // Initialize structured logger for metrics (REQUEST/RESPONSE/ERROR lifecycle events)
@@ -17,19 +24,13 @@ const structuredLogger = createLogger({
 });
 
 // Configuration from environment variables
+// S3 buckets use STAGE (uploads are stage-specific), DynamoDB uses DB_STAGE (remapped)
 const STAGE = process.env.STAGE || "prod";
-const SOURCE_BUCKET = `truss-annotation-image-source-${STAGE}`;
-const PROCESSED_BUCKET = `truss-annotation-image-processed-${STAGE}`;
-const PROCESSING_TABLE = `truss-image-processing-${STAGE}`;
-const CLOUDFRONT_URL = `https://truss-annotation-image-processed-${STAGE}.s3.eu-west-2.amazonaws.com`;
-
-console.log("Configuration:", {
-  STAGE,
-  SOURCE_BUCKET,
-  PROCESSED_BUCKET,
-  PROCESSING_TABLE,
-  CLOUDFRONT_URL,
-});
+const DB_STAGE = process.env.DB_STAGE || STAGE;
+const SOURCE_BUCKET = process.env.SOURCE_BUCKET || `truss-annotation-image-source-${STAGE}`;
+const PROCESSED_BUCKET = process.env.PROCESSED_BUCKET || `truss-annotation-image-processed-${STAGE}`;
+const PROCESSING_TABLE = process.env.PROCESSING_TABLE || `truss-image-processing-${DB_STAGE}`;
+const CLOUDFRONT_URL = `https://${PROCESSED_BUCKET}.s3.eu-west-2.amazonaws.com`;
 
 /**
  * Main Lambda handler for image service API endpoints
@@ -38,23 +39,10 @@ exports.handler = async (event) => {
   // Start structured logging for metrics (captures request timing)
   const reqCtx = structuredLogger.startRequest(event);
 
-  console.log(
-    "Image service Lambda triggered:",
-    JSON.stringify(event, null, 2)
-  );
-
   try {
     const { httpMethod, path, pathParameters, queryStringParameters, body } =
       event;
     const pathInfo = parsePath(path);
-
-    console.log("Request details:", {
-      httpMethod,
-      path,
-      pathInfo,
-      queryStringParameters,
-      body: body ? JSON.parse(body) : null,
-    });
 
     // Route requests based on HTTP method and path
     let response;
@@ -82,7 +70,7 @@ exports.handler = async (event) => {
     // Log structured error for metrics (captures duration, error details)
     structuredLogger.logError(reqCtx, error, { statusCode: 500 });
 
-    console.error("Error in image service:", error);
+    console.error("Error in image service:", error); // MIGRATION: error
     return createResponse(500, {
       error: "Internal server error",
       message: error.message,
@@ -111,8 +99,6 @@ function parsePath(path) {
  * Handle GET requests
  */
 async function handleGetRequest(pathInfo, queryParams) {
-  console.log("GET request handler:", { pathInfo, queryParams });
-
   switch (pathInfo.endpoint) {
     case "upload-url":
       return await generateUploadUrl(queryParams);
@@ -132,7 +118,7 @@ async function handleGetRequest(pathInfo, queryParams) {
     case "debug":
       return await debugTable();
     default:
-      console.log("Unknown endpoint:", pathInfo.endpoint);
+      console.log("Unknown endpoint:", pathInfo.endpoint); // MIGRATION: unknown endpoint
       return createResponse(404, { error: "Endpoint not found" });
   }
 }
@@ -206,7 +192,7 @@ async function generateUploadUrl(params) {
       )}`,
     });
   } catch (error) {
-    console.error("Error generating upload URL:", error);
+    console.error("Error generating upload URL:", error); // MIGRATION: upload error
     return createResponse(500, { error: "Failed to generate upload URL" });
   }
 }
@@ -220,9 +206,6 @@ async function getProcessingStatus(processingId) {
       return createResponse(400, { error: "Processing ID is required" });
     }
 
-    console.log("Getting processing status for ID:", processingId);
-    console.log("Using table:", PROCESSING_TABLE);
-
     const params = {
       TableName: PROCESSING_TABLE,
       Key: {
@@ -230,14 +213,10 @@ async function getProcessingStatus(processingId) {
       },
     };
 
-    console.log("DynamoDB query params:", JSON.stringify(params, null, 2));
-
     const result = await dynamodb.send(new GetCommand(params));
 
-    console.log("DynamoDB result:", JSON.stringify(result, null, 2));
-
     if (!result.Item) {
-      console.log("No item found for processingId:", processingId);
+      console.log("No item found for processingId:", processingId); // MIGRATION: entity not found
       return createResponse(404, { error: "Processing record not found" });
     }
 
@@ -250,7 +229,7 @@ async function getProcessingStatus(processingId) {
       error: result.Item.error,
     });
   } catch (error) {
-    console.error("Error getting processing status:", error);
+    console.error("Error getting processing status:", error); // MIGRATION: status error
     return createResponse(500, { error: "Failed to get processing status" });
   }
 }
@@ -287,7 +266,7 @@ async function listImages(queryParams) {
       lastEvaluatedKey: result.LastEvaluatedKey,
     });
   } catch (error) {
-    console.error("Error listing images:", error);
+    console.error("Error listing images:", error); // MIGRATION: listing error
     return createResponse(500, { error: "Failed to list images" });
   }
 }
@@ -311,22 +290,12 @@ async function getProcessedImages(processingId) {
 
     const result = await dynamodb.send(new GetCommand(params));
 
-    console.log(
-      "DynamoDB record for processed images:",
-      JSON.stringify(result.Item, null, 2)
-    );
-
     if (!result.Item) {
       return createResponse(404, { error: "Processing record not found" });
     }
 
     // Return the single processed image
     const processedImage = result.Item.processedImage;
-
-    console.log(
-      "Processed image from record:",
-      JSON.stringify(processedImage, null, 2)
-    );
 
     if (!processedImage) {
       return createResponse(404, { error: "No processed image found" });
@@ -349,7 +318,7 @@ async function getProcessedImages(processingId) {
       timestamp: result.Item.timestamp,
     });
   } catch (error) {
-    console.error("Error getting processed images:", error);
+    console.error("Error getting processed images:", error); // MIGRATION: processed images error
     return createResponse(500, { error: "Failed to get processed images" });
   }
 }
@@ -390,7 +359,7 @@ async function triggerProcessing(uniqueId) {
       key: uploadRecord.key,
     });
   } catch (error) {
-    console.error("Error triggering processing:", error);
+    console.error("Error triggering processing:", error); // MIGRATION: processing trigger error
     return createResponse(500, { error: "Failed to trigger processing" });
   }
 }
@@ -445,7 +414,7 @@ async function deleteImage(uniqueId) {
       deletedProcessedImages: contents.length,
     });
   } catch (error) {
-    console.error("Error deleting image:", error);
+    console.error("Error deleting image:", error); // MIGRATION: deletion error
     return createResponse(500, { error: "Failed to delete image" });
   }
 }
@@ -523,17 +492,12 @@ function extractSizeType(key) {
  */
 async function debugTable() {
   try {
-    console.log("Debug: Listing all records in table:", PROCESSING_TABLE);
-
     const params = {
       TableName: PROCESSING_TABLE,
       Limit: 10,
     };
 
     const result = await dynamodb.send(new ScanCommand(params));
-
-    console.log("Debug: Found", result.Count, "records");
-    console.log("Debug: Records:", JSON.stringify(result.Items, null, 2));
 
     return createResponse(200, {
       tableName: PROCESSING_TABLE,
@@ -542,7 +506,7 @@ async function debugTable() {
       lastEvaluatedKey: result.LastEvaluatedKey,
     });
   } catch (error) {
-    console.error("Debug error:", error);
+    console.error("Debug table scan error:", error);
     return createResponse(500, {
       error: "Debug failed",
       details: error.message,

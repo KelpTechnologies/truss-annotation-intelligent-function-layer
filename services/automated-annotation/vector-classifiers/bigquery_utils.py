@@ -242,7 +242,7 @@ def query_model_metadata(
         found_uuids = set(results.keys())
         missing_uuids = set(listing_uuids) - found_uuids
         if missing_uuids:
-            print(f"  ⚠️  {len(missing_uuids)} UUIDs not found in BigQuery")
+            print(f"  [WARN]  {len(missing_uuids)} UUIDs not found in BigQuery")
         
         return results
         

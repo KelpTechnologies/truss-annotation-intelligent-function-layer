@@ -48,7 +48,7 @@ async function deployService(servicePath, stage = "dev", options = {}) {
   const defaultServiceName = calculateServiceName(servicePath);
   const actualServiceName = serviceName || defaultServiceName;
 
-  console.log(`🚀 Deploying service: ${actualServiceName} (${stage})`);
+  console.log(`Deploying service: ${actualServiceName} (${stage})`);
   console.log(`   Path: ${servicePath}`);
 
   // Validate service structure
@@ -83,7 +83,7 @@ async function deployService(servicePath, stage = "dev", options = {}) {
     forceCodeUpdate // Pass force code update option
   );
 
-  console.log(`✅ Service ${actualServiceName} deployed successfully`);
+  console.log(`[OK] Service ${actualServiceName} deployed successfully`);
   return deploymentResult;
 }
 
@@ -105,12 +105,12 @@ function validateService(servicePath) {
   const requiredFiles = ["config.json"];
   const handlerFiles = ["index.js", "index.py"];
 
-  console.log(`   🔍 Validating service structure...`);
+  console.log(`   Validating service structure...`);
 
   // Check for config.json
   const configPath = path.join(servicePath, "config.json");
   if (!fs.existsSync(configPath)) {
-    console.error(`   ❌ Missing required file: config.json`);
+    console.error(`   [ERROR] Missing required file: config.json`);
     return false;
   }
 
@@ -121,7 +121,7 @@ function validateService(servicePath) {
 
   if (!hasHandler) {
     console.error(
-      `   ❌ Missing handler file: need either index.js or index.py`
+      `   [ERROR] Missing handler file: need either index.js or index.py`
     );
     return false;
   }
@@ -130,11 +130,11 @@ function validateService(servicePath) {
   try {
     JSON.parse(fs.readFileSync(configPath, "utf8"));
   } catch (error) {
-    console.error(`   ❌ Invalid JSON in config.json: ${error.message}`);
+    console.error(`   [ERROR] Invalid JSON in config.json: ${error.message}`);
     return false;
   }
 
-  console.log(`   ✅ Service structure is valid`);
+  console.log(`   [OK] Service structure is valid`);
   return true;
 }
 
@@ -151,7 +151,7 @@ function loadServiceConfig(servicePath) {
     securityModes.push("api_key");
   if (authConfig.public) securityModes.push("public");
 
-  console.log(`   📋 Loaded config for ${config.service.name}`);
+  console.log(`   Loaded config for ${config.service.name}`);
   console.log(`      Runtime: ${config.deployment.runtime}`);
   console.log(`      Memory: ${config.deployment.memory}MB`);
   console.log(`      Timeout: ${config.deployment.timeout}s`);
@@ -178,17 +178,17 @@ async function ensureTemplatesGenerated(servicePath, config, serviceName) {
 
   if (!templateExists || !openApiExists) {
     needsRegeneration = true;
-    console.log(`   🔄 Missing templates, generating...`);
+    console.log(`   [REFRESH] Missing templates, generating...`);
   } else {
     const templateStat = fs.statSync(templatePath);
     if (configStat.mtime > templateStat.mtime) {
       needsRegeneration = true;
-      console.log(`   🔄 Config newer than templates, regenerating...`);
+      console.log(`   [REFRESH] Config newer than templates, regenerating...`);
     }
   }
 
   if (needsRegeneration) {
-    console.log(`   🛠️  Generating templates from config...`);
+    console.log(`   Generating templates from config...`);
     try {
       const generateScript = path.join(
         __dirname,
@@ -197,12 +197,12 @@ async function ensureTemplatesGenerated(servicePath, config, serviceName) {
       execSync(`node "${generateScript}" "${servicePath}"`, {
         stdio: "inherit",
       });
-      console.log(`   ✅ Templates generated successfully`);
+      console.log(`   [OK] Templates generated successfully`);
     } catch (error) {
       throw new Error(`Failed to generate templates: ${error.message}`);
     }
   } else {
-    console.log(`   ✅ Templates are up to date`);
+    console.log(`   [OK] Templates are up to date`);
   }
 }
 
@@ -214,11 +214,11 @@ async function packageService(
   serviceName
 ) {
   if (skipPackaging) {
-    console.log(`   ⏭️  Skipping packaging (using existing package)`);
+    console.log(`   Skipping packaging (using existing package)`);
     return null;
   }
 
-  console.log(`   📦 Packaging service...`);
+  console.log(`   Packaging service...`);
 
   const runtime = config.deployment.runtime;
 
@@ -243,7 +243,7 @@ async function packageService(
           fs.mkdirSync(destDir, { recursive: true });
         }
         fs.copyFileSync(srcPath, destPath);
-        console.log(`     📄 Copied ${file}`);
+        console.log(`     Copied ${file}`);
       }
     }
 
@@ -257,15 +257,21 @@ async function packageService(
       if (fs.existsSync(structuredLoggerPath)) {
         const destStructuredLogger = path.join(tempDir, "structured_logger.py");
         fs.copyFileSync(structuredLoggerPath, destStructuredLogger);
-        console.log(`     📄 Copied structured_logger.py`);
+        console.log(`     Copied structured_logger.py`);
       }
       const stageUrlsPath = path.join(servicePath, "stage_urls.py");
       if (fs.existsSync(stageUrlsPath)) {
         const destStageUrls = path.join(tempDir, "stage_urls.py");
         fs.copyFileSync(stageUrlsPath, destStageUrls);
-        console.log(`     📄 Copied stage_urls.py`);
+        console.log(`     Copied stage_urls.py`);
       }
-      
+      const agentTelemetryPath = path.join(servicePath, "agent_telemetry.py");
+      if (fs.existsSync(agentTelemetryPath)) {
+        const destAgentTelemetry = path.join(tempDir, "agent_telemetry.py");
+        fs.copyFileSync(agentTelemetryPath, destAgentTelemetry);
+        console.log(`     Copied agent_telemetry.py`);
+      }
+
       // Copy all Python package directories (core, agent_*, vector-classifiers)
       // Note: dsl/ is legacy and not used by index.py
       const pythonPackages = [
@@ -281,7 +287,7 @@ async function packageService(
         if (fs.existsSync(pkgDir)) {
           const destPkg = path.join(tempDir, pkgName);
           copyDirectory(pkgDir, destPkg);
-          console.log(`     📁 Copied ${pkgName}/ package`);
+          console.log(`     Copied ${pkgName}/ package`);
         }
       }
     }
@@ -292,10 +298,10 @@ async function packageService(
       if (fs.existsSync(sharedUtilsPath)) {
         const utilsDestPath = path.join(tempDir, "utils");
         copyDirectory(sharedUtilsPath, utilsDestPath);
-        console.log(`     📁 Copied shared utils folder`);
+        console.log(`     Copied shared utils folder`);
       } else {
         console.warn(
-          `     ⚠️  Shared utils folder not found at ${sharedUtilsPath}`
+          `     [WARN]  Shared utils folder not found at ${sharedUtilsPath}`
         );
       }
     }
@@ -305,12 +311,12 @@ async function packageService(
     if (fs.existsSync(serviceUtilsPath)) {
       const utilsDestPath = path.join(tempDir, "utils");
       copyDirectory(serviceUtilsPath, utilsDestPath);
-      console.log(`     📁 Copied service-specific utils folder`);
+      console.log(`     Copied service-specific utils folder`);
     }
 
     // Skip dependency installation since everything is in the toolkit layer
     console.log(
-      `     📚 Skipping dependency installation (using toolkit layer)`
+      `     Skipping dependency installation (using toolkit layer)`
     );
 
     // Create deployment package
@@ -319,14 +325,14 @@ async function packageService(
     const zipName = `truss-aifl-${serviceName}-${stage}.zip`;
     const zipPath = path.resolve(servicePath, zipName);
 
-    console.log(`     🗜️  Creating deployment package: ${zipName}`);
+    console.log(`     Creating deployment package: ${zipName}`);
     execSync(`cd "${tempDir}" && zip -r "${zipPath}" .`, { stdio: "pipe" });
 
     // Upload to S3
     const s3Bucket = "truss-api-automated-deployments";
     const s3Key = `lambda-packages/${zipName}`;
 
-    console.log(`     ☁️  Uploading to S3: s3://${s3Bucket}/${s3Key}`);
+    console.log(`     Uploading to S3: s3://${s3Bucket}/${s3Key}`);
     execSync(`aws s3 cp "${zipPath}" s3://${s3Bucket}/${s3Key}`, {
       stdio: "inherit",
     });
@@ -335,7 +341,7 @@ async function packageService(
     fs.rmSync(tempDir, { recursive: true });
     fs.unlinkSync(zipPath);
 
-    console.log(`   ✅ Package created and uploaded`);
+    console.log(`   [OK] Package created and uploaded`);
 
     return {
       s3Bucket,
@@ -392,7 +398,7 @@ async function deployStack(
   apiGatewayId,
   forceCodeUpdate
 ) {
-  console.log(`   🏗️  Deploying CloudFormation stack...`);
+  console.log(`    Deploying CloudFormation stack...`);
 
   const stackName = `truss-aifl-${serviceName}-${stage}`;
   const functionName = `truss-aifl-${serviceName}-${stage}`;
@@ -419,10 +425,10 @@ async function deployStack(
   // Add API Gateway ID parameter
   if (apiGatewayId) {
     parameters.push(`ApiGatewayId=${apiGatewayId}`);
-    console.log(`     🔗 Using API Gateway ID: ${apiGatewayId}`);
+    console.log(`     Using API Gateway ID: ${apiGatewayId}`);
   } else {
     console.log(
-      `     ⚠️  No API Gateway ID provided; Lambda permissions may be incomplete`
+      `     [WARN]  No API Gateway ID provided; Lambda permissions may be incomplete`
     );
   }
 
@@ -436,19 +442,19 @@ async function deployStack(
     "--no-fail-on-empty-changeset",
   ].join(" ");
 
-  console.log(`     📋 Stack: ${stackName}`);
-  console.log(`     📄 Template: ${templatePath}`);
-  console.log(`     🏷️  Function: ${functionName}`);
+  console.log(`     Stack: ${stackName}`);
+  console.log(`     Template: ${templatePath}`);
+  console.log(`      Function: ${functionName}`);
 
   try {
     execSync(cfnCommand, { stdio: "inherit" });
-    console.log(`   ✅ CloudFormation deployment successful`);
+    console.log(`   [OK] CloudFormation deployment successful`);
 
     // Always force Lambda code update if package was created and uploaded
     // This ensures code changes are deployed even when CloudFormation detects no changes
     if (packageInfo && (forceCodeUpdate || packageInfo.uploaded)) {
       console.log(
-        `   🔄 Forcing Lambda code update to ensure latest code is deployed...`
+        `   [REFRESH] Forcing Lambda code update to ensure latest code is deployed...`
       );
       await forceLambdaCodeUpdate(functionName, packageInfo);
     } else if (packageInfo && forceUpdate) {
@@ -470,7 +476,7 @@ async function deployStack(
 }
 
 async function forceLambdaCodeUpdate(functionName, packageInfo) {
-  console.log(`   🔄 Forcing Lambda code update for ${functionName}...`);
+  console.log(`   [REFRESH] Forcing Lambda code update for ${functionName}...`);
 
   const updateCommand = [
     "aws lambda update-function-code",
@@ -482,15 +488,15 @@ async function forceLambdaCodeUpdate(functionName, packageInfo) {
 
   try {
     execSync(updateCommand, { stdio: "inherit" });
-    console.log(`   ✅ Lambda code forcefully updated to latest version`);
+    console.log(`   [OK] Lambda code forcefully updated to latest version`);
 
     // Wait a moment for the update to propagate
-    console.log(`   ⏳ Waiting for code update to propagate...`);
+    console.log(`   Waiting for code update to propagate...`);
     await new Promise((resolve) => setTimeout(resolve, 2000));
   } catch (error) {
-    console.error(`   ❌ Code update failed: ${error.message}`);
+    console.error(`   [ERROR] Code update failed: ${error.message}`);
     console.log(
-      `   💡 You may need to check AWS credentials or Lambda function permissions`
+      `   You may need to check AWS credentials or Lambda function permissions`
     );
     throw error;
   }
@@ -509,7 +515,7 @@ function getStackOutputs(stackName) {
 
     return outputMap;
   } catch (error) {
-    console.warn(`   ⚠️  Could not get stack outputs: ${error.message}`);
+    console.warn(`   [WARN]  Could not get stack outputs: ${error.message}`);
     return {};
   }
 }
@@ -591,7 +597,7 @@ async function main() {
       apiGatewayId,
     });
 
-    console.log("\n🎉 Deployment Summary:");
+    console.log("\nDeployment Summary:");
     console.log(`   Service: ${result.functionName}`);
     console.log(`   Stage: ${stage}`);
     console.log(`   Stack: ${result.stackName}`);
@@ -600,7 +606,7 @@ async function main() {
       console.log(`   ARN: ${result.functionArn}`);
     }
   } catch (error) {
-    console.error(`❌ Deployment failed: ${error.message}`);
+    console.error(`[ERROR] Deployment failed: ${error.message}`);
     process.exit(1);
   }
 }

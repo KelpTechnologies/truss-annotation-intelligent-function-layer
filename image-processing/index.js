@@ -6,8 +6,15 @@ const axios = require("axios");
 const FormData = require("form-data");
 const crypto = require("crypto");
 
-const s3 = new S3Client({ region: process.env.AWS_REGION || "eu-west-2" });
-const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || "eu-west-2" });
+let captureAWSv3Client;
+try {
+  captureAWSv3Client = require("aws-xray-sdk-core").captureAWSv3Client;
+} catch (e) {
+  captureAWSv3Client = (client) => client;
+}
+
+const s3 = captureAWSv3Client(new S3Client({ region: process.env.AWS_REGION || "eu-west-2" }));
+const dynamoClient = captureAWSv3Client(new DynamoDBClient({ region: process.env.AWS_REGION || "eu-west-2" }));
 const dynamodb = DynamoDBDocumentClient.from(dynamoClient);
 
 // Configuration
@@ -20,27 +27,15 @@ const VECTORIZATION_API_URL =
   "https://image-vectorization-api-gpu-94434742359.us-central1.run.app/vectorize";
 const VECTORIZATION_API_KEY = process.env.VECTORIZATION_API_KEY || null;
 
-// Log configuration on cold start (only log non-sensitive values)
-console.log("Image Processing Lambda Configuration:", {
-  STAGE,
-  SOURCE_BUCKET,
-  PROCESSED_BUCKET,
-  PROCESSING_TABLE,
-  VECTORIZATION_API_URL,
-  VECTORIZATION_API_KEY_PRESENT: !!VECTORIZATION_API_KEY,
-  NODE_ENV: process.env.NODE_ENV || "production",
-  AWS_REGION: process.env.AWS_REGION || "not-set",
-});
-
 // Validate required configuration
 if (!SOURCE_BUCKET) {
-  console.error("ERROR: SOURCE_BUCKET environment variable is not set");
+  console.error("ERROR: SOURCE_BUCKET environment variable is not set"); // MIGRATION: critical env var error
 }
 if (!PROCESSED_BUCKET) {
-  console.error("ERROR: PROCESSED_BUCKET environment variable is not set");
+  console.error("ERROR: PROCESSED_BUCKET environment variable is not set"); // MIGRATION: critical env var error
 }
 if (!PROCESSING_TABLE) {
-  console.error("ERROR: PROCESSING_TABLE environment variable is not set");
+  console.error("ERROR: PROCESSING_TABLE environment variable is not set"); // MIGRATION: critical env var error
 }
 
 /**
@@ -49,15 +44,6 @@ if (!PROCESSING_TABLE) {
  */
 exports.handler = async (event) => {
   const startTime = Date.now();
-  console.log("=".repeat(80));
-  console.log("Image processing Lambda triggered");
-  console.log("Event summary:", {
-    recordCount: event.Records?.length || 0,
-    eventSource: event.Records?.[0]?.eventSource || "unknown",
-    eventTime: event.Records?.[0]?.eventTime || "unknown",
-  });
-  console.log("Full event:", JSON.stringify(event, null, 2));
-  console.log("=".repeat(80));
 
   // Validate event structure
   if (
@@ -65,6 +51,7 @@ exports.handler = async (event) => {
     !Array.isArray(event.Records) ||
     event.Records.length === 0
   ) {
+    // MIGRATION: invalid event
     console.warn(
       "Invalid event: No Records found. Event:",
       JSON.stringify(event, null, 2)
@@ -82,6 +69,7 @@ exports.handler = async (event) => {
   const s3Records = event.Records.filter((record) => {
     const isValid = record.eventSource === "aws:s3" && record.s3;
     if (!isValid) {
+      // MIGRATION: non-S3 record skip
       console.warn("Skipping non-S3 record:", {
         eventSource: record.eventSource,
         eventName: record.eventName,
@@ -91,7 +79,7 @@ exports.handler = async (event) => {
   });
 
   if (s3Records.length === 0) {
-    console.warn("No valid S3 records found in event");
+    console.warn("No valid S3 records found in event"); // MIGRATION: no valid records
     return {
       statusCode: 400,
       body: JSON.stringify({
@@ -105,14 +93,12 @@ exports.handler = async (event) => {
     // Process each S3 record
     const results = await Promise.all(
       s3Records.map((record, index) => {
-        console.log(`Processing record ${index + 1}/${s3Records.length}`);
         return processImageRecord(record);
       })
     );
 
     const processingTime = Date.now() - startTime;
-    console.log("=".repeat(80));
-    console.log("Processing completed successfully");
+    // MIGRATION: batch summary
     console.log("Summary:", {
       totalRecords: s3Records.length,
       successfulRecords: results.filter((r) => r.status === "completed").length,
@@ -120,9 +106,6 @@ exports.handler = async (event) => {
       totalProcessingTimeMs: processingTime,
       averageTimePerRecordMs: Math.round(processingTime / s3Records.length),
     });
-    console.log("Results:", JSON.stringify(results, null, 2));
-    console.log("=".repeat(80));
-
     return {
       statusCode: 200,
       body: JSON.stringify({
@@ -136,7 +119,7 @@ exports.handler = async (event) => {
     };
   } catch (error) {
     const processingTime = Date.now() - startTime;
-    console.error("=".repeat(80));
+    // MIGRATION: fatal error with details
     console.error("FATAL ERROR processing images");
     console.error("Error details:", {
       message: error.message,
@@ -144,7 +127,6 @@ exports.handler = async (event) => {
       name: error.name,
       processingTimeMs: processingTime,
     });
-    console.error("=".repeat(80));
     throw error;
   }
 };
@@ -157,7 +139,7 @@ async function processImageRecord(record) {
   const bucket = record.s3.bucket.name;
   const key = decodeURIComponent(record.s3.object.key.replace(/\+/g, " "));
 
-  console.log("-".repeat(80));
+  // MIGRATION: record routing + metadata
   console.log(`Processing image record: ${bucket}/${key}`);
   console.log("S3 Record details:", {
     bucket,
@@ -175,25 +157,25 @@ async function processImageRecord(record) {
     const filename = keyParts[keyParts.length - 1];
     const processingId = filename.split(".")[0]; // Remove file extension
 
+    // MIGRATION: processingId extraction
     console.log(
       `Extracted processing ID: ${processingId} from filename: ${filename}`
     );
 
     // Update processing status
-    console.log(`Updating DynamoDB status to 'processing' for ${processingId}`);
     await updateProcessingStatus(processingId, key, "processing");
 
     // Download image from source bucket
-    console.log(`Downloading image from S3: ${bucket}/${key}`);
+    console.log(`Downloading image from S3: ${bucket}/${key}`); // MIGRATION: download start
     const downloadStartTime = Date.now();
     const imageData = await downloadImage(bucket, key);
     const downloadTime = Date.now() - downloadStartTime;
+    // MIGRATION: download complete
     console.log(
       `Image downloaded successfully (${imageData.length} bytes) in ${downloadTime}ms`
     );
 
     // Process the image
-    console.log(`Starting image processing with Sharp`);
     const processStartTime = Date.now();
     const {
       processedImage,
@@ -204,10 +186,10 @@ async function processImageRecord(record) {
       normalizedHeight,
     } = await processImage(imageData, key);
     const processTime = Date.now() - processStartTime;
-    console.log(`Image processing completed in ${processTime}ms`);
+    console.log(`Image processing completed in ${processTime}ms`); // MIGRATION: processing timing
 
     // Upload processed image to destination bucket
-    console.log(`Uploading processed image to S3: ${PROCESSED_BUCKET}`);
+    console.log(`Uploading processed image to S3: ${PROCESSED_BUCKET}`); // MIGRATION: upload start
     const uploadStartTime = Date.now();
     const uploadResult = await uploadProcessedImage(
       processedImage,
@@ -216,12 +198,14 @@ async function processImageRecord(record) {
       normalizedHeight
     );
     const uploadTime = Date.now() - uploadStartTime;
+    // MIGRATION: upload complete
     console.log(
       `Processed image uploaded successfully in ${uploadTime}ms:`,
       uploadResult
     );
 
     // Vectorize the image using dedicated JPEG buffer (single lossy conversion)
+    // MIGRATION: vectorization start
     console.log(`Starting image vectorization using dedicated JPEG buffer`);
     const vectorStartTime = Date.now();
     let vectorResult = null;
@@ -233,15 +217,18 @@ async function processImageRecord(record) {
       );
       const vectorTime = Date.now() - vectorStartTime;
       if (vectorResult.success) {
+        // MIGRATION: vectorization success
         console.log(
           `Image vectorization successful for ${processingId} in ${vectorTime}ms`
         );
+        // MIGRATION: vectorization details
         console.log("Vectorization details:", {
           dimension: vectorResult.dimension,
           vectorLength: vectorResult.vector?.length,
           timings: vectorResult.timings,
         });
       } else {
+        // MIGRATION: vectorization warn
         console.warn(
           `Image vectorization failed for ${processingId} in ${vectorTime}ms:`,
           {
@@ -252,6 +239,7 @@ async function processImageRecord(record) {
       }
     } catch (vectorError) {
       const vectorTime = Date.now() - vectorStartTime;
+      // MIGRATION: vectorization error
       console.error(
         `Image vectorization exception for ${processingId} after ${vectorTime}ms:`,
         {
@@ -269,7 +257,6 @@ async function processImageRecord(record) {
     }
 
     // Update processing status to completed
-    console.log(`Updating DynamoDB status to 'completed' for ${processingId}`);
     await updateProcessingStatus(
       processingId,
       key,
@@ -280,8 +267,7 @@ async function processImageRecord(record) {
     );
 
     const totalTime = Date.now() - recordStartTime;
-    console.log(`Record processing completed in ${totalTime}ms`);
-    console.log("-".repeat(80));
+    console.log(`Record processing completed in ${totalTime}ms`); // MIGRATION: record timing
 
     return {
       processingId,
@@ -299,6 +285,7 @@ async function processImageRecord(record) {
     };
   } catch (error) {
     const totalTime = Date.now() - recordStartTime;
+    // MIGRATION: error with key + timing
     console.error(`Error processing ${key} after ${totalTime}ms:`, {
       message: error.message,
       stack: error.stack,
@@ -311,7 +298,6 @@ async function processImageRecord(record) {
     const processingId = filename.split(".")[0]; // Remove file extension
 
     // Update processing status to failed
-    console.log(`Updating DynamoDB status to 'failed' for ${processingId}`);
     await updateProcessingStatus(
       processingId,
       key,
@@ -320,7 +306,6 @@ async function processImageRecord(record) {
       error.message
     );
 
-    console.error("-".repeat(80));
     throw error;
   }
 }
@@ -329,7 +314,7 @@ async function processImageRecord(record) {
  * Download image from S3
  */
 async function downloadImage(bucket, key) {
-  console.log(`S3 download request: bucket=${bucket}, key=${key}`);
+  console.log(`S3 download request: bucket=${bucket}, key=${key}`); // MIGRATION: S3 operation
   const params = {
     Bucket: bucket,
     Key: key,
@@ -340,7 +325,7 @@ async function downloadImage(bucket, key) {
     // v3: Body is a readable stream, convert to Buffer
     const bodyBytes = await result.Body.transformToByteArray();
     const body = Buffer.from(bodyBytes);
-    console.log(`S3 download successful:`, {
+    console.log(`S3 download successful:`, { // MIGRATION: S3 operation
       contentLength: result.ContentLength,
       contentType: result.ContentType,
       lastModified: result.LastModified,
@@ -348,7 +333,7 @@ async function downloadImage(bucket, key) {
     });
     return body;
   } catch (error) {
-    console.error(`S3 download failed:`, {
+    console.error(`S3 download failed:`, { // MIGRATION: S3 operation
       bucket,
       key,
       error: error.message,
@@ -391,7 +376,7 @@ async function processImage(imageBuffer, originalKey) {
     const normalizedWidth = finalMetadata.width || 768;
     const normalizedHeight = finalMetadata.height || 768;
 
-    console.log("Image processed:", {
+    console.log("Image processed:", { // MIGRATION: processing result
       original: `${metadata.width}x${metadata.height}`,
       processed: `${normalizedWidth}x${normalizedHeight}`,
       jpegSize: vectorizationBuffer.length,
@@ -407,6 +392,7 @@ async function processImage(imageBuffer, originalKey) {
       normalizedHeight,
     };
   } catch (error) {
+    // MIGRATION: Sharp error
     console.error("Error processing image with Sharp:", {
       originalKey,
       error: error.message,
@@ -422,6 +408,7 @@ async function processImage(imageBuffer, originalKey) {
     const isAVIF = extension === "avif";
 
     if (isAVIF) {
+      // MIGRATION: AVIF error
       console.error("AVIF processing error detected:", {
         errorMessage: error.message,
         errorCode: error.code,
@@ -442,20 +429,15 @@ async function processImage(imageBuffer, originalKey) {
       );
 
       if (isUnsupportedError) {
+        // MIGRATION: AVIF error
         console.error(
           "AVIF format may not be supported by Sharp in this Lambda environment."
-        );
-        console.error(
-          "Possible solutions:",
-          "1. Ensure Sharp is built with AVIF support (requires libavif)",
-          "2. Update Sharp to latest version with AVIF support",
-          "3. Pre-convert AVIF images before uploading"
         );
       }
 
       // Try simplified fallback approach
       try {
-        console.log("Attempting AVIF fallback");
+        console.log("Attempting AVIF fallback"); // MIGRATION: fallback attempt
         const fallbackInstance = sharp(imageBuffer, {
           failOn: "none",
           limitInputPixels: false,
@@ -484,6 +466,7 @@ async function processImage(imageBuffer, originalKey) {
           normalizedHeight: finalMetadata.height || 768,
         };
       } catch (fallbackError) {
+        // MIGRATION: fallback attempt
         console.error("AVIF fallback conversion also failed:", {
           error: fallbackError.message,
           stack: fallbackError.stack,
@@ -512,6 +495,7 @@ async function uploadProcessedImage(
   const key = `${baseName}_${width}x${height}.webp`;
   const sizeString = `${width}x${height}`;
 
+  // MIGRATION: upload params
   console.log(`S3 upload request: bucket=${PROCESSED_BUCKET}, key=${key}`);
   console.log("Upload parameters:", {
     bucket: PROCESSED_BUCKET,
@@ -539,7 +523,7 @@ async function uploadProcessedImage(
     // v3 PutObjectCommand does not return Location — construct the URL
     const location = `https://${PROCESSED_BUCKET}.s3.${process.env.AWS_REGION || "eu-west-2"}.amazonaws.com/${key}`;
 
-    console.log(`S3 upload successful:`, {
+    console.log(`S3 upload successful:`, { // MIGRATION: upload success
       key,
       location,
       bucket: PROCESSED_BUCKET,
@@ -553,6 +537,7 @@ async function uploadProcessedImage(
       size: sizeString,
     };
   } catch (error) {
+    // MIGRATION: upload error
     console.error("Error uploading processed image to S3:", {
       bucket: PROCESSED_BUCKET,
       key,
@@ -576,6 +561,7 @@ async function uploadProcessedImage(
 async function vectorizeImage(jpegBuffer, originalKey, processingId) {
   const vectorStartTime = Date.now();
   try {
+    // MIGRATION: vectorization config
     console.log(
       `Starting vectorization for: ${originalKey} (processingId: ${processingId})`
     );
@@ -590,8 +576,8 @@ async function vectorizeImage(jpegBuffer, originalKey, processingId) {
     }
 
     // Get image metadata for logging
-    console.log("Extracting image metadata for vectorization");
     const metadata = await sharp(jpegBuffer).metadata();
+    // MIGRATION: buffer metadata
     console.log("JPEG buffer metadata for vectorization:", {
       format: metadata.format,
       width: metadata.width,
@@ -607,12 +593,6 @@ async function vectorizeImage(jpegBuffer, originalKey, processingId) {
     const baseName = originalKey.replace(/\.[^/.]+$/, "");
     const filename = `${baseName.split("/").pop() || "image"}.jpg`;
 
-    console.log("Preparing multipart form-data:", {
-      filename,
-      contentType,
-      bufferSize: jpegBuffer.length,
-    });
-
     // Create multipart form-data with proper 3-tuple format: (filename, buffer, content-type)
     // This is CRITICAL to avoid the 500 error from the API
     const formData = new FormData();
@@ -625,13 +605,15 @@ async function vectorizeImage(jpegBuffer, originalKey, processingId) {
     const headers = formData.getHeaders();
     if (VECTORIZATION_API_KEY) {
       headers["x-api-key"] = VECTORIZATION_API_KEY;
-      console.log("API key authentication added to request headers");
+      console.log("API key authentication added to request headers"); // MIGRATION: auth state
     } else {
+      // MIGRATION: auth state
       console.warn(
         "WARNING: VECTORIZATION_API_KEY not set - request will be sent without authentication"
       );
     }
 
+    // MIGRATION: auth state
     console.log("Making request to vectorization API:", {
       url: VECTORIZATION_API_URL,
       method: "POST",
@@ -653,6 +635,7 @@ async function vectorizeImage(jpegBuffer, originalKey, processingId) {
     const requestTime = Date.now() - requestStartTime;
     const totalTime = Date.now() - vectorStartTime;
 
+    // MIGRATION: vectorization timing
     console.log(`Vectorization API request completed in ${requestTime}ms`, {
       status: response.status,
       statusText: response.statusText,
@@ -662,6 +645,7 @@ async function vectorizeImage(jpegBuffer, originalKey, processingId) {
       hasTimings: !!response.data?.timings,
     });
 
+    // MIGRATION: vectorization timing
     console.log(`Vectorization completed successfully in ${totalTime}ms`, {
       processingId,
       dimension: response.data.dimension,
@@ -679,6 +663,7 @@ async function vectorizeImage(jpegBuffer, originalKey, processingId) {
     };
   } catch (error) {
     const totalTime = Date.now() - vectorStartTime;
+    // MIGRATION: API error
     console.error(`Vectorization failed after ${totalTime}ms:`, {
       processingId,
       originalKey,
@@ -695,20 +680,20 @@ async function vectorizeImage(jpegBuffer, originalKey, processingId) {
 
     // Log detailed error information for debugging
     if (error.response) {
-      console.error("API response error details:", {
+      console.error("API response error details:", { // MIGRATION: API error
         status: error.response.status,
         statusText: error.response.statusText,
         headers: error.response.headers,
         data: error.response.data,
       });
     } else if (error.request) {
-      console.error("Request made but no response received:", {
+      console.error("Request made but no response received:", { // MIGRATION: API error
         url: error.config?.url,
         method: error.config?.method,
         timeout: error.config?.timeout,
       });
     } else {
-      console.error("Error setting up request:", error.message);
+      console.error("Error setting up vectorization request:", error.message);
     }
 
     return {
@@ -733,6 +718,7 @@ async function updateProcessingStatus(
   error = null,
   vectorResult = null
 ) {
+  // MIGRATION: DynamoDB with processingId
   console.log(`Updating DynamoDB status for ${processingId}:`, {
     status,
     hasProcessedImage: !!processedImage,
@@ -754,12 +740,11 @@ async function updateProcessingStatus(
 
   if (processedImage) {
     params.Item.processedImage = processedImage;
-    console.log("Added processedImage to DynamoDB item");
   }
 
   if (error) {
     params.Item.error = error;
-    console.log("Added error to DynamoDB item:", error);
+    console.log("Added error to DynamoDB item:", error); // MIGRATION: error persistence
   }
 
   // Store vector result if available
@@ -770,11 +755,6 @@ async function updateProcessingStatus(
       if (vectorResult.timings) {
         params.Item.vectorizationTimings = vectorResult.timings;
       }
-      console.log("Added vectorization result to DynamoDB:", {
-        dimension: vectorResult.dimension,
-        vectorLength: vectorResult.vector?.length,
-        hasTimings: !!vectorResult.timings,
-      });
     } else {
       // Store error information if vectorization failed
       params.Item.vectorizationError = {
@@ -783,26 +763,18 @@ async function updateProcessingStatus(
         statusText: vectorResult.statusText,
         details: vectorResult.details,
       };
-      console.log(
-        "Added vectorization error to DynamoDB:",
-        params.Item.vectorizationError
-      );
     }
   }
 
   try {
-    console.log("DynamoDB put request:", {
-      table: PROCESSING_TABLE,
-      itemKeys: Object.keys(params.Item),
-      itemSize: JSON.stringify(params.Item).length,
-    });
-
     await dynamodb.send(new PutCommand(params));
 
+    // MIGRATION: DB update confirmation
     console.log(
       `DynamoDB status updated successfully: ${processingId} - ${status}`
     );
   } catch (dbError) {
+    // MIGRATION: DB error
     console.error("Error updating DynamoDB processing status:", {
       processingId,
       status,

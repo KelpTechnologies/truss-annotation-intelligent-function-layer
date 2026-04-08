@@ -108,10 +108,10 @@ function mapDbLocationToApi(data) {
  * @returns {Array} Array with 'material' field
  */
 function mapDbMaterialToApi(data) {
-  console.log("🔧 mapDbMaterialToApi called with data length:", data.length);
+  console.log("mapDbMaterialToApi called with data length:", data.length);
   if (data.length > 0) {
     console.log(
-      "🔧 Sample data before material mapping:",
+      "Sample data before material mapping:",
       JSON.stringify(data[0], null, 2)
     );
   }
@@ -121,7 +121,7 @@ function mapDbMaterialToApi(data) {
   const mappedData = data.map((item) => {
     if (item && typeof item === "object" && "root_material" in item) {
       console.log(
-        "🔧 Mapping root_material:",
+        "Mapping root_material:",
         item.root_material,
         "to material"
       );
@@ -133,10 +133,10 @@ function mapDbMaterialToApi(data) {
     return item;
   });
 
-  console.log("🔧 Material mapping completed, data length:", mappedData.length);
+  console.log("Material mapping completed, data length:", mappedData.length);
   if (mappedData.length > 0) {
     console.log(
-      "🔧 Sample data after material mapping:",
+      "Sample data after material mapping:",
       JSON.stringify(mappedData[0], null, 2)
     );
   }
@@ -151,10 +151,10 @@ function mapDbMaterialToApi(data) {
  * @returns {Array} Array with 'shape' field
  */
 function mapDbTypeToShape(data) {
-  console.log("🔧 mapDbTypeToShape called with data length:", data.length);
+  console.log("mapDbTypeToShape called with data length:", data.length);
   if (data.length > 0) {
     console.log(
-      "🔧 Sample data before type mapping:",
+      "Sample data before type mapping:",
       JSON.stringify(data[0], null, 2)
     );
   }
@@ -163,7 +163,7 @@ function mapDbTypeToShape(data) {
 
   const mappedData = data.map((item) => {
     if (item && typeof item === "object" && "type" in item) {
-      console.log("🔧 Mapping type:", item.type, "to shape");
+      console.log("Mapping type:", item.type, "to shape");
       const newItem = { ...item };
       newItem.shape = newItem.type;
       delete newItem.type;
@@ -172,10 +172,10 @@ function mapDbTypeToShape(data) {
     return item;
   });
 
-  console.log("🔧 Type mapping completed, data length:", mappedData.length);
+  console.log("Type mapping completed, data length:", mappedData.length);
   if (mappedData.length > 0) {
     console.log(
-      "🔧 Sample data after type mapping:",
+      "Sample data after type mapping:",
       JSON.stringify(mappedData[0], null, 2)
     );
   }
@@ -190,10 +190,10 @@ function mapDbTypeToShape(data) {
  * @returns {Array} Array with formatted monthly field
  */
 function mapDbMonthlyToApi(data) {
-  console.log("🔧 mapDbMonthlyToApi called with data length:", data.length);
+  console.log("mapDbMonthlyToApi called with data length:", data.length);
   if (data.length > 0) {
     console.log(
-      "🔧 Sample data before monthly mapping:",
+      "Sample data before monthly mapping:",
       JSON.stringify(data[0], null, 2)
     );
   }
@@ -211,7 +211,7 @@ function mapDbMonthlyToApi(data) {
         newItem.monthly.value
       ) {
         console.log(
-          "🔧 Mapping nested monthly.value:",
+          "Mapping nested monthly.value:",
           newItem.monthly.value,
           "to YYYY-MM format"
         );
@@ -227,7 +227,7 @@ function mapDbMonthlyToApi(data) {
         newItem.monthly.includes("T")
       ) {
         console.log(
-          "🔧 Mapping direct monthly ISO timestamp:",
+          "Mapping direct monthly ISO timestamp:",
           newItem.monthly,
           "to YYYY-MM format"
         );
@@ -243,7 +243,7 @@ function mapDbMonthlyToApi(data) {
         /^\d{4}-\d{2}$/.test(newItem.monthly)
       ) {
         console.log(
-          "🔧 Monthly field already in correct format:",
+          "Monthly field already in correct format:",
           newItem.monthly
         );
         // No change needed
@@ -254,10 +254,10 @@ function mapDbMonthlyToApi(data) {
     return item;
   });
 
-  console.log("🔧 Monthly mapping completed, data length:", mappedData.length);
+  console.log("Monthly mapping completed, data length:", mappedData.length);
   if (mappedData.length > 0) {
     console.log(
-      "🔧 Sample data after monthly mapping:",
+      "Sample data after monthly mapping:",
       JSON.stringify(mappedData[0], null, 2)
     );
   }
@@ -272,10 +272,10 @@ function mapDbMonthlyToApi(data) {
  * @returns {Array} Array with all mapped fields
  */
 function mapAllEntities(data) {
-  console.log("🔧 mapAllEntities called with data length:", data.length);
+  console.log("mapAllEntities called with data length:", data.length);
   if (data.length > 0) {
     console.log(
-      "🔧 Sample data before mapping:",
+      "Sample data before mapping:",
       JSON.stringify(data[0], null, 2)
     );
   }
@@ -283,37 +283,37 @@ function mapAllEntities(data) {
   let mappedData = data;
 
   // Apply all entity mappings in sequence
-  console.log("🔧 Applying condition mapping...");
+  console.log("Applying condition mapping...");
   mappedData = mapDbConditionToApi(mappedData);
-  console.log("🔧 After condition mapping, data length:", mappedData.length);
+  console.log("After condition mapping, data length:", mappedData.length);
 
-  console.log("🔧 Applying colour mapping...");
+  console.log("Applying colour mapping...");
   mappedData = mapDbColourToColor(mappedData);
-  console.log("🔧 After colour mapping, data length:", mappedData.length);
+  console.log("After colour mapping, data length:", mappedData.length);
 
-  console.log("🔧 Applying hardware mapping...");
+  console.log("Applying hardware mapping...");
   mappedData = mapDbHardwareToApi(mappedData);
-  console.log("🔧 After hardware mapping, data length:", mappedData.length);
+  console.log("After hardware mapping, data length:", mappedData.length);
 
-  console.log("🔧 Applying location mapping...");
+  console.log("Applying location mapping...");
   mappedData = mapDbLocationToApi(mappedData);
-  console.log("🔧 After location mapping, data length:", mappedData.length);
+  console.log("After location mapping, data length:", mappedData.length);
 
-  console.log("🔧 Applying material mapping...");
+  console.log("Applying material mapping...");
   mappedData = mapDbMaterialToApi(mappedData);
-  console.log("🔧 After material mapping, data length:", mappedData.length);
+  console.log("After material mapping, data length:", mappedData.length);
 
-  console.log("🔧 Applying type mapping...");
+  console.log("Applying type mapping...");
   mappedData = mapDbTypeToShape(mappedData);
-  console.log("🔧 After type mapping, data length:", mappedData.length);
+  console.log("After type mapping, data length:", mappedData.length);
 
-  console.log("🔧 Applying monthly mapping...");
+  console.log("Applying monthly mapping...");
   mappedData = mapDbMonthlyToApi(mappedData);
-  console.log("🔧 After monthly mapping, data length:", mappedData.length);
+  console.log("After monthly mapping, data length:", mappedData.length);
 
   if (mappedData.length > 0) {
     console.log(
-      "🔧 Sample data after all mapping:",
+      "Sample data after all mapping:",
       JSON.stringify(mappedData[0], null, 2)
     );
   }
@@ -381,28 +381,28 @@ function postAggregationCalcs(
   validatedParams = {},
   originalParams = {}
 ) {
-  console.log("🔧 postAggregationCalcs called");
-  console.log("🔧 Calc type:", calc);
-  console.log("🔧 Group by:", groupBy);
-  console.log("🔧 Input data length:", data.length);
-  console.log("🔧 Validated params:", JSON.stringify(validatedParams, null, 2));
-  console.log("🔧 Original params:", JSON.stringify(originalParams, null, 2));
+  console.log("postAggregationCalcs called");
+  console.log("Calc type:", calc);
+  console.log("Group by:", groupBy);
+  console.log("Input data length:", data.length);
+  console.log("Validated params:", JSON.stringify(validatedParams, null, 2));
+  console.log("Original params:", JSON.stringify(originalParams, null, 2));
 
   if (!calc || !Array.isArray(data) || data.length === 0) {
-    console.log("🔧 Early return - no calc, no data, or empty array");
+    console.log("Early return - no calc, no data, or empty array");
     return data;
   }
 
   if (calc === "percentage_change") {
-    console.log("🔧 Processing percentage_change calculation");
+    console.log("Processing percentage_change calculation");
 
     const groupByFields = (groupBy || "").split(",").map((f) => f.trim());
-    console.log("🔧 Group by fields:", groupByFields);
+    console.log("Group by fields:", groupByFields);
 
     const temporalField = groupByFields.find((f) =>
       VALID_TEMPORAL_GROUPINGS.includes(f)
     );
-    console.log("🔧 Temporal field found:", temporalField);
+    console.log("Temporal field found:", temporalField);
 
     if (!temporalField) {
       throw new Error(
@@ -413,7 +413,7 @@ function postAggregationCalcs(
     const groupFields = groupByFields.filter(
       (f) => f && !VALID_TEMPORAL_GROUPINGS.includes(f)
     );
-    console.log("🔧 Entity group fields:", groupFields);
+    console.log("Entity group fields:", groupFields);
 
     const grouped = {};
     data.forEach((row) => {
@@ -421,9 +421,9 @@ function postAggregationCalcs(
       if (!grouped[key]) grouped[key] = [];
       grouped[key].push(row);
     });
-    console.log("🔧 Grouped data keys:", Object.keys(grouped));
+    console.log("Grouped data keys:", Object.keys(grouped));
     console.log(
-      "🔧 Grouped data structure:",
+      "Grouped data structure:",
       Object.keys(grouped).map((key) => ({
         key,
         count: grouped[key].length,
@@ -433,12 +433,12 @@ function postAggregationCalcs(
 
     const result = [];
     const entityKeys = Object.keys(grouped).sort();
-    console.log("🔧 Sorted entity keys:", entityKeys);
+    console.log("Sorted entity keys:", entityKeys);
 
     entityKeys.forEach((key) => {
       const rows = grouped[key];
       console.log(
-        `🔧 Processing entity group: ${key} with ${rows.length} rows`
+        `Processing entity group: ${key} with ${rows.length} rows`
       );
 
       // Sort by temporal field to ensure correct percentage calculation order
@@ -448,7 +448,7 @@ function postAggregationCalcs(
         return 0;
       });
       console.log(
-        `🔧 Sorted temporal values for ${key}:`,
+        `Sorted temporal values for ${key}:`,
         rows.map((r) => r[temporalField])
       );
 
@@ -457,12 +457,12 @@ function postAggregationCalcs(
 
         if (i === 0) {
           rows[i].value = null;
-          console.log(`🔧 First row for ${key}: value set to null`);
+          console.log(`First row for ${key}: value set to null`);
         } else {
           const currentValue = rows[i].pre_calc_value;
           const previousValue = rows[i - 1].pre_calc_value;
           console.log(
-            `🔧 Row ${i} for ${key}: current=${currentValue}, previous=${previousValue}`
+            `Row ${i} for ${key}: current=${currentValue}, previous=${previousValue}`
           );
 
           if (
@@ -473,11 +473,11 @@ function postAggregationCalcs(
             previousValue !== 0
           ) {
             rows[i].value = (currentValue - previousValue) / previousValue;
-            console.log(`🔧 Calculated percentage change: ${rows[i].value}`);
+            console.log(`Calculated percentage change: ${rows[i].value}`);
           } else {
             rows[i].value = null;
             console.log(
-              `🔧 Row ${i} for ${key}: value set to null due to invalid data`
+              `Row ${i} for ${key}: value set to null due to invalid data`
             );
           }
         }
@@ -486,10 +486,10 @@ function postAggregationCalcs(
     });
 
     console.log(
-      "🔧 Result after percentage calculation, length:",
+      "Result after percentage calculation, length:",
       result.length
     );
-    console.log("🔧 Sample result rows:", result.slice(0, 3));
+    console.log("Sample result rows:", result.slice(0, 3));
 
     const finalResult = filterWorkingDataPoints(
       result,
@@ -498,10 +498,10 @@ function postAggregationCalcs(
       temporalField
     );
     console.log(
-      "🔧 After filterWorkingDataPoints, length:",
+      "After filterWorkingDataPoints, length:",
       finalResult.length
     );
-    console.log("🔧 Sample filtered rows:", finalResult.slice(0, 3));
+    console.log("Sample filtered rows:", finalResult.slice(0, 3));
 
     // After calculating percentage changes, re-order by the new percentage change values
     // and apply limit/offset if specified
@@ -511,10 +511,10 @@ function postAggregationCalcs(
       calc
     );
     console.log(
-      "🔧 After reorderAndLimitCalcResults, length:",
+      "After reorderAndLimitCalcResults, length:",
       reorderedResult.length
     );
-    console.log("🔧 Final result sample:", reorderedResult.slice(0, 3));
+    console.log("Final result sample:", reorderedResult.slice(0, 3));
 
     return reorderedResult;
   }
@@ -530,13 +530,13 @@ function postAggregationCalcs(
  * @returns {Array} Reordered and limited data array
  */
 function reorderAndLimitCalcResults(data, validatedParams, calc) {
-  console.log("🔧 reorderAndLimitCalcResults called");
-  console.log("🔧 Input data length:", data.length);
-  console.log("🔧 Calc type:", calc);
-  console.log("🔧 Validated params:", JSON.stringify(validatedParams, null, 2));
+  console.log("reorderAndLimitCalcResults called");
+  console.log("Input data length:", data.length);
+  console.log("Calc type:", calc);
+  console.log("Validated params:", JSON.stringify(validatedParams, null, 2));
 
   if (!Array.isArray(data) || data.length === 0) {
-    console.log("🔧 Early return - no data or empty array");
+    console.log("Early return - no data or empty array");
     return data;
   }
 
@@ -545,7 +545,7 @@ function reorderAndLimitCalcResults(data, validatedParams, calc) {
     if (calc === "percentage_change") {
       const isValid = row.value !== null && row.value !== undefined;
       if (!isValid) {
-        console.log(`🔧 Filtering out row with null/undefined value:`, row);
+        console.log(`Filtering out row with null/undefined value:`, row);
       }
       return isValid;
     }
@@ -553,13 +553,13 @@ function reorderAndLimitCalcResults(data, validatedParams, calc) {
   });
 
   console.log(
-    "🔧 After filtering null values, valid results length:",
+    "After filtering null values, valid results length:",
     validResults.length
   );
 
   // Sort by the calculated value (descending by default for percentage_change)
   const sortOrder = validatedParams.order || "DESC";
-  console.log("🔧 Sort order:", sortOrder);
+  console.log("Sort order:", sortOrder);
 
   validResults.sort((a, b) => {
     const aValue = a.value || 0;
@@ -572,22 +572,22 @@ function reorderAndLimitCalcResults(data, validatedParams, calc) {
     }
   });
 
-  console.log("🔧 After sorting, sample results:", validResults.slice(0, 3));
+  console.log("After sorting, sample results:", validResults.slice(0, 3));
 
   // Apply limit and offset
   const limit = validatedParams.limit || 500;
   const offset = validatedParams.offset || 0;
 
-  console.log("🔧 Applying limit:", limit, "offset:", offset);
+  console.log("Applying limit:", limit, "offset:", offset);
   console.log(
-    "🔧 Total valid results before limit/offset:",
+    "Total valid results before limit/offset:",
     validResults.length
   );
 
   const limitedResults = validResults.slice(offset, offset + limit);
 
-  console.log("🔧 Final limited results length:", limitedResults.length);
-  console.log("🔧 Final sample results:", limitedResults.slice(0, 3));
+  console.log("Final limited results length:", limitedResults.length);
+  console.log("Final sample results:", limitedResults.slice(0, 3));
 
   return limitedResults;
 }
@@ -676,14 +676,14 @@ function filterWorkingDataPoints(
   originalParams,
   temporalField
 ) {
-  console.log("🔧 filterWorkingDataPoints called");
-  console.log("🔧 Input data length:", data.length);
-  console.log("🔧 Temporal field:", temporalField);
-  console.log("🔧 Validated params:", JSON.stringify(validatedParams, null, 2));
-  console.log("🔧 Original params:", JSON.stringify(originalParams, null, 2));
+  console.log("filterWorkingDataPoints called");
+  console.log("Input data length:", data.length);
+  console.log("Temporal field:", temporalField);
+  console.log("Validated params:", JSON.stringify(validatedParams, null, 2));
+  console.log("Original params:", JSON.stringify(originalParams, null, 2));
 
   if (!validatedParams || !temporalField) {
-    console.log("🔧 Early return - missing validatedParams or temporalField");
+    console.log("Early return - missing validatedParams or temporalField");
     return data;
   }
 
@@ -724,31 +724,31 @@ function filterWorkingDataPoints(
     }
   }
 
-  console.log("🔧 Original temporal values extracted:", originalTemporalValues);
+  console.log("Original temporal values extracted:", originalTemporalValues);
   console.log(
-    "🔧 Original temporal values type:",
+    "Original temporal values type:",
     typeof originalTemporalValues
   );
   console.log(
-    "🔧 Original temporal values length:",
+    "Original temporal values length:",
     originalTemporalValues.length
   );
   if (originalTemporalValues.length > 0) {
-    console.log("🔧 First temporal value:", originalTemporalValues[0]);
+    console.log("First temporal value:", originalTemporalValues[0]);
     console.log(
-      "🔧 First temporal value type:",
+      "First temporal value type:",
       typeof originalTemporalValues[0]
     );
   }
 
   // If no original temporal filter, return all data
   if (originalTemporalValues.length === 0) {
-    console.log("🔧 No original temporal filter, returning all data");
+    console.log("No original temporal filter, returning all data");
     return data;
   }
 
-  console.log("🔧 Filtering data to keep only requested temporal periods");
-  console.log("🔧 Requested periods:", originalTemporalValues);
+  console.log("Filtering data to keep only requested temporal periods");
+  console.log("Requested periods:", originalTemporalValues);
 
   // Filter to keep only the originally requested periods
   const filteredData = data.filter((row) => {
@@ -756,14 +756,14 @@ function filterWorkingDataPoints(
     const isIncluded = originalTemporalValues.includes(rowTemporalValue);
     if (!isIncluded) {
       console.log(
-        `🔧 Filtering out row with ${temporalField}: ${rowTemporalValue}`
+        `Filtering out row with ${temporalField}: ${rowTemporalValue}`
       );
     }
     return isIncluded;
   });
 
-  console.log("🔧 After filtering, data length:", filteredData.length);
-  console.log("🔧 Sample filtered data:", filteredData.slice(0, 3));
+  console.log("After filtering, data length:", filteredData.length);
+  console.log("Sample filtered data:", filteredData.slice(0, 3));
 
   return filteredData;
 }
@@ -848,9 +848,9 @@ function filterInternalCalculationFields(
   endpoint = "",
   allowedMetrics = null
 ) {
-  console.log("🔧 filterInternalCalculationFields called");
-  console.log("🔧 Service:", service, "Endpoint:", endpoint);
-  console.log("🔧 Input data length:", data.length);
+  console.log("filterInternalCalculationFields called");
+  console.log("Service:", service, "Endpoint:", endpoint);
+  console.log("Input data length:", data.length);
 
   if (!Array.isArray(data)) return data;
 
@@ -973,8 +973,8 @@ function filterInternalCalculationFields(
   // Merge into final allowed set
   const finalAllowed = new Set([...baseAllowed, ...allowedMetricFields]);
 
-  console.log("🔧 Endpoint-allowed metrics:", Array.from(allowedMetricFields));
-  console.log("🔧 Client allowed baseline count:", baseAllowed.size);
+  console.log("Endpoint-allowed metrics:", Array.from(allowedMetricFields));
+  console.log("Client allowed baseline count:", baseAllowed.size);
 
   // Remove any fields that are not in the final allowed list
   const filteredData = data.map((item) => {
@@ -992,13 +992,13 @@ function filterInternalCalculationFields(
 
       if (originalKeys.length !== cleanedKeys.length) {
         console.log(
-          "🔧 Filtered item - Original keys:",
+          "Filtered item - Original keys:",
           originalKeys.length,
           "Cleaned keys:",
           cleanedKeys.length
         );
         console.log(
-          "🔧 Removed keys:",
+          "Removed keys:",
           originalKeys.filter((key) => !cleanedKeys.includes(key))
         );
       }
@@ -1009,12 +1009,12 @@ function filterInternalCalculationFields(
   });
 
   console.log(
-    "🔧 Filtering completed, output data length:",
+    "Filtering completed, output data length:",
     filteredData.length
   );
   if (filteredData.length > 0) {
     console.log(
-      "🔧 Sample filtered data structure:",
+      "Sample filtered data structure:",
       Object.keys(filteredData[0])
     );
   }

@@ -58,7 +58,7 @@ def handle_health(req_ctx):
         logger.error(f"Health check failed: {str(e)}")
         status = {"status": "unhealthy", "error": str(e), "stage": get_stage()}
 
-    response = create_response(200, {"component_type": "health_check", "data": [status], "metadata": {}}, methods="GET,OPTIONS")
+    response = create_response(200, {"component_type": "health_check", "data": [status], "metadata": {}})
     structured_logger.log_response(req_ctx, status_code=200)
     return response
 
@@ -135,7 +135,7 @@ def handle_classification(req_ctx, category: str, target: str, payload: dict):
         # Handle special orchestrators (size, keywords, hardware)
         if target == "size":
             logger.info("Processing size classification request")
-            result = execute_size_classification_for_api(api_input=payload)
+            result = execute_size_classification_for_api(api_input=payload, req_ctx=req_ctx)
 
             if is_batch_mode:
                 # Batch mode: result is a list
@@ -179,7 +179,7 @@ def handle_classification(req_ctx, category: str, target: str, payload: dict):
                 
         elif target in ("keyword", "keywords", "key-words"):
             logger.info("Processing keyword classification request (keyword_classifier_orchestration)")
-            result = execute_keyword_classification_for_api(api_input=payload)
+            result = execute_keyword_classification_for_api(api_input=payload, req_ctx=req_ctx)
 
             if is_batch_mode:
                 # Batch mode: result is a list
@@ -244,9 +244,10 @@ def handle_classification(req_ctx, category: str, target: str, payload: dict):
 
             result = execute_classification_for_api(
                 config_id=config_id,
-                api_input=payload
+                api_input=payload,
+                req_ctx=req_ctx,
             )
-            
+
             if is_batch_mode:
                 # Batch mode: result is a list
                 formatted_results = [format_classification_for_legacy_api(r, target) for r in result]
@@ -260,7 +261,7 @@ def handle_classification(req_ctx, category: str, target: str, payload: dict):
 
         elif target == "brand":
             logger.info("Processing brand classification request (brand_classification_orchestration)")
-            result = execute_brand_classification_for_api(api_input=payload)
+            result = execute_brand_classification_for_api(api_input=payload, req_ctx=req_ctx)
             formatted_result = format_classification_for_legacy_api(result, target)
             component_type = "brand_classification_result"
             data = [formatted_result]
@@ -292,7 +293,8 @@ def handle_classification(req_ctx, category: str, target: str, payload: dict):
             # Execute classification via lightweight API handler
             result = execute_classification_for_api(
                 config_id=config_id,
-                api_input=payload
+                api_input=payload,
+                req_ctx=req_ctx,
             )
             
             if is_batch_mode:

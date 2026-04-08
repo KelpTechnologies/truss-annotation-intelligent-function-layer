@@ -12,7 +12,7 @@ const yaml = require("js-yaml");
 const LAYER_CONFIG = (() => {
   const configPath = path.join(__dirname, "layer-config.json");
   if (!fs.existsSync(configPath)) {
-    console.error("❌ layer-config.json not found! Create it first.");
+    console.error("[ERROR] layer-config.json not found! Create it first.");
     process.exit(1);
   }
   return JSON.parse(fs.readFileSync(configPath, "utf-8"));
@@ -23,8 +23,8 @@ const LAYER_CONFIG = (() => {
  * NO LONGER generates separate internal/external APIs
  */
 async function prepareApiDeployment(stage = "dev") {
-  console.log(`🚀 Preparing UNIFIED API Gateway deployment for stage: ${stage}`);
-  console.log(`📦 Layer: ${LAYER_CONFIG.layerName}`);
+  console.log(`Preparing UNIFIED API Gateway deployment for stage: ${stage}`);
+  console.log(`Layer: ${LAYER_CONFIG.layerName}`);
 
   // UNIFIED: Single output directory
   const outputDir = "api-gateway";
@@ -41,24 +41,24 @@ async function prepareApiDeployment(stage = "dev") {
   });
 
   if (!aggregationResult) {
-    console.error("❌ Failed to aggregate OpenAPI specs");
+    console.error("[ERROR] Failed to aggregate OpenAPI specs");
     process.exit(1);
   }
 
-  console.log("✅ Step 1 completed");
+  console.log("[OK] Step 1 completed");
 
   // Step 2: Get Lambda ARNs
-  console.log("\n🔍 Step 2: Resolving Lambda function ARNs...");
+  console.log("\nStep 2: Resolving Lambda function ARNs...");
   const lambdaArns = await resolveLambdaArns(aggregationResult.services, stage);
-  console.log("✅ Step 2 completed");
+  console.log("[OK] Step 2 completed");
 
   // Step 3: Get Hybrid Authorizer ARN
-  console.log("\n🔐 Step 3: Resolving Hybrid Authorizer ARN...");
+  console.log("\nStep 3: Resolving Hybrid Authorizer ARN...");
   const hybridAuthorizerArn = await resolveHybridAuthorizerArn(stage);
-  console.log("✅ Step 3 completed");
+  console.log("[OK] Step 3 completed");
 
   // Step 4: Create deployment-ready spec
-  console.log("\n🔧 Step 4: Creating deployment-ready specification...");
+  console.log("\nStep 4: Creating deployment-ready specification...");
   const deploymentSpec = await createDeploymentSpec(
     outputFile,
     lambdaArns,
@@ -66,19 +66,19 @@ async function prepareApiDeployment(stage = "dev") {
     stage,
     outputDir
   );
-  console.log("✅ Step 4 completed");
+  console.log("[OK] Step 4 completed");
 
   // Step 5: Save and upload artifacts
-  console.log("\n💾 Step 5: Saving deployment specifications...");
+  console.log("\nStep 5: Saving deployment specifications...");
   const definitionS3Key = await saveDeploymentArtifacts(
     deploymentSpec,
     stage,
     outputDir
   );
-  console.log("✅ Step 5 completed");
+  console.log("[OK] Step 5 completed");
 
   // Step 6: Generate CloudFormation template
-  console.log("\n📝 Step 6: Generating API Gateway template...");
+  console.log("\nStep 6: Generating API Gateway template...");
   generateApiGatewayTemplate(
     stage,
     deploymentSpec,
@@ -86,9 +86,9 @@ async function prepareApiDeployment(stage = "dev") {
     outputDir,
     definitionS3Key
   );
-  console.log("✅ Step 6 completed");
+  console.log("[OK] Step 6 completed");
 
-  console.log("\n✅ Unified API Gateway deployment preparation complete!");
+  console.log("\n[OK] Unified API Gateway deployment preparation complete!");
 
   return {
     stage,
@@ -109,23 +109,23 @@ async function resolveLambdaArns(serviceNames, stage) {
       const stackName = `${LAYER_CONFIG.stackPrefix}-${serviceName}-${stage}`;
       const exportName = `${stackName}-FunctionArn`;
 
-      console.log(`   🔍 Looking for export: ${exportName}`);
+      console.log(`   Looking for export: ${exportName}`);
 
       const command = `aws cloudformation list-exports --query "Exports[?Name=='${exportName}'].Value" --output text`;
       const arn = execSync(command, { encoding: "utf-8" }).trim();
 
       if (arn && arn !== "None" && !arn.includes("None")) {
         lambdaArns[`${serviceName}FunctionArn`] = arn;
-        console.log(`   ✅ ${serviceName}: ${arn}`);
+        console.log(`   [OK] ${serviceName}: ${arn}`);
       } else {
         const fallbackArn = `arn:aws:lambda:${LAYER_CONFIG.region}:${LAYER_CONFIG.accountId}:function:${LAYER_CONFIG.stackPrefix}-${serviceName}-${stage}`;
         lambdaArns[`${serviceName}FunctionArn`] = fallbackArn;
-        console.log(`   ⚠️  ${serviceName}: Using fallback ARN`);
+        console.log(`   [WARN]  ${serviceName}: Using fallback ARN`);
       }
     } catch (error) {
       const fallbackArn = `arn:aws:lambda:${LAYER_CONFIG.region}:${LAYER_CONFIG.accountId}:function:${LAYER_CONFIG.stackPrefix}-${serviceName}-${stage}`;
       lambdaArns[`${serviceName}FunctionArn`] = fallbackArn;
-      console.log(`   ⚠️  ${serviceName}: Using fallback ARN (error: ${error.message})`);
+      console.log(`   [WARN]  ${serviceName}: Using fallback ARN (error: ${error.message})`);
     }
   }
 
@@ -138,7 +138,7 @@ async function resolveLambdaArns(serviceNames, stage) {
 async function resolveHybridAuthorizerArn(stage) {
   try {
     const functionName = `truss-hybrid-authorizer-${stage}`;
-    console.log(`   🔍 Looking for hybrid authorizer: ${functionName}`);
+    console.log(`   Looking for hybrid authorizer: ${functionName}`);
 
     // Try CloudFormation export first
     const exportName = `truss-hybrid-authorizer-${stage}-arn`;
@@ -147,11 +147,11 @@ async function resolveHybridAuthorizerArn(stage) {
       const arn = execSync(command, { encoding: "utf-8" }).trim();
 
       if (arn && arn !== "None" && !arn.includes("None")) {
-        console.log(`   ✅ Hybrid authorizer ARN from export: ${arn}`);
+        console.log(`   [OK] Hybrid authorizer ARN from export: ${arn}`);
         return arn;
       }
     } catch (exportError) {
-      console.log(`   ⚠️  Export not found, trying direct lookup`);
+      console.log(`   [WARN]  Export not found, trying direct lookup`);
     }
 
     // Try direct function lookup
@@ -160,24 +160,24 @@ async function resolveHybridAuthorizerArn(stage) {
       const arn = execSync(command, { encoding: "utf-8" }).trim();
 
       if (arn && arn !== "None" && !arn.includes("None")) {
-        console.log(`   ✅ Hybrid authorizer ARN from function: ${arn}`);
+        console.log(`   [OK] Hybrid authorizer ARN from function: ${arn}`);
         return arn;
       }
     } catch (functionError) {
-      console.log(`   ⚠️  Function not found`);
+      console.log(`   [WARN]  Function not found`);
     }
 
     // Fallback
     const fallbackArn = `arn:aws:lambda:${LAYER_CONFIG.region}:${LAYER_CONFIG.accountId}:function:${functionName}`;
-    console.log(`   ⚠️  Using fallback: ${fallbackArn}`);
+    console.log(`   [WARN]  Using fallback: ${fallbackArn}`);
     console.log(
-      `   💡 Deploy hybrid authorizer from truss-api-platform if not done`
+      `   Deploy hybrid authorizer from truss-api-platform if not done`
     );
 
     return fallbackArn;
   } catch (error) {
     const fallbackArn = `arn:aws:lambda:${LAYER_CONFIG.region}:${LAYER_CONFIG.accountId}:function:truss-hybrid-authorizer-${stage}`;
-    console.log(`   ⚠️  Using fallback: ${fallbackArn}`);
+    console.log(`   [WARN]  Using fallback: ${fallbackArn}`);
     return fallbackArn;
   }
 }
@@ -201,7 +201,7 @@ async function createDeploymentSpec(
       new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"),
       arn
     );
-    console.log(`   🔄 Replaced ${variable}`);
+    console.log(`   [REFRESH] Replaced ${variable}`);
   });
 
   // Replace Hybrid Authorizer ARN
@@ -210,7 +210,7 @@ async function createDeploymentSpec(
     new RegExp(authPlaceholder.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"),
     hybridAuthorizerArn
   );
-  console.log(`   🔄 Replaced hybridAuthorizerArn`);
+  console.log(`   [REFRESH] Replaced hybridAuthorizerArn`);
 
   // Replace authorizer stage variable
   const stagePlaceholder = `\${stageVariables.authorizerStage}`;
@@ -253,7 +253,7 @@ async function createDeploymentSpec(
 ${yamlContent}`;
 
   fs.writeFileSync(outputFile, finalContent);
-  console.log(`   ✅ Created: ${outputFile}`);
+  console.log(`   [OK] Created: ${outputFile}`);
 
   return {
     outputFile,
@@ -325,11 +325,11 @@ Outputs:
 `;
 
   fs.writeFileSync(`${outputDir}/template-${stage}.yaml`, template);
-  console.log(`   ✅ Generated: ${outputDir}/template-${stage}.yaml`);
+  console.log(`   [OK] Generated: ${outputDir}/template-${stage}.yaml`);
 }
 
 async function saveDeploymentArtifacts(deploymentSpec, stage, outputDir) {
-  console.log(`   💾 Saving artifacts for ${stage}...`);
+  console.log(`   Saving artifacts for ${stage}...`);
 
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
@@ -338,7 +338,7 @@ async function saveDeploymentArtifacts(deploymentSpec, stage, outputDir) {
   // Save debug JSON
   const debugFile = `${outputDir}/resolved-spec-${stage}.json`;
   fs.writeFileSync(debugFile, JSON.stringify(deploymentSpec.spec, null, 2));
-  console.log(`   📄 Saved: ${debugFile}`);
+  console.log(`   Saved: ${debugFile}`);
 
   // Compute hash for versioned S3 key
   const fileBuffer = fs.readFileSync(deploymentSpec.outputFile);
@@ -350,7 +350,7 @@ async function saveDeploymentArtifacts(deploymentSpec, stage, outputDir) {
   const s3Key = `api-specs/${LAYER_CONFIG.layerName}/${hash}/deployment-ready-${stage}.yaml`;
 
   // Upload to S3
-  console.log(`   ☁️  Uploading to S3 (key: ${s3Key})...`);
+  console.log(`   Uploading to S3 (key: ${s3Key})...`);
   const s3Bucket = "truss-api-automated-deployments";
 
   try {
@@ -358,10 +358,10 @@ async function saveDeploymentArtifacts(deploymentSpec, stage, outputDir) {
       `aws s3 cp "${deploymentSpec.outputFile}" "s3://${s3Bucket}/${s3Key}"`,
       { stdio: "inherit" }
     );
-    console.log(`   ✅ Uploaded to s3://${s3Bucket}/${s3Key}`);
+    console.log(`   [OK] Uploaded to s3://${s3Bucket}/${s3Key}`);
   } catch (uploadError) {
-    console.error(`   ⚠️  S3 upload failed: ${uploadError.message}`);
-    console.log(`   🔧 Manual upload: aws s3 cp ${deploymentSpec.outputFile} s3://${s3Bucket}/${s3Key}`);
+    console.error(`   [WARN]  S3 upload failed: ${uploadError.message}`);
+    console.log(`   Manual upload: aws s3 cp ${deploymentSpec.outputFile} s3://${s3Bucket}/${s3Key}`);
   }
 
   return s3Key;
@@ -376,23 +376,23 @@ async function main() {
 
   // Validate stage (no more external- prefix needed)
   if (!["dev", "staging", "prod"].includes(stage)) {
-    console.warn(`⚠️  Unusual stage: ${stage}. Expected: dev, staging, or prod`);
+    console.warn(`[WARN]  Unusual stage: ${stage}. Expected: dev, staging, or prod`);
   }
 
   try {
     const result = await prepareApiDeployment(stage);
-    console.log(`\n🎉 Success! Unified API Gateway ready for deployment.`);
-    console.log(`\n📁 Generated files:`);
+    console.log(`\nSuccess! Unified API Gateway ready for deployment.`);
+    console.log(`\nGenerated files:`);
     console.log(`   - ${result.deploymentSpecFile}`);
     console.log(`   - api-gateway/deployment-ready-${stage}.yaml`);
     console.log(`   - api-gateway/resolved-spec-${stage}.json`);
     console.log(`   - api-gateway/template-${stage}.yaml`);
-    console.log(`\n🔐 Hybrid Authorizer: ${result.hybridAuthorizerArn}`);
-    console.log(`\n🔑 Authentication methods:`);
+    console.log(`\nHybrid Authorizer: ${result.hybridAuthorizerArn}`);
+    console.log(`\nAuthentication methods:`);
     console.log(`   - API Key: Include x-api-key header`);
     console.log(`   - JWT: Include Authorization: Bearer <token>`);
   } catch (error) {
-    console.error("❌ Deployment preparation failed:", error.message);
+    console.error("[ERROR] Deployment preparation failed:", error.message);
     process.exit(1);
   }
 }

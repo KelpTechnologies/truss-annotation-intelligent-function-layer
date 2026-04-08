@@ -39,8 +39,9 @@ init_context = {
     "start_time": time.time(),
 }
 
+# MIGRATION: stage URL config
 # Log stage-aware URL configuration at module load
-logger.info(f"🔗 Stage URL Configuration - Stage: {get_stage()}")
+logger.info(f"Stage URL Configuration - Stage: {get_stage()}")
 logger.info(f"   DSL_API_BASE_URL: {get_dsl_url()}")
 logger.info(f"   ANNOTATION_DSL_API_BASE_URL: {get_annotation_dsl_url()}")
 logger.info(f"   IFL_API_BASE_URL: {get_ifl_url()}")
@@ -83,6 +84,7 @@ try:
     else:
         classify_image = None
 except Exception as e:
+    # MIGRATION: module load error
     structured_logger.log_warning(init_context, f"Could not load vector classifier pipeline: {e}", {
         "error": str(e),
     })
@@ -106,16 +108,14 @@ def _response(status_code: int, body: dict, methods: str = "POST,GET,OPTIONS"):
 
 
 def _parse_body(event):
-    logger.debug("Parsing request body")
     if not event.get("body"):
-        logger.debug("No body found in event")
+        logger.debug("No body found in event")  # MIGRATION: no body found
         return {}
     try:
         body = json.loads(event["body"]) if isinstance(event["body"], str) else event["body"]
-        logger.debug(f"Successfully parsed body: {json.dumps(body, default=str)[:500]}")  # Limit log size
         return body
     except Exception as e:
-        logger.error(f"Failed to parse body: {str(e)}")
+        logger.error(f"Failed to parse body: {str(e)}")  # MIGRATION: parse error
         return {}
 
 
@@ -138,7 +138,7 @@ def _load_gcp_credentials_from_secrets():
     if not secret_arn:
         raise ValueError("TRUSS_SECRETS_ARN environment variable is required")
     
-    logger.info(f"Loading GCP credentials from Secrets Manager: {secret_arn}")
+    logger.info(f"Loading GCP credentials from Secrets Manager: {secret_arn}")  # MIGRATION: secret load
     secrets_client = boto3.client('secretsmanager', region_name=os.getenv('AWS_REGION', 'eu-west-2'))
     
     response = secrets_client.get_secret_value(SecretId=secret_arn)
@@ -150,13 +150,11 @@ def _load_gcp_credentials_from_secrets():
     # Parse as JSON to validate and extract
     try:
         secret_data = json.loads(secret_string)
-        logger.debug(f"Secret parsed as JSON, keys: {list(secret_data.keys()) if isinstance(secret_data, dict) else 'not a dict'}")
-        
         # If it's a dict, try to extract the service account JSON
         if isinstance(secret_data, dict):
             # NEW: Check for centralized 'bigquery' key (truss-platform-secrets structure)
             if 'bigquery' in secret_data:
-                logger.info("Found BigQuery credentials under 'bigquery' key (centralized secrets)")
+                logger.info("Found BigQuery credentials under 'bigquery' key (centralized secrets)")  # MIGRATION: credential structure identification
                 bigquery_creds = secret_data['bigquery']
                 # Build complete service account JSON
                 service_account = {
@@ -175,14 +173,14 @@ def _load_gcp_credentials_from_secrets():
             
             # Check if it's already a service account JSON (has 'type' and 'project_id')
             if secret_data.get('type') == 'service_account' and 'project_id' in secret_data:
-                logger.info("Secret contains full service account JSON")
+                logger.info("Secret contains full service account JSON")  # MIGRATION: credential structure identification
                 # Return as JSON string (the whole dict is the service account)
                 return json.dumps(secret_data)
             
             # Otherwise, try to find nested service account JSON
             for key in ['service_account_json', 'credentials', 'value', 'gcp_service_account']:
                 if key in secret_data:
-                    logger.info(f"Found nested service account JSON under key: {key}")
+                    logger.info(f"Found nested service account JSON under key: {key}")  # MIGRATION: credential structure identification
                     nested_value = secret_data[key]
                     # If it's a string, return as-is; if it's a dict, convert to JSON string
                     if isinstance(nested_value, str):
@@ -192,11 +190,11 @@ def _load_gcp_credentials_from_secrets():
                     break
             
             # If no nested key found and it's not a service account, use the whole dict
-            logger.info("Using entire secret as service account JSON")
+            logger.info("Using entire secret as service account JSON")  # MIGRATION: credential structure identification
             return json.dumps(secret_data)
         else:
             # Not a dict, return as-is (should be JSON string already)
-            logger.info("Secret is not a dict, returning as-is")
+            logger.info("Secret is not a dict, returning as-is")  # MIGRATION: credential structure identification
             return secret_string
     except json.JSONDecodeError as e:
         raise ValueError(f"Secret is not valid JSON: {str(e)}")
@@ -215,7 +213,7 @@ def _get_platform_secrets():
     if not secret_arn:
         raise ValueError("TRUSS_SECRETS_ARN environment variable is required")
     
-    logger.info(f"Loading platform secrets from: {secret_arn}")
+    logger.info(f"Loading platform secrets from: {secret_arn}")  # MIGRATION: secret load
     secrets_client = boto3.client('secretsmanager', region_name=os.getenv('AWS_REGION', 'eu-west-2'))
     
     response = secrets_client.get_secret_value(SecretId=secret_arn)
@@ -231,16 +229,15 @@ def _get_platform_secrets():
 def _ensure_pinecone_api_key():
     """Ensure PINECONE_API_KEY environment variable is set from centralized secrets."""
     if os.getenv("PINECONE_API_KEY"):
-        logger.info("PINECONE_API_KEY already set in environment")
         return
     
-    logger.info("Loading Pinecone API key from centralized secrets")
+    logger.info("Loading Pinecone API key from centralized secrets")  # MIGRATION: pinecone key
     try:
         secrets = _get_platform_secrets()
         pinecone_key = secrets.get('pinecone', {}).get('api_key')
         if pinecone_key:
             os.environ["PINECONE_API_KEY"] = pinecone_key
-            logger.info("PINECONE_API_KEY set from centralized secrets")
+            logger.info("PINECONE_API_KEY set from centralized secrets")  # MIGRATION: pinecone key
         else:
             structured_logger.log_warning(init_context, "Pinecone API key not found in centralized secrets", {})
     except Exception as e:
@@ -249,7 +246,7 @@ def _ensure_pinecone_api_key():
 
 def _ensure_gcp_adc():
     """Ensure Application Default Credentials are available from env or Secrets Manager."""
-    logger.info("Setting up GCP Application Default Credentials")
+    logger.info("Setting up GCP Application Default Credentials")  # MIGRATION: GCP setup
     creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "/tmp/gcp_sa.json")
     
     # Check if credentials file already exists and is valid
@@ -260,7 +257,7 @@ def _ensure_gcp_adc():
                 existing_creds = json.load(f)
                 required_fields = ['type', 'project_id', 'private_key', 'client_email']
                 if all(field in existing_creds for field in required_fields):
-                    logger.info(f"GCP credentials file already exists and is valid at {creds_path} (size: {os.path.getsize(creds_path)} bytes)")
+                    logger.info(f"GCP credentials file already exists and is valid at {creds_path} (size: {os.path.getsize(creds_path)} bytes)")  # MIGRATION: GCP setup
                     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
                     return
                 else:
@@ -279,43 +276,33 @@ def _ensure_gcp_adc():
     
     # If not in env, load from Secrets Manager
     if not sa_json:
-        logger.info("GCP_SERVICE_ACCOUNT_JSON not in environment, loading from Secrets Manager")
+        logger.info("GCP_SERVICE_ACCOUNT_JSON not in environment, loading from Secrets Manager")  # MIGRATION: GCP setup
         sa_json = _load_gcp_credentials_from_secrets()
     
     if not sa_json:
         raise ValueError("GCP credentials not available - cannot proceed with LLM classification")
 
-    logger.info(f"Setting up GCP credentials at {creds_path}")
-    logger.debug(f"GCP credentials length: {len(sa_json)} chars")
-    
+    logger.info(f"Setting up GCP credentials at {creds_path}")  # MIGRATION: GCP setup
     # Parse JSON content
     if sa_json.strip().startswith("{"):
         content = sa_json
-        logger.debug("GCP credentials are JSON format")
     else:
         try:
             content = base64.b64decode(sa_json).decode("utf-8")
-            logger.debug("GCP credentials decoded from base64")
         except Exception as e:
             raise ValueError(f"Failed to decode base64 credentials: {str(e)}")
 
     # Validate JSON content and ensure private key has proper newlines
     try:
         creds_dict = json.loads(content)
-        logger.debug("Credentials JSON is valid")
-        
         # Ensure private key has actual newlines (not escaped \n)
         if 'private_key' in creds_dict:
             private_key = creds_dict['private_key']
             # Replace escaped newlines with actual newlines if needed
             if '\\n' in private_key and '\n' not in private_key:
-                logger.debug("Converting escaped newlines in private key to actual newlines")
                 creds_dict['private_key'] = private_key.replace('\\n', '\n')
                 content = json.dumps(creds_dict)
-                logger.debug("Private key newlines fixed")
             elif '\n' in private_key:
-                logger.debug("Private key already has proper newlines")
-        
         # Re-validate after potential modification
         json.loads(content)
     except json.JSONDecodeError as e:
@@ -324,8 +311,6 @@ def _ensure_gcp_adc():
     # Ensure directory exists
     creds_dir = os.path.dirname(creds_path)
     os.makedirs(creds_dir, exist_ok=True)
-    logger.debug(f"Created credentials directory: {creds_dir}")
-
     # Write credentials file with proper permissions (readable by owner only for security)
     with open(creds_path, "w", encoding="utf-8") as f:
         f.write(content)
@@ -341,13 +326,13 @@ def _ensure_gcp_adc():
     if file_size == 0:
         raise IOError(f"Credentials file is empty at {creds_path}")
     
-    logger.info(f"GCP credentials written successfully to {creds_path} (size: {file_size} bytes, permissions: {oct(os.stat(creds_path).st_mode)[-3:]})")
+    logger.info(f"GCP credentials written successfully to {creds_path} (size: {file_size} bytes, permissions: {oct(os.stat(creds_path).st_mode)[-3:]})")  # MIGRATION: credential persistence
 
     # Parse credentials to extract service account email and project
     try:
         creds_data = json.loads(content)
         service_account_email = creds_data.get("client_email", "unknown")
-        logger.info(f"Using GCP service account: {service_account_email}")
+        logger.info(f"Using GCP service account: {service_account_email}")  # MIGRATION: credential persistence
     except Exception as e:
         structured_logger.log_warning(init_context, f"Could not parse service account email from credentials: {str(e)}", {
             "error": str(e),
@@ -356,7 +341,7 @@ def _ensure_gcp_adc():
 
     # Set environment variable
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
-    logger.info(f"Set GOOGLE_APPLICATION_CREDENTIALS={creds_path}")
+    logger.info(f"Set GOOGLE_APPLICATION_CREDENTIALS={creds_path}")  # MIGRATION: credential persistence
 
     # Set project - try to get from env, then from credentials JSON, then fail
     vertexai_project = os.getenv("VERTEXAI_PROJECT")
@@ -368,7 +353,7 @@ def _ensure_gcp_adc():
                 creds_data = json.loads(content)
             vertexai_project = creds_data.get("project_id")
             if vertexai_project:
-                logger.info(f"Extracted project_id from GCP credentials: {vertexai_project}")
+                logger.info(f"Extracted project_id from GCP credentials: {vertexai_project}")  # MIGRATION: GCP config
         except (json.JSONDecodeError, KeyError) as e:
             structured_logger.log_warning(init_context, f"Could not extract project_id from credentials: {str(e)}", {
                 "error": str(e),
@@ -379,18 +364,16 @@ def _ensure_gcp_adc():
     
     if not os.getenv("GOOGLE_CLOUD_PROJECT"):
         os.environ["GOOGLE_CLOUD_PROJECT"] = vertexai_project
-        logger.info(f"Set GOOGLE_CLOUD_PROJECT={vertexai_project}")
+        logger.info(f"Set GOOGLE_CLOUD_PROJECT={vertexai_project}")  # MIGRATION: GCP config
     else:
-        logger.debug(f"GOOGLE_CLOUD_PROJECT already set to {os.getenv('GOOGLE_CLOUD_PROJECT')}")
-    
     # Also set VERTEXAI_PROJECT if not already set
     if not os.getenv("VERTEXAI_PROJECT"):
         os.environ["VERTEXAI_PROJECT"] = vertexai_project
-        logger.info(f"Set VERTEXAI_PROJECT={vertexai_project}")
-    
+        logger.info(f"Set VERTEXAI_PROJECT={vertexai_project}")  # MIGRATION: GCP config
+
     # Log important info for debugging IAM issues
-    logger.info(f"GCP Configuration - Project: {vertexai_project}, Service Account: {service_account_email}")
-    structured_logger.log_warning(init_context, f"IMPORTANT: Service account '{service_account_email}' needs 'Vertex AI User' role (roles/aiplatform.user) in project '{vertexai_project}' to use Gemini models", {
+    logger.info(f"GCP Configuration - Project: {vertexai_project}, Service Account: {service_account_email}")  # MIGRATION: GCP config
+    structured_logger.log_warning(init_context, f"IMPORTANT: Service account '{service_account_email}' needs 'Vertex AI User' role (roles/aiplatform.user) in project '{vertexai_project}' to use Gemini models", {  # MIGRATION: GCP config
         "service_account_email": service_account_email,
         "vertexai_project": vertexai_project,
     })
@@ -400,6 +383,7 @@ def _ensure_gcp_adc():
         from google.auth import default
         from google.auth.transport.requests import Request
         creds, project = default()
+        # MIGRATION: auth validation
         logger.info(f"Successfully loaded credentials via google.auth.default() - Project: {project}")
         logger.info(f"Credentials type: {type(creds).__name__}")
         if hasattr(creds, 'service_account_email'):
@@ -408,73 +392,26 @@ def _ensure_gcp_adc():
         structured_logger.log_error(init_context, e, status_code=500)
         structured_logger.log_warning(init_context, "This may indicate a problem with credential setup", {})
         
-    logger.info("GCP Application Default Credentials setup completed successfully")
+    logger.info("GCP Application Default Credentials setup completed successfully")  # MIGRATION: setup complete
 
 
 # Global context for request auth headers (set per-request in lambda_handler)
 _request_auth_headers = {}
 
 def _get_signed_image_url(image: str) -> str:
-    """Get signed image URL from annotation-data-service-layer image-service."""
-    global _request_auth_headers
-    start_time = time.time()
-    logger.info(f"Fetching signed image URL for image ID: {image}")
-    
-    api_base_url = get_annotation_dsl_url()
-    api_key = os.getenv("ANNOTATION_API_KEY")
-    
-    logger.info(f"Using ANNOTATION_DSL URL for stage '{get_stage()}': {api_base_url}")
-    
-    url = f"{api_base_url.rstrip('/')}/images/processed/{image}"
-    logger.debug(f"Image service URL: {url}")
-    
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
-    
-    # First try to use pass-through auth from original request
-    if _request_auth_headers.get('x-api-key'):
-        headers['x-api-key'] = _request_auth_headers['x-api-key']
-        logger.debug("Using pass-through x-api-key from original request")
-    elif _request_auth_headers.get('Authorization'):
-        headers['Authorization'] = _request_auth_headers['Authorization']
-        logger.debug("Using pass-through Authorization from original request")
-    elif api_key:
-        # Fall back to configured API key
-        headers['x-api-key'] = api_key
-        logger.debug("Using configured ANNOTATION_API_KEY")
-    else:
-        logger.warning("No authentication available for image service request")
-        
-    try:
-        logger.debug(f"Making GET request to image service for image: {image}")
-        response = requests.get(url, headers=headers, timeout=10)
-        elapsed_time = time.time() - start_time
-        logger.info(f"Image service response received in {elapsed_time:.2f}s - Status: {response.status_code}")
-        
-        response.raise_for_status()
-        
-        result = response.json()
-        logger.debug(f"Image service response: {json.dumps(result, default=str)[:500]}")
-        
-        data = result.get('data', result)
-        processed_image = data.get('processedImage', {})
-        download_url = processed_image.get('downloadUrl')
-        
-        if not download_url:
-            logger.error(f"No downloadUrl found in image service response for image '{image}'. Response: {json.dumps(result, default=str)[:500]}")
-            raise ValueError(f"No downloadUrl found in image service response for image '{image}'")
-        
-        logger.info(f"Successfully retrieved signed image URL for image {image} in {elapsed_time:.2f}s")
-        return download_url
-    except requests.exceptions.RequestException as e:
-        elapsed_time = time.time() - start_time
-        logger.error(f"Failed to fetch image URL for {image} after {elapsed_time:.2f}s: {str(e)}")
-        raise
+    """Get signed image URL from annotation-data-service-layer image-service.
+
+    Delegates to shared image_service utility which uses direct Lambda invocation
+    with internal auth (bypasses API Gateway).
+    """
+    from core.utils.image_service import get_signed_image_url
+    return get_signed_image_url(image)
 
 
 def _lookup_root_from_child(api_client: DSLAPIClient, property_type: str, value: str, brand: str = None, root_type: str = None, partition: str = "bags") -> dict:
     """Lookup root taxonomy value from child value using the knowledge service API."""
     start_time = time.time()
-    logger.info(f"Looking up root for {property_type}='{value}' (brand={brand}, root_type={root_type}, partition={partition})")
+    logger.info(f"Looking up root for {property_type}='{value}' (brand={brand}, root_type={root_type}, partition={partition})")  # MIGRATION: root lookup start
     
     try:
         lookup_result = api_client.lookup_root(
@@ -485,18 +422,14 @@ def _lookup_root_from_child(api_client: DSLAPIClient, property_type: str, value:
             partition=partition
         )
         elapsed_time = time.time() - start_time
-        logger.debug(f"Lookup API response received in {elapsed_time:.2f}s: {json.dumps(lookup_result, default=str)[:500]}")
-        
         data = lookup_result.get('data', lookup_result)
         if isinstance(data, list) and len(data) > 0:
             data = data[0]
-            logger.debug(f"Extracted first item from list response")
         elif not isinstance(data, dict):
             data = lookup_result
-            logger.debug("Using lookup_result directly as data")
-            
+
         if not data.get('found'):
-            logger.info(f"No root found for {property_type}='{value}' (lookup completed in {elapsed_time:.2f}s)")
+            logger.info(f"No root found for {property_type}='{value}' (lookup completed in {elapsed_time:.2f}s)")  # MIGRATION: lookup results
             return None
             
         result = {
@@ -506,14 +439,14 @@ def _lookup_root_from_child(api_client: DSLAPIClient, property_type: str, value:
         }
         
         if result['root'] and result['root_id']:
-            logger.info(f"Found root: {result['root']} (ID: {result['root_id']}) for {property_type}='{value}' in {elapsed_time:.2f}s")
+            logger.info(f"Found root: {result['root']} (ID: {result['root_id']}) for {property_type}='{value}' in {elapsed_time:.2f}s")  # MIGRATION: lookup results
             return result
         else:
-            logger.warning(f"Incomplete root lookup result for {property_type}='{value}': {result}")
+            logger.warning(f"Incomplete root lookup result for {property_type}='{value}': {result}")  # MIGRATION: lookup results
             return None
     except Exception as e:
         elapsed_time = time.time() - start_time
-        logger.error(f"Error during root lookup for {property_type}='{value}' after {elapsed_time:.2f}s: {str(e)}")
+        logger.error(f"Error during root lookup for {property_type}='{value}' after {elapsed_time:.2f}s: {str(e)}")  # MIGRATION: lookup results
         raise
 
 
@@ -524,7 +457,7 @@ MIN_MODEL_CONFIDENCE_THRESHOLD = 57.14
 def _classify_model(payload: dict):
     """Classify model using a pre-computed image vector from the image-processing table."""
     start_time = time.time()
-    logger.info(f"Starting model classification - payload: {json.dumps(payload, default=str)}")
+    logger.info(f"Starting model classification")
     
     # Ensure Pinecone API key is available before classification
     _ensure_pinecone_api_key()
@@ -540,7 +473,7 @@ def _classify_model(payload: dict):
     if not brand:
         raise ValueError("'brand' is required for model classification")
 
-    logger.info(f"Calling vector classifier for processing_id={processing_id}, brand={brand}")
+    logger.info(f"Calling vector classifier for processing_id={processing_id}, brand={brand}")  # MIGRATION: vector classifier start
     vector_start = time.time()
     result = classify_image(
         processing_id=processing_id,
@@ -548,7 +481,7 @@ def _classify_model(payload: dict):
         k=7,
     )
     vector_elapsed = time.time() - vector_start
-    logger.info(f"Vector classification completed in {vector_elapsed:.2f}s")
+    logger.info(f"Vector classification completed in {vector_elapsed:.2f}s")  # MIGRATION: timing
 
     predicted_model = result.get("predicted_model")
     predicted_root_model = result.get("predicted_root_model")
@@ -556,7 +489,7 @@ def _classify_model(payload: dict):
     
     # Check confidence threshold - require at least 4/7 neighbors to agree (57.14%)
     if confidence < MIN_MODEL_CONFIDENCE_THRESHOLD:
-        logger.warning(f"Model classification confidence {confidence:.1f}% is below threshold {MIN_MODEL_CONFIDENCE_THRESHOLD}% - returning null result")
+        logger.warning(f"Model classification confidence {confidence:.1f}% is below threshold {MIN_MODEL_CONFIDENCE_THRESHOLD}% - returning null result")  # MIGRATION: confidence threshold
         total_elapsed = time.time() - start_time
         below_threshold_result = {
             "model": None,
@@ -572,16 +505,16 @@ def _classify_model(payload: dict):
             below_threshold_result["metadata"] = result["metadata"]
         return below_threshold_result
     
-    logger.info(f"Vector classifier result - model: {predicted_model}, root_model: {predicted_root_model}, confidence: {confidence}")
+    logger.info(f"Vector classifier result - model: {predicted_model}, root_model: {predicted_root_model}, confidence: {confidence}")  # MIGRATION: result metrics
 
     # Always lookup root from knowledge service
     root_lookup_result = None
     if predicted_model:
-        logger.info(f"Looking up root for predicted model: {predicted_model}")
+        logger.info(f"Looking up root for predicted model: {predicted_model}")  # MIGRATION: root lookup routing
         api_base_url = get_dsl_url()
         api_key = os.getenv("DSL_API_KEY")
-        logger.info(f"Using DSL URL for stage '{get_stage()}': {api_base_url}")
-        
+        logger.info(f"Using DSL URL for stage '{get_stage()}': {api_base_url}")  # MIGRATION: root lookup routing
+
         api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key, auth_headers=_request_auth_headers)
         category = payload.get("category", "bags")
         partition = category
@@ -602,11 +535,11 @@ def _classify_model(payload: dict):
         model_id = root_lookup_result.get('child_id') if root_lookup_result else None
         
         if root_lookup_result:
-            logger.info(f"Root lookup successful - root_model: {root_model}, root_model_id: {root_model_id}, model_id: {model_id}")
+            logger.info(f"Root lookup successful - root_model: {root_model}, root_model_id: {root_model_id}, model_id: {model_id}")  # MIGRATION: lookup results/fallback
         else:
-            logger.warning(f"Root lookup failed, using predicted_root_model: {predicted_root_model}")
+            logger.warning(f"Root lookup failed, using predicted_root_model: {predicted_root_model}")  # MIGRATION: lookup results/fallback
     else:
-        logger.warning("No predicted model from vector classifier, skipping root lookup")
+        logger.warning("No predicted model from vector classifier, skipping root lookup")  # MIGRATION: lookup results/fallback
         root_model = None
         root_model_id = None
         model_id = None
@@ -624,42 +557,40 @@ def _classify_model(payload: dict):
     if result.get("metadata"):
         final_result["metadata"] = result["metadata"]
     
-    logger.info(f"Model classification completed in {total_elapsed:.2f}s - Result: {json.dumps(final_result, default=str)}")
+    logger.info(f"Model classification completed in {total_elapsed:.2f}s - Result: {json.dumps(final_result, default=str)}")  # MIGRATION: timing
     return final_result
 
 
 def _classify_property(category: str, target: str, request_payload: dict):
     """Classify a property using LLM."""
     start_time = time.time()
-    logger.info(f"Starting property classification - category: {category}, target: {target}, payload keys: {list(request_payload.keys())}")
+    logger.info(f"Starting property classification - category: {category}, target: {target}, payload keys: {list(request_payload.keys())}")  # MIGRATION: classification start
     
     category_config = CATEGORY_CONFIG.get(category)
     if not category_config:
-        logger.error(f"Unsupported category: {category}")
+        logger.error(f"Unsupported category: {category}")  # MIGRATION: errors
         raise ValueError(f"Unsupported category '{category}'")
 
     property_map = category_config.get("properties", {})
     internal_property_name = property_map.get(target)
     if not internal_property_name:
-        logger.error(f"Unsupported target '{target}' for category '{category}'")
+        logger.error(f"Unsupported target '{target}' for category '{category}'")  # MIGRATION: errors
         raise ValueError(f"Unsupported classification target '{target}' for category '{category}'")
 
-    logger.info(f"Mapped target '{target}' to internal property '{internal_property_name}'")
+    logger.info(f"Mapped target '{target}' to internal property '{internal_property_name}'")  # MIGRATION: property mapping
 
     # Get image and lookup signed URL
     image = request_payload.get("image")
     if not image:
         raise ValueError("'image' is required for property classification")
     
-    logger.info(f"Fetching signed URL for image: {image}")
+    logger.info(f"Fetching signed URL for image: {image}")  # MIGRATION: image URL
     image_url = _get_signed_image_url(image)
-    logger.info(f"Retrieved image URL (length: {len(image_url)} chars)")
+    logger.info(f"Retrieved image URL (length: {len(image_url)} chars)")  # MIGRATION: image URL
 
     text_dump = request_payload.get("text_dump")
     if not text_dump:
         raise ValueError("'text_dump' is required for property classification")
-
-    logger.debug(f"Text dump length: {len(text_dump)} chars")
 
     classification_payload = {
         "property": internal_property_name,
@@ -674,33 +605,31 @@ def _classify_property(category: str, target: str, request_payload: dict):
         "garment_id": image,
     }
     
-    logger.info(f"Calling LLM classifier for property '{internal_property_name}' (root_type_id: {category_config['root_type_id']})")
+    logger.info(f"Calling LLM classifier for property '{internal_property_name}' (root_type_id: {category_config['root_type_id']})")  # MIGRATION: LLM call
     raw_result = _classify_item(classification_payload)
     
-    logger.info(f"LLM classification completed - primary: {raw_result.get('primary')}, confidence: {raw_result.get('confidence', 0.0)}")
+    logger.info(f"LLM classification completed - primary: {raw_result.get('primary')}, confidence: {raw_result.get('confidence', 0.0)}")  # MIGRATION: classification result
 
     primary_value = raw_result.get("primary")
     if isinstance(primary_value, str) and primary_value.startswith("ID "):
         try:
             original_value = primary_value
             primary_value = primary_value.split(":", 1)[1].strip()
-            logger.debug(f"Extracted value from ID format: '{original_value}' -> '{primary_value}'")
         except Exception as e:
-            logger.warning(f"Failed to parse ID format value '{primary_value}': {str(e)}")
+            logger.warning(f"Failed to parse ID format value '{primary_value}': {str(e)}")  # MIGRATION: parse error
 
     # For color classifications, replace "Beige" with "Neutrals" as a safeguard
     if target and target.lower() in ['color', 'colour'] and isinstance(primary_value, str):
         if primary_value.lower() == 'beige':
             primary_value = 'Neutrals'
-            logger.info(f"Replaced 'Beige' with 'Neutrals' for color classification in _classify_property")
 
     # Lookup root for model and material properties
     root_lookup_result = None
     if target in ["model", "material"] and primary_value:
-        logger.info(f"Looking up root for {target}='{primary_value}'")
+        logger.info(f"Looking up root for {target}='{primary_value}'")  # MIGRATION: root lookup
         api_base_url = get_dsl_url()
         api_key = os.getenv("DSL_API_KEY")
-        logger.info(f"Using DSL URL for stage '{get_stage()}': {api_base_url}")
+        logger.info(f"Using DSL URL for stage '{get_stage()}': {api_base_url}")  # MIGRATION: root lookup
         
         api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key, auth_headers=_request_auth_headers)
         partition = category
@@ -717,9 +646,9 @@ def _classify_property(category: str, target: str, request_payload: dict):
         )
         
         if root_lookup_result:
-            logger.info(f"Root lookup successful for {target}: {root_lookup_result}")
+            logger.info(f"Root lookup successful for {target}: {root_lookup_result}")  # MIGRATION: lookup results
         else:
-            logger.warning(f"Root lookup returned None for {target}='{primary_value}'")
+            logger.warning(f"Root lookup returned None for {target}='{primary_value}'")  # MIGRATION: lookup results
 
     # Build simplified response
     total_elapsed = time.time() - start_time
@@ -745,20 +674,20 @@ def _classify_property(category: str, target: str, request_payload: dict):
             "confidence": raw_result.get("confidence", 0.0),
         }
     
-    logger.info(f"Property classification completed in {total_elapsed:.2f}s - Result: {json.dumps(result, default=str)}")
+    logger.info(f"Property classification completed in {total_elapsed:.2f}s - Result: {json.dumps(result, default=str)}")  # MIGRATION: timing
     return result
 
 
 def _classify_item(payload: dict):
     """Classify an item using LLM."""
     start_time = time.time()
-    logger.info(f"Starting LLM classification - property: {payload.get('property')}, root_type_id: {payload.get('root_type_id')}")
+    logger.info(f"Starting LLM classification - property: {payload.get('property')}, root_type_id: {payload.get('root_type_id')}")  # MIGRATION: LLM params
     
     # Use stage-aware ANNOTATION_DSL URL for classifier configs, templates, and context data
     api_base_url = get_annotation_dsl_url()
     api_key = os.getenv("ANNOTATION_API_KEY")
     
-    logger.info(f"Using ANNOTATION_DSL URL for stage '{get_stage()}': {api_base_url}")
+    logger.info(f"Using ANNOTATION_DSL URL for stage '{get_stage()}': {api_base_url}")  # MIGRATION: LLM params
 
     property_name = payload.get("property")
     root_type_id = payload.get("root_type_id")
@@ -771,11 +700,9 @@ def _classify_item(payload: dict):
     brand = payload.get("brand")
     text_metadata = _build_text_metadata(payload)
     
-    logger.info(f"Classification parameters - property: {property_name}, root_type_id: {root_type_id}, input_mode: {input_mode}, brand: {brand}")
-    logger.debug(f"Text metadata length: {len(text_metadata) if text_metadata else 0} chars")
-
+    logger.info(f"Classification parameters - property: {property_name}, root_type_id: {root_type_id}, input_mode: {input_mode}, brand: {brand}")  # MIGRATION: LLM params
     # Ensure GCP Application Default Credentials are set up (required for Vertex AI)
-    logger.info("Ensuring GCP Application Default Credentials")
+    logger.info("Ensuring GCP Application Default Credentials")  # MIGRATION: credential validation
     _ensure_gcp_adc()
     
     # Verify credentials are set up and readable
@@ -792,7 +719,7 @@ def _classify_item(payload: dict):
     
     # Log credentials file details for debugging
     file_stat = os.stat(creds_path)
-    logger.info(f"GCP credentials verified at {creds_path} (size: {file_stat.st_size} bytes, readable: {os.access(creds_path, os.R_OK)})")
+    logger.info(f"GCP credentials verified at {creds_path} (size: {file_stat.st_size} bytes, readable: {os.access(creds_path, os.R_OK)})")  # MIGRATION: credential validation
     
     # Verify credentials file contains valid JSON with required fields
     try:
@@ -801,58 +728,53 @@ def _classify_item(payload: dict):
             required_fields = ['type', 'project_id', 'private_key', 'client_email']
             missing_fields = [field for field in required_fields if field not in creds_check]
             if missing_fields:
-                logger.error(f"Credentials file missing required fields: {missing_fields}")
+                logger.error(f"Credentials file missing required fields: {missing_fields}")  # MIGRATION: credential validation
                 raise ValueError(f"Credentials file missing required fields: {missing_fields}")
             
             # Verify private key format
             private_key = creds_check.get('private_key', '')
             if not private_key.startswith('-----BEGIN'):
-                logger.warning("Private key may not be properly formatted")
+                logger.warning("Private key may not be properly formatted")  # MIGRATION: credential validation
             if '\\n' in private_key and '\n' not in private_key:
-                logger.warning("Private key contains escaped newlines - may need conversion")
-            
-            logger.info(f"Credentials file validated - contains all required fields")
-            logger.info(f"Service account: {creds_check.get('client_email')}, Project: {creds_check.get('project_id')}")
-            logger.debug(f"Private key length: {len(private_key)} chars, starts with BEGIN: {private_key.startswith('-----BEGIN')}")
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse credentials file as JSON: {str(e)}")
+                logger.warning("Private key contains escaped newlines - may need conversion")  # MIGRATION: credential validation
+
+            logger.info(f"Credentials file validated - contains all required fields")  # MIGRATION: credential validation
+            logger.info(f"Service account: {creds_check.get('client_email')}, Project: {creds_check.get('project_id')}")  # MIGRATION: credential validation
+            except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse credentials file as JSON: {str(e)}")  # MIGRATION: credential validation
         raise ValueError(f"Credentials file is not valid JSON: {str(e)}")
     except Exception as e:
-        logger.error(f"Failed to validate credentials file: {str(e)}")
+        logger.error(f"Failed to validate credentials file: {str(e)}")  # MIGRATION: credential validation
         raise ValueError(f"Credentials file validation failed: {str(e)}")
 
     api_client = DSLAPIClient(base_url=api_base_url, api_key=api_key, auth_headers=_request_auth_headers)
     config_loader = ConfigLoader(mode='api', api_client=api_client)
 
-    logger.info(f"Loading classifier config for property '{property_name}', root_type_id {root_type_id}")
+    logger.info(f"Loading classifier config for property '{property_name}', root_type_id {root_type_id}")  # MIGRATION: config/template loading
     config_start = time.time()
     api_response = config_loader.load_classifier_config(property_name, int(root_type_id))
     config_elapsed = time.time() - config_start
-    logger.info(f"Classifier config loaded in {config_elapsed:.2f}s")
+    logger.info(f"Classifier config loaded in {config_elapsed:.2f}s")  # MIGRATION: config/template loading
     
     config = api_response.get('data', api_response)
-    logger.debug(f"Classifier config: {json.dumps(config, default=str)[:500]}")
-
     template_id = config.get('prompt_template')
     if not template_id:
-        logger.error(f"No prompt_template in config: {json.dumps(config, default=str)}")
+        logger.error(f"No prompt_template in config: {json.dumps(config, default=str)}")  # MIGRATION: config/template loading
         raise ValueError("No prompt_template specified in configuration")
     
-    logger.info(f"Loading prompt template: {template_id}")
+    logger.info(f"Loading prompt template: {template_id}")  # MIGRATION: config/template loading
     template_start = time.time()
     template = config_loader.load_prompt_template(template_id)
     template_elapsed = time.time() - template_start
-    logger.info(f"Prompt template loaded in {template_elapsed:.2f}s")
+    logger.info(f"Prompt template loaded in {template_elapsed:.2f}s")  # MIGRATION: config/template loading
 
-    logger.info(f"Loading context data for property '{property_name}', root_type_id {root_type_id}")
+    logger.info(f"Loading context data for property '{property_name}', root_type_id {root_type_id}")  # MIGRATION: config/template loading
     context_start = time.time()
     context_data = config_loader.load_context_data(property_name, int(root_type_id))
     context_elapsed = time.time() - context_start
-    logger.info(f"Context data loaded in {context_elapsed:.2f}s")
+    logger.info(f"Context data loaded in {context_elapsed:.2f}s")  # MIGRATION: config/template loading
     
     context_size = len(json.dumps(context_data, default=str)) if context_data else 0
-    logger.debug(f"Context data size: {context_size} chars")
-
     model_name = config.get('model')
     if not model_name:
         raise ValueError("Model name not specified in classifier config")
@@ -870,9 +792,9 @@ def _classify_item(payload: dict):
                     creds_data = json.load(f)
                     project_id = creds_data.get('project_id')
                     if project_id:
-                        logger.info(f"Extracted project_id from GCP credentials: {project_id}")
+                        logger.info(f"Extracted project_id from GCP credentials: {project_id}")  # MIGRATION: project ID
             except Exception as e:
-                logger.warning(f"Could not read project_id from credentials file: {str(e)}")
+                logger.warning(f"Could not read project_id from credentials file: {str(e)}")  # MIGRATION: project ID
     
     if not project_id:
         raise ValueError("VERTEXAI_PROJECT environment variable, project_id in config, or project_id in GCP credentials is required")
@@ -883,11 +805,7 @@ def _classify_item(payload: dict):
         location = os.getenv('VERTEXAI_LOCATION')
     if not location:
         location = 'us-central1'  # Default VertexAI location (like old system)
-        logger.info(f"Using default VertexAI location: {location}")
-    else:
-        logger.info(f"Using VertexAI location: {location}")
-    
-    logger.info(f"Initializing LLM classifier - model: {model_name}, project: {project_id}, location: {location}")
+    logger.info(f"Initializing LLM classifier - model: {model_name}, project: {project_id}, location: {location}")  # MIGRATION: LLM init
     classifier = LLMAnnotationAgent(
         model_name=model_name,
         project_id=project_id,
@@ -902,7 +820,7 @@ def _classify_item(payload: dict):
     )
 
     classifier.prompt_template = template
-    logger.info(f"Calling LLM classifier with image_url (length: {len(image_url) if image_url else 0}), text_metadata: {bool(text_metadata)}")
+    logger.info(f"Calling LLM classifier with image_url (length: {len(image_url) if image_url else 0}), text_metadata: {bool(text_metadata)}")  # MIGRATION: LLM timing
     
     classify_start = time.time()
     result = classifier.classify(
@@ -916,16 +834,14 @@ def _classify_item(payload: dict):
         context_data=context_data,
     )
     classify_elapsed = time.time() - classify_start
-    logger.info(f"LLM classification completed in {classify_elapsed:.2f}s - prediction_id: {result.prediction_id}, primary: {result.primary}, confidence: {result.confidence}")
+    logger.info(f"LLM classification completed in {classify_elapsed:.2f}s - prediction_id: {result.prediction_id}, primary: {result.primary}, confidence: {result.confidence}")  # MIGRATION: LLM timing
 
     resolve_names = bool(payload.get("resolve_names", False))
     primary = result.primary
     alternatives = result.alternatives
     
-    logger.debug(f"Raw result - primary: {primary}, alternatives: {alternatives}, confidence: {result.confidence}")
-
     if resolve_names:
-        logger.info("Resolving names from ID mapping")
+        logger.info("Resolving names from ID mapping")  # MIGRATION: name resolution
         id_map = load_property_id_mapping_api(context_data.get('data', context_data))
 
         def _fmt(val: str):
@@ -938,18 +854,15 @@ def _classify_item(payload: dict):
                         if property_name and property_name.lower() in ['color', 'colour']:
                             if name.lower() == 'beige':
                                 name = 'Neutrals'
-                                logger.info(f"Replaced 'Beige' with 'Neutrals' for color classification")
                         return f"ID {pred_id}: {name}"
                     return val
             except Exception as e:
-                logger.warning(f"Failed to format value '{val}': {str(e)}")
+                logger.warning(f"Failed to format value '{val}': {str(e)}")  # MIGRATION: format error
                 return val
             return val
 
         primary = _fmt(primary)
         alternatives = [_fmt(a) for a in alternatives]
-        logger.debug(f"Resolved names - primary: {primary}, alternatives: {alternatives}")
-
     total_elapsed = time.time() - start_time
     response = {
         "garment_id": garment_id,
@@ -966,7 +879,7 @@ def _classify_item(payload: dict):
         "success": True,
     }
     
-    logger.info(f"LLM classification completed in {total_elapsed:.2f}s - Result: {json.dumps(response, default=str)[:500]}")
+    logger.info(f"LLM classification completed in {total_elapsed:.2f}s - Result: {json.dumps(response, default=str)[:500]}")  # MIGRATION: timing
     return response
 
 
@@ -978,11 +891,9 @@ def lambda_handler(event, context):
     # Start structured logging for metrics (captures request timing)
     req_ctx = structured_logger.start_request(event)
     
-    logger.info("=" * 80)
+    # MIGRATION: request lifecycle
     logger.info(f"Lambda invocation started - Request ID: {request_id}")
     logger.info(f"Event method: {event.get('httpMethod', 'UNKNOWN')}, path: {event.get('path', 'UNKNOWN')}")
-    logger.debug(f"Full event: {json.dumps(event, default=str)[:1000]}")
-    
     # Extract auth headers from original request for pass-through to downstream services
     incoming_headers = event.get("headers") or {}
     _request_auth_headers = {}
@@ -991,10 +902,10 @@ def lambda_handler(event, context):
         key_lower = key.lower()
         if key_lower == 'authorization':
             _request_auth_headers['Authorization'] = incoming_headers[key]
-            logger.debug("Captured Authorization header for pass-through")
+            logger.debug("Captured Authorization header for pass-through")  # MIGRATION: auth capture
         elif key_lower == 'x-api-key':
             _request_auth_headers['x-api-key'] = incoming_headers[key]
-            logger.debug("Captured x-api-key header for pass-through")
+            logger.debug("Captured x-api-key header for pass-through")  # MIGRATION: auth capture
     
     try:
         method = event.get("httpMethod", "GET")
@@ -1003,19 +914,14 @@ def lambda_handler(event, context):
         # Strip custom domain base path prefix if present (e.g., /agents from api.trussarchive.io/agents/...)
         if path.startswith("/agents/"):
             path = path[7:]  # Remove "/agents" prefix, keep leading "/"
-            logger.info(f"Stripped /agents prefix from path")
-        
-        logger.info(f"Processing {method} request to {path}")
+        logger.info(f"Processing {method} request to {path}")  # MIGRATION: routing
 
         if method == "OPTIONS":
-            logger.info("Handling OPTIONS request")
             response = _response(200, {"ok": True})
             structured_logger.log_response(req_ctx, status_code=200)
             return response
 
         segments = [segment for segment in path.strip("/").split("/") if segment]
-        logger.debug(f"Path segments: {segments}")
-
         if (
             len(segments) >= 5
             and segments[0] == "automations"
@@ -1026,10 +932,10 @@ def lambda_handler(event, context):
             category = segments[2]
             target = segments[4]
             
-            logger.info(f"Classification request - category: {category}, target: {target}")
+            logger.info(f"Classification request - category: {category}, target: {target}")  # MIGRATION: classification request
 
             payload = _parse_body(event)
-            logger.info(f"Parsed payload keys: {list(payload.keys())}")
+            logger.info(f"Parsed payload keys: {list(payload.keys())}")  # MIGRATION: classification request
 
             if category not in CATEGORY_CONFIG:
                 error = ValueError(f"Unsupported category '{category}'")
@@ -1040,7 +946,7 @@ def lambda_handler(event, context):
 
             try:
                 if target == "model":
-                    logger.info("Processing model classification request")
+                    logger.info("Processing model classification request")  # MIGRATION: model classification
                     image = payload.get("image")
                     if not image:
                         raise ValueError("'image' is required for model classification")
@@ -1049,7 +955,7 @@ def lambda_handler(event, context):
                     if not brand:
                         raise ValueError("'brand' is required for model classification")
 
-                    logger.info(f"Model classification - image: {image}, brand: {brand}, category: {category}")
+                    logger.info(f"Model classification - image: {image}, brand: {brand}, category: {category}")  # MIGRATION: model classification
                     result = _classify_model({
                         "processing_id": image,
                         "processingId": image,
@@ -1058,7 +964,7 @@ def lambda_handler(event, context):
                     })
                     
                     elapsed = time.time() - request_start_time
-                    logger.info(f"Model classification request completed in {elapsed:.2f}s")
+                    logger.info(f"Model classification request completed in {elapsed:.2f}s")  # MIGRATION: timing
                     response = _response(
                         200,
                         {
@@ -1070,11 +976,11 @@ def lambda_handler(event, context):
                     structured_logger.log_response(req_ctx, status_code=200)
                     return response
 
-                logger.info(f"Processing property classification - target: {target}")
+                logger.info(f"Processing property classification - target: {target}")  # MIGRATION: timing
                 result = _classify_property(category, target, payload)
                 
                 elapsed = time.time() - request_start_time
-                logger.info(f"Property classification request completed in {elapsed:.2f}s")
+                logger.info(f"Property classification request completed in {elapsed:.2f}s")  # MIGRATION: timing
                 response = _response(
                     200,
                     {
@@ -1087,40 +993,39 @@ def lambda_handler(event, context):
                 return response
             except ValueError as exc:
                 elapsed = time.time() - request_start_time
-                logger.error(f"Validation error after {elapsed:.2f}s: {str(exc)}")
+                logger.error(f"Validation error after {elapsed:.2f}s: {str(exc)}")  # MIGRATION: errors with timing
                 response = _response(400, {"error": str(exc)})
                 structured_logger.log_error(req_ctx, exc, status_code=400)
                 return response
             except PermissionError as exc:
                 elapsed = time.time() - request_start_time
-                logger.error(f"Permission error after {elapsed:.2f}s: {str(exc)}")
+                logger.error(f"Permission error after {elapsed:.2f}s: {str(exc)}")  # MIGRATION: errors with timing
                 response = _response(403, {"error": str(exc)})
                 structured_logger.log_error(req_ctx, exc, status_code=403)
                 return response
             except RuntimeError as exc:
                 elapsed = time.time() - request_start_time
-                logger.error(f"Runtime error after {elapsed:.2f}s: {str(exc)}")
+                logger.error(f"Runtime error after {elapsed:.2f}s: {str(exc)}")  # MIGRATION: errors with timing
                 response = _response(500, {"error": str(exc)})
                 structured_logger.log_error(req_ctx, exc, status_code=500)
                 return response
 
         if path.endswith("/health"):
-            logger.info("Processing health check request")
+            logger.info("Processing health check request")  # MIGRATION: health check
             api_base_url = get_dsl_url()
             api_key = os.getenv("DSL_API_KEY")
             status = {"status": "unhealthy", "stage": get_stage()}
             try:
-                logger.info(f"Performing DSL API health check - stage: {get_stage()}, url: {api_base_url}")
+                logger.info(f"Performing DSL API health check - stage: {get_stage()}, url: {api_base_url}")  # MIGRATION: health check
                 client = DSLAPIClient(base_url=api_base_url, api_key=api_key, auth_headers=_request_auth_headers)
                 status = client.health_check()
                 status["stage"] = get_stage()
-                logger.info(f"Health check result: {json.dumps(status, default=str)}")
             except Exception as e:
-                logger.error(f"Health check failed: {str(e)}")
+                logger.error(f"Health check failed: {str(e)}")  # MIGRATION: health check
                 status = {"status": "unhealthy", "error": str(e), "stage": get_stage()}
 
             elapsed = time.time() - request_start_time
-            logger.info(f"Health check completed in {elapsed:.2f}s")
+            logger.info(f"Health check completed in {elapsed:.2f}s")  # MIGRATION: health check
             response = _response(200, {"component_type": "health_check", "data": [status], "metadata": {}}, methods="GET,OPTIONS")
             structured_logger.log_response(req_ctx, status_code=200)
             return response
@@ -1140,5 +1045,4 @@ def lambda_handler(event, context):
         return _response(500, {"error": str(e)})
     finally:
         total_elapsed = time.time() - request_start_time
-        logger.info(f"Lambda invocation completed in {total_elapsed:.2f}s - Request ID: {request_id}")
-        logger.info("=" * 80)
+        logger.info(f"Lambda invocation completed in {total_elapsed:.2f}s - Request ID: {request_id}")  # MIGRATION: completion timing

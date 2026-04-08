@@ -9,8 +9,8 @@
     "timeout": 30,
     "memory": 512,
     "layers": [
-      "arn:aws:lambda:eu-west-2:193757560043:layer:truss-toolkit-nodejs-layer:194",
-      "arn:aws:lambda:eu-west-2:193757560043:layer:service-layer-utils:1"
+      "arn:aws:lambda:eu-west-2:193757560043:layer:truss-toolkit-nodejs-layer:235",
+      "arn:aws:lambda:eu-west-2:193757560043:layer:service-layer-utils:4"
     ]
   },
   "database": {

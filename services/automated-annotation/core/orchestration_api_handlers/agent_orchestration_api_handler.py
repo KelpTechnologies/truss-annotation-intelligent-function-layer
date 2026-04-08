@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Semaphore
 from typing import Dict, Any, Optional, Callable, List, Tuple
 
-from stage_urls import get_stage
+from stage_urls import get_stage, get_db_stage
 from core.utils.credentials import ensure_gcp_adc
 from core.utils.image_service import get_signed_image_url
 
@@ -107,6 +107,7 @@ def get_config_id_for_property(category: str, property_name: str) -> str:
             "model": "classifier-model-bags",
             "material": "classifier-material-bags",
             "colour": "classifier-colour-bags",
+            "color": "classifier-colour-bags",
             "keywords": "classifier-keywords-bags",
             "type": "classifier-type-bags",
             "condition": "classifier-condition-bags",
@@ -128,7 +129,8 @@ def execute_classification_for_api(
     api_input: Dict[str, Any],
     env: Optional[str] = None,
     max_workers: int = DEFAULT_MAX_WORKERS,
-    batch_size: Optional[int] = None
+    batch_size: Optional[int] = None,
+    req_ctx: Optional[dict] = None,
 ) -> Any:
     """
     Execute classification orchestration for API request.
@@ -185,7 +187,7 @@ def execute_classification_for_api(
     ensure_gcp_adc()
     
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
     
     # Import orchestration function (lazy import to avoid circular dependencies)
     from agent_orchestration.classifier_api_orchestration import classify_for_api
@@ -231,7 +233,8 @@ def execute_classification_for_api(
         text_metadata=text_metadata if text_metadata else None,
         input_mode=input_mode,
         env=env,
-        get_image_url_fn=get_signed_image_url  # Lambda-specific utility
+        get_image_url_fn=get_signed_image_url,  # Lambda-specific utility
+        req_ctx=req_ctx,
     )
     
     return result
@@ -301,10 +304,18 @@ def format_classification_for_legacy_api(
             "brand_id": result.get("primary_id") or result.get("brand_id") or result.get("final_brand_id"),
             "confidence": result.get("confidence", 0.0),
         }
+    elif target in ("color", "colour"):
+        return {
+            **base_fields,
+            "color": result.get("primary_name") or result.get("primary"),
+            "color_id": result.get("primary_id"),
+            "confidence": result.get("confidence", 0.0),
+        }
     else:
         return {
             **base_fields,
             target: result.get("primary_name") or result.get("primary"),
+            f"{target}_id": result.get("primary_id"),
             "confidence": result.get("confidence", 0.0),
         }
 
@@ -312,6 +323,7 @@ def format_classification_for_legacy_api(
 def execute_brand_classification_for_api(
     api_input: Dict[str, Any],
     env: Optional[str] = None,
+    req_ctx: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """
     Execute brand classification via brand_classification_orchestration (Agent1 -> BigQuery -> Agent2).
@@ -319,9 +331,18 @@ def execute_brand_classification_for_api(
     """
     ensure_gcp_adc()
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
 
     from agent_orchestration.brand_classification_orchestration import run_brand_classification_workflow
+    from agent_orchestration.regex_brand_lookup import BrandMasterIndex
+
+    # Singleton brand index — loaded once per Lambda cold start
+    if not hasattr(execute_brand_classification_for_api, "_brand_index"):
+        try:
+            execute_brand_classification_for_api._brand_index = BrandMasterIndex()
+        except Exception:
+            execute_brand_classification_for_api._brand_index = None
+    brand_index = execute_brand_classification_for_api._brand_index
 
     text_input = api_input.get("text_input") or api_input.get("text_dump")
     if not text_input and (api_input.get("title") or api_input.get("description")):
@@ -349,6 +370,8 @@ def execute_brand_classification_for_api(
         name=name,
         env=env,
         verbose=False,
+        req_ctx=req_ctx,
+        brand_index=brand_index,
     )
 
     if result.get("workflow_status") != "success":
@@ -381,7 +404,7 @@ def execute_model_classification_for_api(
     """
     ensure_gcp_adc()
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
 
     from agent_orchestration.classifier_model_orchestration import get_model_config_id
 
@@ -415,7 +438,8 @@ def execute_size_classification_for_api(
     api_input: Dict[str, Any],
     env: Optional[str] = None,
     max_workers: int = DEFAULT_MAX_WORKERS,
-    batch_size: Optional[int] = None
+    batch_size: Optional[int] = None,
+    req_ctx: Optional[dict] = None,
 ) -> Any:
     """
     Execute size classification orchestration for API request.
@@ -464,7 +488,7 @@ def execute_size_classification_for_api(
     ensure_gcp_adc()
     
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
     
     # Import orchestration function (lazy import to avoid circular dependencies)
     from agent_orchestration.model_size_classification_orchestration import run_model_size_classification_workflow
@@ -502,7 +526,8 @@ def execute_size_classification_for_api(
     result = run_model_size_classification_workflow(
         raw_text=text_input,
         model_id=model_id_int,
-        env=env
+        env=env,
+        req_ctx=req_ctx,
     )
     
     # Transform result to match API format
@@ -543,7 +568,8 @@ def execute_keyword_classification_for_api(
     api_input: Dict[str, Any],
     env: Optional[str] = None,
     max_workers: int = DEFAULT_MAX_WORKERS,
-    batch_size: Optional[int] = None
+    batch_size: Optional[int] = None,
+    req_ctx: Optional[dict] = None,
 ) -> Any:
     """
     Execute keyword classification orchestration for API request.
@@ -591,7 +617,7 @@ def execute_keyword_classification_for_api(
     ensure_gcp_adc()
     
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
     
     # Import orchestration function (lazy import to avoid circular dependencies)
     from agent_orchestration.keyword_classifier_orchestration import run_keyword_classification
@@ -621,7 +647,8 @@ def execute_keyword_classification_for_api(
         general_input_text=general_input_text,
         text_to_avoid=text_to_avoid,
         full_config=full_config,
-        item_id=item_id
+        item_id=item_id,
+        req_ctx=req_ctx,
     )
     
     # Transform result to match API format
@@ -838,7 +865,7 @@ def execute_size_classification_batch_for_api(
     ensure_gcp_adc()
     
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
     
     # Import orchestration function (lazy import to avoid circular dependencies)
     from agent_orchestration.model_size_classification_orchestration import run_model_size_classification_workflow
@@ -979,7 +1006,7 @@ def execute_keyword_classification_batch_for_api(
     ensure_gcp_adc()
     
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
     
     # Import orchestration function (lazy import to avoid circular dependencies)
     from agent_orchestration.keyword_classifier_orchestration import run_keyword_classification
@@ -1138,7 +1165,7 @@ def execute_classification_batch_for_api(
     ensure_gcp_adc()
     
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
     
     # Import orchestration function (lazy import to avoid circular dependencies)
     from agent_orchestration.classifier_api_orchestration import classify_for_api
@@ -1237,7 +1264,7 @@ def execute_csv_config_generation_for_api(
     ensure_gcp_adc()
     
     if env is None:
-        env = get_stage()
+        env = get_db_stage()
     
     # Import orchestration functions (lazy import to avoid circular dependencies)
     from agent_orchestration.csv_config_orchestration import format_csv_sample_for_prompt
