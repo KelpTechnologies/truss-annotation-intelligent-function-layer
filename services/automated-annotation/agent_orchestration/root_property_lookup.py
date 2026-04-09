@@ -151,3 +151,28 @@ def lookup_material_root(material_id: int, category: str = "bags") -> Dict[str, 
         'root_material_id': result['root_property_id'],
         'error_logs': result['error_logs']
     }
+
+
+def lookup_hardware_root(hardware_id: int, category: str = "bags") -> Dict[str, Any]:
+    """
+    Convenience function for hardware root lookup.
+    Hardware shares material_knowledge_display table with materials.
+
+    Args:
+        hardware_id: Hardware taxonomy ID (material_id in the DB)
+        category: Category name
+
+    Returns:
+        Dict with root_hardware_name, root_hardware_id, error_logs
+    """
+    result = lookup_root_property(
+        property_type='material',
+        property_label_id=hardware_id,
+        category=category
+    )
+
+    return {
+        'root_hardware_name': result['root_property_name'],
+        'root_hardware_id': result['root_property_id'],
+        'error_logs': result['error_logs']
+    }

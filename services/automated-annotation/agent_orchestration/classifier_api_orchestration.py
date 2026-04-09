@@ -21,7 +21,7 @@ from agent_orchestration.classifier_orchestration import (
     extract_classification_result,
     get_name_from_schema
 )
-from agent_orchestration.root_property_lookup import lookup_material_root, lookup_model_root
+from agent_orchestration.root_property_lookup import lookup_material_root, lookup_model_root, lookup_hardware_root
 from agent_telemetry import agent_telemetry, StepTimer
 
 logger = logging.getLogger(__name__)
@@ -214,8 +214,11 @@ def classify_for_api(
                 "no_extraction": True,  # Flag to indicate intentionally null extraction
             }
             
-            # Set root fields to None for material/model
-            if 'material' in config_id.lower():
+            # Set root fields to None for material/model/hardware
+            if 'hardware' in config_id.lower():
+                result['root_hardware_name'] = None
+                result['root_hardware_id'] = None
+            elif 'material' in config_id.lower():
                 result['root_material_name'] = None
                 result['root_material_id'] = None
             elif 'model' in config_id.lower():
@@ -241,15 +244,27 @@ def classify_for_api(
             "validation_passed": agent_result.validation_info.is_valid if agent_result.validation_info else True,
         }
 
-        # Perform root lookup for model and material classifications
+        # Perform root lookup for model, material, and hardware classifications
         primary_id = classification_data.get("primary_id")
         if primary_id:
             # Detect property type from config_id
-            if 'material' in config_id.lower():
+            # Check hardware before material since hardware config_ids can contain 'material'
+            if 'hardware' in config_id.lower():
+                logger.info(f"Performing root lookup for hardware ID: {primary_id}")
+                root_lookup = lookup_hardware_root(
+                    hardware_id=primary_id,
+                    category='bags'
+                )
+                result['root_hardware_name'] = root_lookup['root_hardware_name']
+                result['root_hardware_id'] = root_lookup['root_hardware_id']
+                if root_lookup['error_logs']:
+                    result['root_lookup_errors'] = root_lookup['error_logs']
+                    logger.warning(f"Root hardware lookup errors: {root_lookup['error_logs']}")
+            elif 'material' in config_id.lower():
                 logger.info(f"Performing root lookup for material ID: {primary_id}")
                 root_lookup = lookup_material_root(
                     material_id=primary_id,
-                    category='bags'  # Could extract from config_id if needed
+                    category='bags'
                 )
                 result['root_material_name'] = root_lookup['root_material_name']
                 result['root_material_id'] = root_lookup['root_material_id']
@@ -260,7 +275,7 @@ def classify_for_api(
                 logger.info(f"Performing root lookup for model ID: {primary_id}")
                 root_lookup = lookup_model_root(
                     model_id=primary_id,
-                    category='bags'  # Could extract from config_id if needed
+                    category='bags'
                 )
                 result['root_model_name'] = root_lookup['root_model_name']
                 result['root_model_id'] = root_lookup['root_model_id']
@@ -268,8 +283,11 @@ def classify_for_api(
                     result['root_lookup_errors'] = root_lookup['error_logs']
                     logger.warning(f"Root model lookup errors: {root_lookup['error_logs']}")
         else:
-            # No primary_id - set root fields to None if material or model
-            if 'material' in config_id.lower():
+            # No primary_id - set root fields to None
+            if 'hardware' in config_id.lower():
+                result['root_hardware_name'] = None
+                result['root_hardware_id'] = None
+            elif 'material' in config_id.lower():
                 result['root_material_name'] = None
                 result['root_material_id'] = None
             elif 'model' in config_id.lower():
@@ -309,7 +327,10 @@ def classify_for_api(
         }
 
         # Set root fields to None for failed classifications
-        if 'material' in config_id.lower():
+        if 'hardware' in config_id.lower():
+            result['root_hardware_name'] = None
+            result['root_hardware_id'] = None
+        elif 'material' in config_id.lower():
             result['root_material_name'] = None
             result['root_material_id'] = None
         elif 'model' in config_id.lower():
