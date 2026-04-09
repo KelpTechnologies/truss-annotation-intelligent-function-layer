@@ -305,7 +305,10 @@ def format_classification_for_legacy_api(
             **base_fields,
             "hardware": result.get("primary_name") or result.get("primary"),
             "hardware_id": result.get("primary_id"),
+            "root_hardware": result.get("root_hardware_name"),
+            "root_hardware_id": result.get("root_hardware_id"),
             "confidence": result.get("confidence", 0.0),
+            "root_lookup_errors": result.get("root_lookup_errors", [])
         }
     elif target == "brand":
         return {
