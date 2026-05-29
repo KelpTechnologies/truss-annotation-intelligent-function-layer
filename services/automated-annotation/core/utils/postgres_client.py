@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 import os
+import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -33,6 +34,12 @@ CACHE_TTL_S = int(os.getenv("POSTGRES_KNOWLEDGE_CACHE_TTL_S", "3600"))  # 1 hour
 # Singletons
 _connector = None
 _pool = None
+
+# Serialise query()/reconnect across threads so non-Lambda callers (CLI, batch
+# extractors) don't corrupt the single shared connection by interleaving cursor
+# operations. Reentrant so query() can call _reconnect() within the same
+# critical section.
+_pool_lock = threading.RLock()
 
 # In-memory cache: key -> (data, timestamp)
 _cache: Dict[str, Tuple[Any, float]] = {}
@@ -112,8 +119,25 @@ def _iam_user() -> str:
 def _reconnect():
     """Force reconnect on stale connection."""
     global _pool
+    if _pool is not None:
+        try:
+            _pool.close()
+        except Exception:
+            pass
     _pool = None
     return _get_pool()
+
+
+def _drop_pool():
+    """Drop the singleton without trying to reconnect. Next call to _get_pool
+    will create a fresh connection."""
+    global _pool
+    if _pool is not None:
+        try:
+            _pool.close()
+        except Exception:
+            pass
+    _pool = None
 
 
 def query(sql: str, params: Optional[list] = None, use_cache: bool = True) -> Optional[List[Dict[str, Any]]]:
@@ -130,7 +154,7 @@ def query(sql: str, params: Optional[list] = None, use_cache: bool = True) -> Op
     """
     params = params or []
 
-    # Check cache
+    # Check cache (lock-free; _cache dict ops are atomic enough for our use).
     if use_cache:
         ck = _cache_key(sql, params)
         cached = _cache.get(ck)
@@ -138,44 +162,55 @@ def query(sql: str, params: Optional[list] = None, use_cache: bool = True) -> Op
             logger.debug("[Postgres] Cache hit")
             return cached[0]
 
-    conn = _get_pool()
-    if conn is None:
-        return None
+    # Serialise the rest: the singleton connection is not thread-safe; multiple
+    # concurrent callers interleaving cursor.execute / commit corrupt it (the
+    # error then masquerades as a non-retryable failure and the singleton stays
+    # dead until process restart).
+    with _pool_lock:
+        conn = _get_pool()
+        if conn is None:
+            return None
 
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            cursor = conn.cursor()
-            cursor.execute(sql, params)
-            columns = [desc[0] for desc in cursor.description]
-            rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
-            conn.commit()
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                cursor = conn.cursor()
+                cursor.execute(sql, params)
+                columns = [desc[0] for desc in cursor.description]
+                rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                conn.commit()
 
-            # Cache result
-            if use_cache:
-                _cache[_cache_key(sql, params)] = (rows, time.time())
+                # Cache result
+                if use_cache:
+                    _cache[_cache_key(sql, params)] = (rows, time.time())
 
-            logger.debug(f"[Postgres] Query OK: {len(rows)} rows")
-            return rows
+                logger.debug(f"[Postgres] Query OK: {len(rows)} rows")
+                return rows
 
-        except Exception as e:
-            err_msg = str(e)
-            is_retryable = any(x in err_msg.lower() for x in [
-                "connection", "timeout", "reset", "broken pipe", "eof"
-            ])
-
-            if is_retryable and attempt < MAX_RETRIES:
-                delay = RETRY_BASE_DELAY_S * (2 ** attempt)
-                logger.warning(f"[Postgres] Retryable error (attempt {attempt + 1}), retrying in {delay}s: {e}")
-                time.sleep(delay)
-                conn = _reconnect()
-                if conn is None:
+            except Exception as e:
+                err_msg = str(e)
+                # Widened: any time we see an error during query, force a
+                # reconnect on the next attempt. Previously only a narrow
+                # keyword list (connection/timeout/reset/broken pipe/eof)
+                # triggered reconnect, so failures like "InternalError",
+                # "InterfaceError", or "cursor already closed" left the
+                # singleton stuck in a broken state forever. The cost of one
+                # extra reconnect on a genuinely-retryable error is small.
+                if attempt < MAX_RETRIES:
+                    delay = RETRY_BASE_DELAY_S * (2 ** attempt)
+                    logger.warning(f"[Postgres] Error (attempt {attempt + 1}), reconnecting in {delay}s: {e}")
+                    time.sleep(delay)
+                    conn = _reconnect()
+                    if conn is None:
+                        return None
+                    continue
+                else:
+                    logger.warning(f"[Postgres] Query failed after {MAX_RETRIES} retries: {e}")
+                    # Drop the conn so the next caller reconnects rather than
+                    # inheriting a broken singleton.
+                    _drop_pool()
                     return None
-                continue
-            else:
-                logger.warning(f"[Postgres] Query failed: {e}")
-                return None
 
-    return None
+        return None
 
 
 def close():
