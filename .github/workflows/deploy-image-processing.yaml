@@ -271,11 +271,20 @@ jobs:
     steps:
       - name: Notify deployment status
         run: |
-          if [[ "${{ needs.deploy-image-processing-infrastructure.result }}" == "success" && "${{ needs.configure-s3-notifications.result }}" == "success" ]]; then
-            echo "✅ Image Processing Infrastructure deployment successful for stage: ${{ needs.set-environment.outputs.stage }}"
+          DEPLOY="${{ needs.deploy-image-processing-infrastructure.result }}"
+          NOTIF="${{ needs.configure-s3-notifications.result }}"
+          STAGE="${{ needs.set-environment.outputs.stage }}"
+          # staging is intentionally gated out of the resizer deploy (it borrows the prod-namespace
+          # resizer), so the deploy/notification jobs are SKIPPED — that is a success, not a failure.
+          if [[ "$DEPLOY" == "skipped" ]]; then
+            echo "ℹ️ Resizer deploy skipped for stage: ${STAGE} (borrows the prod-namespace resizer; nothing to deploy). OK."
+            exit 0
+          fi
+          if [[ "$DEPLOY" == "success" && "$NOTIF" == "success" ]]; then
+            echo "✅ Image Processing Infrastructure deployment successful for stage: ${STAGE}"
           else
-            echo "❌ Image Processing Infrastructure deployment failed for stage: ${{ needs.set-environment.outputs.stage }}"
-            echo "Infrastructure: ${{ needs.deploy-image-processing-infrastructure.result }}"
-            echo "S3 Notifications: ${{ needs.configure-s3-notifications.result }}"
+            echo "❌ Image Processing Infrastructure deployment failed for stage: ${STAGE}"
+            echo "Infrastructure: ${DEPLOY}"
+            echo "S3 Notifications: ${NOTIF}"
             exit 1
           fi
