@@ -6,7 +6,7 @@ Parameters:
   StageName:
     Type: String
     Default: dev
-    Description: Deployment stage (dev/staging/prod)
+    Description: "Data namespace the resizer operates in (DB_STAGE = staging or prod). The deploy workflow passes the DB_STAGE-mapped value, not the raw deployment stage."
   FunctionName:
     Type: String
     Description: Name of the image processing Lambda function
@@ -33,15 +33,6 @@ Parameters:
     Type: String
     Default: ""
     Description: Optional API key for vectorization API authentication (leave empty if not required)
-
-Mappings:
-  StageToDbStage:
-    dev:
-      DbStage: staging
-    staging:
-      DbStage: prod
-    prod:
-      DbStage: prod
 
 Resources:
   # IAM Role for Lambda function
