@@ -196,7 +196,8 @@ ${dynamoActions.map((a) => `                  - ${a}`).join("\n")}
     });
   }
 
-  // S3 buckets stay on StageName (uploads are stage-specific), DynamoDB uses DbStage
+  // S3 buckets AND DynamoDB follow DbStage (staging->prod, dev->staging, prod->prod)
+  // so staging fully shares prod image infra. Buckets are pre-existing; DbStage just repoints.
   if (requiresImageProcessing) {
     template += `
               - Effect: Allow
@@ -206,10 +207,18 @@ ${dynamoActions.map((a) => `                  - ${a}`).join("\n")}
                   - s3:DeleteObject
                   - s3:ListBucket
                 Resource:
-                  - !Sub "arn:aws:s3:::truss-annotation-image-source-\${StageName}"
-                  - !Sub "arn:aws:s3:::truss-annotation-image-source-\${StageName}/*"
-                  - !Sub "arn:aws:s3:::truss-annotation-image-processed-\${StageName}"
-                  - !Sub "arn:aws:s3:::truss-annotation-image-processed-\${StageName}/*"
+                  - !Sub
+                    - "arn:aws:s3:::truss-annotation-image-source-\${DbStage}"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
+                  - !Sub
+                    - "arn:aws:s3:::truss-annotation-image-source-\${DbStage}/*"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
+                  - !Sub
+                    - "arn:aws:s3:::truss-annotation-image-processed-\${DbStage}"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
+                  - !Sub
+                    - "arn:aws:s3:::truss-annotation-image-processed-\${DbStage}/*"
+                    - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
@@ -301,11 +310,15 @@ ${layers}`;
           DB_HOST: !Ref DatabaseHost`;
   }
 
-  // S3 buckets stay on StageName (uploads are stage-specific), DynamoDB uses DbStage
+  // S3 buckets AND table follow DbStage (staging->prod, dev->staging, prod->prod)
   if (requiresImageProcessing) {
     template += `
-          SOURCE_BUCKET: !Sub "truss-annotation-image-source-\${StageName}"
-          PROCESSED_BUCKET: !Sub "truss-annotation-image-processed-\${StageName}"
+          SOURCE_BUCKET: !Sub
+            - "truss-annotation-image-source-\${DbStage}"
+            - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
+          PROCESSED_BUCKET: !Sub
+            - "truss-annotation-image-processed-\${DbStage}"
+            - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]
           PROCESSING_TABLE: !Sub
             - "truss-image-processing-\${DbStage}"
             - DbStage: !FindInMap [StageToDbStage, !Ref StageName, DbStage]`;

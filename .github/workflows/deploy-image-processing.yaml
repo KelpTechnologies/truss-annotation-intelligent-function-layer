@@ -24,27 +24,47 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       stage: ${{ steps.set-stage.outputs.stage }}
+      db_stage: ${{ steps.set-stage.outputs.db_stage }}
     steps:
       - name: Set deployment stage
         id: set-stage
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "stage=${{ github.event.inputs.stage }}" >> $GITHUB_OUTPUT
+            STAGE="${{ github.event.inputs.stage }}"
           elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "stage=prod" >> $GITHUB_OUTPUT
+            STAGE="prod"
           elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
-            echo "stage=staging" >> $GITHUB_OUTPUT
+            STAGE="staging"
           elif [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
-            echo "stage=dev" >> $GITHUB_OUTPUT
+            STAGE="dev"
           else
-            echo "stage=dev" >> $GITHUB_OUTPUT
+            STAGE="dev"
           fi
+
+          # Map deployment stage -> data-namespace (DB_STAGE): dev->staging, staging->prod, prod->prod.
+          # Image S3 buckets, the processing table, and the resizer all live in the DB_STAGE
+          # namespace, so staging fully shares prod image infra and dev shares the staging namespace.
+          case "$STAGE" in
+            dev)     DB_STAGE="staging" ;;
+            staging) DB_STAGE="prod" ;;
+            prod)    DB_STAGE="prod" ;;
+            *)       DB_STAGE="$STAGE" ;;
+          esac
+
+          echo "stage=$STAGE" >> $GITHUB_OUTPUT
+          echo "db_stage=$DB_STAGE" >> $GITHUB_OUTPUT
+          echo "Resolved deployment stage=$STAGE -> data namespace (DB_STAGE)=$DB_STAGE"
 
   deploy-image-processing-infrastructure:
     needs: set-environment
     runs-on: ubuntu-latest
+    # The resizer is owned by the data-namespace owner: prod owns the 'prod' namespace,
+    # dev owns the 'staging' namespace. A 'staging' deployment borrows the existing prod
+    # resizer (DB_STAGE=prod) and must NOT redeploy it, so skip the resizer deploy for staging.
+    if: needs.set-environment.outputs.stage != 'staging'
     env:
       STAGE: ${{ needs.set-environment.outputs.stage }}
+      DB_STAGE: ${{ needs.set-environment.outputs.db_stage }}
     steps:
       - uses: actions/checkout@v4
 
@@ -96,27 +116,25 @@ jobs:
         run: |
           echo "🚀 Deploying image processing Lambda for stage: ${STAGE}"
 
-          STACK_NAME="truss-image-processing-${STAGE}"
-          FUNCTION_NAME="truss-image-processing-${STAGE}"
-          SOURCE_BUCKET="truss-annotation-image-source-${STAGE}"
-          PROCESSED_BUCKET="truss-annotation-image-processed-${STAGE}"
-
-          # Map stage to DB stage (dev→staging, staging→prod, prod→prod)
-          case "${STAGE}" in
-            dev)     DB_STAGE="staging" ;;
-            staging) DB_STAGE="prod" ;;
-            prod)    DB_STAGE="prod" ;;
-            *)       DB_STAGE="${STAGE}" ;;
-          esac
+          # All image infra (buckets, table, resizer) lives in the DB_STAGE data-namespace,
+          # so staging shares prod and dev shares the staging namespace. DB_STAGE is resolved
+          # once in set-environment. The resizer stack/function are keyed by DB_STAGE so prod and
+          # staging converge on a single 'prod' resizer (staging is gated out above) and there is
+          # no per-deploy notification clobbering.
+          STACK_NAME="truss-image-processing-${DB_STAGE}"
+          FUNCTION_NAME="truss-image-processing-${DB_STAGE}"
+          SOURCE_BUCKET="truss-annotation-image-source-${DB_STAGE}"
+          PROCESSED_BUCKET="truss-annotation-image-processed-${DB_STAGE}"
           PROCESSING_TABLE="truss-image-processing-${DB_STAGE}"
 
-          echo "📊 DB_STAGE mapping: ${STAGE} → ${DB_STAGE} (table: ${PROCESSING_TABLE})"
+          echo "📊 Deploy stage=${STAGE} -> data namespace=${DB_STAGE}"
+          echo "   stack=${STACK_NAME} source=${SOURCE_BUCKET} processed=${PROCESSED_BUCKET} table=${PROCESSING_TABLE}"
 
           aws cloudformation deploy \
             --stack-name "${STACK_NAME}" \
             --template-file image-processing/template.yaml \
             --parameter-overrides \
-              StageName=${STAGE} \
+              StageName=${DB_STAGE} \
               FunctionName=${FUNCTION_NAME} \
               CodeS3Bucket=${S3_BUCKET} \
               CodeS3Key=${S3_KEY} \
@@ -133,9 +151,9 @@ jobs:
         run: |
           echo "🔍 Getting Lambda outputs..."
 
-          STACK_NAME="truss-image-processing-${STAGE}"
-          SOURCE_BUCKET="truss-annotation-image-source-${STAGE}"
-          PROCESSED_BUCKET="truss-annotation-image-processed-${STAGE}"
+          STACK_NAME="truss-image-processing-${DB_STAGE}"
+          SOURCE_BUCKET="truss-annotation-image-source-${DB_STAGE}"
+          PROCESSED_BUCKET="truss-annotation-image-processed-${DB_STAGE}"
 
           PROCESSING_TABLE=$(aws cloudformation describe-stacks \
             --stack-name "${STACK_NAME}" \
@@ -161,8 +179,12 @@ jobs:
   configure-s3-notifications:
     needs: [set-environment, deploy-image-processing-infrastructure]
     runs-on: ubuntu-latest
+    # Skip for staging — it borrows the prod resizer and must not re-point prod's source-bucket
+    # notification (see the gate on deploy-image-processing-infrastructure).
+    if: needs.set-environment.outputs.stage != 'staging'
     env:
       STAGE: ${{ needs.set-environment.outputs.stage }}
+      DB_STAGE: ${{ needs.set-environment.outputs.db_stage }}
     steps:
       - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v4
@@ -175,13 +197,13 @@ jobs:
         run: |
           echo "🔧 Configuring S3 bucket notifications for image processing..."
 
-          # Get Lambda function ARN
-          LAMBDA_ARN=$(aws lambda get-function --function-name "truss-image-processing-${STAGE}" --query 'Configuration.FunctionArn' --output text)
+          # Get Lambda function ARN (resizer is keyed by the DB_STAGE data-namespace)
+          LAMBDA_ARN=$(aws lambda get-function --function-name "truss-image-processing-${DB_STAGE}" --query 'Configuration.FunctionArn' --output text)
 
           # Configure S3 bucket notification to trigger Lambda on image upload
           # Only trigger on files in uploads/ prefix to avoid processing other files
           aws s3api put-bucket-notification-configuration \
-            --bucket "truss-annotation-image-source-${STAGE}" \
+            --bucket "truss-annotation-image-source-${DB_STAGE}" \
             --notification-configuration '{
               "LambdaFunctionConfigurations": [
                 {
@@ -224,7 +246,7 @@ jobs:
           echo "   - Source S3 Bucket: ${{ needs.deploy-image-processing-infrastructure.outputs.source_bucket }}"
           echo "   - Processed S3 Bucket: ${{ needs.deploy-image-processing-infrastructure.outputs.processed_bucket }}"
           echo "   - Processing Table: ${{ needs.deploy-image-processing-infrastructure.outputs.processing_table }}"
-          echo "   - Lambda Function: truss-image-processing-${{ needs.set-environment.outputs.stage }}"
+          echo "   - Lambda Function: truss-image-processing-${{ needs.set-environment.outputs.db_stage }} (data namespace for deploy stage ${{ needs.set-environment.outputs.stage }})"
           echo ""
           echo "🚀 Image Processing Workflow:"
           echo "   1. Upload image to S3 source bucket"
