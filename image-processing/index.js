@@ -5,6 +5,7 @@ const sharp = require("sharp");
 const axios = require("axios");
 const FormData = require("form-data");
 const crypto = require("crypto");
+const { classifyCategory } = require("./category-classifier");
 
 let captureAWSv3Client;
 try {
@@ -754,6 +755,34 @@ async function updateProcessingStatus(
       params.Item.vectorDimension = vectorResult.dimension;
       if (vectorResult.timings) {
         params.Item.vectorizationTimings = vectorResult.timings;
+      }
+
+      // Image-only category classification (category_probe).
+      // The 512-d embedding is already in hand, so this is a single in-memory
+      // matrix-multiply (no extra deps / network). Non-fatal: a failure here
+      // must never block image processing — the user can still pick a category.
+      try {
+        const category = classifyCategory(vectorResult.vector);
+        if (category) {
+          params.Item.predictedCategory = category.category; // bags|clothing|footwear
+          params.Item.predictedRootType = category.rootType; // Bags|Clothing|Footwear
+          params.Item.categoryConfidence = category.confidence;
+          params.Item.categoryProba = category.proba;
+          params.Item.categoryModelVersion = category.version;
+          console.log(`Category classification for ${processingId}:`, {
+            predictedRootType: category.rootType,
+            confidence: Number(category.confidence.toFixed(4)),
+          });
+        } else {
+          console.warn(
+            `Category classification skipped for ${processingId}: classifier returned null (bad/short vector)`
+          );
+        }
+      } catch (categoryError) {
+        console.error(
+          `Category classification error for ${processingId}:`,
+          categoryError.message
+        );
       }
     } else {
       // Store error information if vectorization failed
