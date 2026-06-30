@@ -178,8 +178,40 @@ def handle_classification(req_ctx, category: str, target: str, payload: dict):
                 data = [formatted_result]
                 
         elif target in ("keyword", "keywords", "key-words"):
-            logger.info("Processing keyword classification request (keyword_classifier_orchestration)")
-            result = execute_keyword_classification_for_api(api_input=payload, req_ctx=req_ctx)
+            # Gate: keyword classification is bags-only. footwear/apparel are present
+            # in CATEGORY_CONFIG (so they pass the existence check above) but have no
+            # keyword classifier — execute_keyword_classification_for_api hardcodes the
+            # bags keyword model, so a non-bags request would silently return bag
+            # keywords. Skip extraction and return an empty keyword result (identical
+            # envelope) for unsupported categories. Mirrors the model gate above.
+            if not CATEGORY_CONFIG.get(category, {}).get("keyword_classification_enabled", False):
+                logger.info(
+                    f"Keyword classification not supported for category '{category}' — returning empty result"
+                )
+                empty_keyword = {
+                    "keywords": [],
+                    "keyword_count": 0,
+                    "keyword_1": "",
+                    "keyword_2": "",
+                    "keyword_3": "",
+                    "keyword_1_confidence": 0.0,
+                    "keyword_2_confidence": 0.0,
+                    "keyword_3_confidence": 0.0,
+                    "reasoning": "",
+                    "success": True,
+                    "validation_passed": True,
+                    "status": "skipped_unsupported_category",
+                    "error_type": "",
+                    "error": "",
+                }
+                result = (
+                    [dict(empty_keyword) for _ in payload.get("items", [])]
+                    if is_batch_mode
+                    else dict(empty_keyword)
+                )
+            else:
+                logger.info("Processing keyword classification request (keyword_classifier_orchestration)")
+                result = execute_keyword_classification_for_api(api_input=payload, req_ctx=req_ctx)
 
             if is_batch_mode:
                 # Batch mode: result is a list

@@ -12,17 +12,20 @@ CATEGORY_CONFIG = {
         "vector_index": "mfc-classifier-bags-models-userdata",
         "default_namespace": "jacquemus",
         "model_classification_enabled": True,
+        "keyword_classification_enabled": True,
     },
     "footwear": {
         "default_brand": None,
         "vector_index": None,
         "default_namespace": None,
         "model_classification_enabled": False,
+        "keyword_classification_enabled": False,
     },
     "apparel": {
         "default_brand": None,
         "vector_index": None,
         "default_namespace": None,
         "model_classification_enabled": False,
+        "keyword_classification_enabled": False,
     },
 }
