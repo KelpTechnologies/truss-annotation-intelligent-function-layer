@@ -127,6 +127,16 @@ def get_config_id_for_property(category: str, property_name: str) -> str:
     category_mapping = config_mapping.get(category, {})
     config_id = category_mapping.get(property_name)
 
+    # No footwear/apparel-specific classifiers are trained — only the bags configs
+    # exist. Colour / material / condition are category-agnostic, so for non-bags
+    # fall back to the bags classifier rather than a non-existent "{property}-30"
+    # config (otherwise footwear/apparel colour + material return nothing — they only
+    # worked before when requests accidentally routed to /bags/). Bag-only model/
+    # hardware/keywords are gated off upstream for non-bags; category-specific `type`
+    # is left to the generic fallback.
+    if not config_id and property_name in ("colour", "color", "material", "condition"):
+        config_id = config_mapping["bags"].get(property_name)
+
     if not config_id:
         config_id = f"{property_name}-30"
         logger.warning(f"No explicit mapping for {category}/{property_name}, using fallback: {config_id}")

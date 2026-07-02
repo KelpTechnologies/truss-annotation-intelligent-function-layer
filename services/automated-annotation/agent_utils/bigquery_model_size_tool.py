@@ -92,7 +92,7 @@ def _get_size_options_bigquery(model_id: int, verbose: bool = False) -> List[Dic
     client = get_bigquery_client()
 
     query = f"""
-    SELECT id, model_id, size, height, width, length
+    SELECT id, model_id, size, height, width, depth
     FROM `{BIGQUERY_DATASET}.{BIGQUERY_TABLE}`
     WHERE model_id = {model_id}
     ORDER BY size
@@ -112,7 +112,9 @@ def _get_size_options_bigquery(model_id: int, verbose: bool = False) -> List[Dic
             "size": row.size,
             "height": float(row.height) if row.height else None,
             "width": float(row.width) if row.width else None,
-            "length": float(row.length) if row.length else None,
+            # BQ column is `depth`, not `length`; downstream key stays `length`
+            # to match the Postgres path's output schema.
+            "length": float(row.depth) if row.depth else None,
         })
 
     if verbose:
