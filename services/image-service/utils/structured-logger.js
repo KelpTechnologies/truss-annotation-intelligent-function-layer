@@ -80,7 +80,18 @@ const DEFAULT_REDACT_FIELDS = [
   "secret",
   "creditCard",
   "ssn",
+  // TRS-629/638: personal data. "email"/"phone" are safe as substring matches.
+  // "name" is deliberately NOT here — as a substring it would clobber
+  // brand_name/model_name/vendor_name etc.; personal-name keys are matched
+  // exactly via PERSONAL_NAME_KEYS below.
+  "email",
+  "phone",
 ];
+const PERSONAL_NAME_KEYS = new Set([
+  "first_name", "firstname", "last_name", "lastname", "given_name",
+  "family_name", "middle_name", "full_name", "fullname", "$name",
+]);
+const EMAIL_VALUE_REGEX = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
 
 /**
  * Current log level from environment
@@ -181,6 +192,18 @@ function redactSensitiveFields(obj, fieldsToRedact = DEFAULT_REDACT_FIELDS) {
     // Check if field should be redacted
     if (fieldsToRedact.some((field) => lowerKey.includes(field.toLowerCase()))) {
       redacted[key] = "[REDACTED]";
+      continue;
+    }
+
+    // TRS-638: personal-name keys (exact match)
+    if (PERSONAL_NAME_KEYS.has(lowerKey)) {
+      redacted[key] = "[REDACTED]";
+      continue;
+    }
+
+    // TRS-638: any email-shaped value, regardless of key name
+    if (typeof value === "string" && EMAIL_VALUE_REGEX.test(value)) {
+      redacted[key] = "[REDACTED_EMAIL]";
       continue;
     }
 
@@ -495,11 +518,27 @@ class StructuredLogger {
 
     // Emit REQUEST log
     this._emit(LOG_TYPES.REQUEST, context, {
-      queryParams: context.queryParams,
-      pathParams: context.pathParams,
+      queryParams: redactSensitiveFields(context.queryParams, this.redactFields),
+      pathParams: redactSensitiveFields(context.pathParams, this.redactFields),
     });
 
     return context;
+  }
+
+  /**
+   * TRS-638: log the inbound event for debugging with sensitive fields redacted.
+   * Replaces raw console.log("Event:", JSON.stringify(event)) which leaked the
+   * Authorization bearer token, authorizer.email and headers into CloudWatch.
+   */
+  logEvent(event) {
+    try {
+      console.log(
+        "Event:",
+        JSON.stringify(redactSensitiveFields(event, this.redactFields), null, 2)
+      );
+    } catch (_) {
+      // never let debug logging break the handler
+    }
   }
 
   /**
