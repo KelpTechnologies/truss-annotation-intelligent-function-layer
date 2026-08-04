@@ -156,7 +156,9 @@ async function handleDeleteRequest(pathInfo, pathParams) {
  */
 async function generateUploadUrl(params) {
   try {
-    const { filename, contentType, expiresIn = 3600 } = params;
+    // TRS-640: queryStringParameters is null when no query string is sent —
+    // default to {} so a missing filename returns 400, not a 500 destructure crash.
+    const { filename, contentType, expiresIn = 3600 } = params || {};
 
     if (!filename) {
       return createResponse(400, { error: "Filename is required" });
@@ -241,7 +243,8 @@ async function getProcessingStatus(processingId) {
  */
 async function listImages(queryParams) {
   try {
-    const { status, limit = 50, lastKey } = queryParams;
+    // TRS-640: queryStringParameters is null when no query string is sent.
+    const { status, limit = 50, lastKey } = queryParams || {};
 
     const params = {
       TableName: PROCESSING_TABLE,
