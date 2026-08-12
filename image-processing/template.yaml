@@ -27,12 +27,17 @@ Parameters:
     Description: Name of the DynamoDB processing table (may differ from stage due to DB_STAGE mapping)
   VectorizationApiUrl:
     Type: String
-    Default: "https://image-vectorization-api-gpu-94434742359.us-central1.run.app/vectorize"
-    Description: URL of the image vectorization API endpoint
+    Default: "https://truss-vec-cpu.swedencentral.cloudapp.azure.com/vectorize"
+    Description: "URL of the image vectorization API endpoint. The deploy workflow passes this explicitly — CloudFormation reuses the STORED parameter value for anything not passed, so this default alone will not correct a drifted stack."
   VectorizationApiKey:
     Type: String
     Default: ""
-    Description: Optional API key for vectorization API authentication (leave empty if not required)
+    NoEcho: true
+    Description: "API key for vectorization API authentication. Supplied by the deploy workflow from the VECTORIZATION_API_KEY repo secret; the Azure endpoint 401s without it."
+  ReservedConcurrency:
+    Type: Number
+    Default: 5
+    Description: "Max concurrent executions. The vectorizer is a single CPU box: measured goodput is ~3.1 img/s at concurrency 4 (p95 1.4s), and it suffers congestion collapse under load — a 210-concurrent burst on 2026-08-11 managed only 2.25 img/s and timed out 58% of requests. Concurrency is capped rather than raising the timeout. S3 invokes this asynchronously, so throttled events wait in the invocation queue and retry within the maximum event age instead of being dropped."
 
 Resources:
   # IAM Role for Lambda function
@@ -94,6 +99,7 @@ Resources:
         S3Key: !Ref CodeS3Key
       Timeout: 300
       MemorySize: 1024
+      ReservedConcurrentExecutions: !Ref ReservedConcurrency
       Environment:
         Variables:
           STAGE: !Ref StageName

@@ -30,9 +30,11 @@ const SOURCE_BUCKET = process.env.SOURCE_BUCKET;
 const PROCESSED_BUCKET = process.env.PROCESSED_BUCKET;
 const PROCESSING_TABLE = process.env.PROCESSING_TABLE;
 const STAGE = process.env.STAGE;
-const VECTORIZATION_API_URL =
-  process.env.VECTORIZATION_API_URL ||
-  "https://image-vectorization-api-gpu-94434742359.us-central1.run.app/vectorize";
+// No fallback URL by design. This used to default to the retired GCP GPU
+// endpoint, so an unset/blank env var silently routed production traffic back
+// to a service we have migrated off. Absent config must fail loudly instead —
+// vectorizeImage() already throws when this is empty.
+const VECTORIZATION_API_URL = process.env.VECTORIZATION_API_URL || "";
 const VECTORIZATION_API_KEY = process.env.VECTORIZATION_API_KEY || null;
 
 // Validate required configuration
@@ -44,6 +46,9 @@ if (!PROCESSED_BUCKET) {
 }
 if (!PROCESSING_TABLE) {
   console.error("ERROR: PROCESSING_TABLE environment variable is not set"); // MIGRATION: critical env var error
+}
+if (!VECTORIZATION_API_URL) {
+  console.error("ERROR: VECTORIZATION_API_URL environment variable is not set"); // MIGRATION: critical env var error
 }
 
 /**

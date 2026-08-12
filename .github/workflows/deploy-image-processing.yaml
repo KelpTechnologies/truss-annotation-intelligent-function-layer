@@ -65,6 +65,11 @@ jobs:
     env:
       STAGE: ${{ needs.set-environment.outputs.stage }}
       DB_STAGE: ${{ needs.set-environment.outputs.db_stage }}
+      # Endpoint config is declared here, not left to drift. The URL falls back to the
+      # Azure endpoint (never the retired GCP one); the key has no fallback and the
+      # deploy step hard-fails if it is missing rather than blanking it on the function.
+      VECTORIZATION_API_URL: ${{ vars.VECTORIZATION_API_URL || 'https://truss-vec-cpu.swedencentral.cloudapp.azure.com/vectorize' }}
+      VECTORIZATION_API_KEY: ${{ secrets.VECTORIZATION_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -130,6 +135,18 @@ jobs:
           echo "📊 Deploy stage=${STAGE} -> data namespace=${DB_STAGE}"
           echo "   stack=${STACK_NAME} source=${SOURCE_BUCKET} processed=${PROCESSED_BUCKET} table=${PROCESSING_TABLE}"
 
+          # VectorizationApiUrl/Key MUST be passed explicitly. `cloudformation deploy`
+          # reuses the STORED parameter value for anything omitted, and these stacks
+          # drifted when the Azure migration was applied out-of-band: every stack still
+          # has the retired GCP URL and an empty key stored, while the live functions
+          # run Azure. Omitting them here silently reverts the endpoint and blanks the
+          # key on the next deploy.
+          if [ -z "${VECTORIZATION_API_KEY}" ]; then
+            echo "❌ VECTORIZATION_API_KEY is empty — deploying would blank the key and the"
+            echo "   Azure vectorizer would 401 on every image. Set the repo secret."
+            exit 1
+          fi
+
           aws cloudformation deploy \
             --stack-name "${STACK_NAME}" \
             --template-file image-processing/template.yaml \
@@ -141,6 +158,8 @@ jobs:
               SourceBucketName=${SOURCE_BUCKET} \
               ProcessedBucketName=${PROCESSED_BUCKET} \
               ProcessingTableName=${PROCESSING_TABLE} \
+              VectorizationApiUrl=${VECTORIZATION_API_URL} \
+              VectorizationApiKey=${VECTORIZATION_API_KEY} \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
 
