@@ -81,11 +81,16 @@ The processed image is sent to a GPU-powered vectorization API:
 
 **Important:** Both WebP (for storage) and JPEG (for vectorization) are created from the same normalized RGB buffer, ensuring consistent embeddings regardless of source format.
 
-**Vectorization API:** Google Cloud Run (GPU-enabled)
+**Vectorization API:** Azure (CPU)
 
 ```
-https://image-vectorization-api-gpu-*.us-central1.run.app/vectorize
+https://truss-vec-cpu.swedencentral.cloudapp.azure.com/vectorize
 ```
+
+Set via the `VectorizationApiUrl` stack parameter — there is deliberately no
+fallback in code. The previous Google Cloud Run GPU endpoint is retired; do not
+reintroduce it as a default. Being CPU-backed, this endpoint has a low
+concurrency ceiling — see `ReservedConcurrency` in `template.yaml`.
 
 **⚠️ CRITICAL: All production image processing MUST use this Lambda function.**
 
