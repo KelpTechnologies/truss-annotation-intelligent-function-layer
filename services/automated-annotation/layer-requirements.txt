@@ -15,8 +15,8 @@ google-genai>=0.1.0
 # BigQuery client for model metadata lookup (fallback)
 google-cloud-bigquery>=3.0.0
 
-# Cloud SQL Postgres (primary DB, faster than BigQuery for lookups)
-cloud-sql-python-connector[pg8000]>=1.0.0
+# Azure Postgres (primary DB for taxonomy lookups, faster than BigQuery). TP-461: the
+# Cloud SQL connector is no longer needed — plain TLS via pg8000 to truss-client-pg.
 pg8000>=1.30.0
 
 # Pinecone for vector similarity search
