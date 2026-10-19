@@ -60,6 +60,17 @@ def _get_platform_secrets() -> Dict:
     return _cached_platform_secrets
 
 
+def get_azure_database_credentials(key: str = "azure_database") -> Dict:
+    """Azure Flexible Server credentials ({host, name, user, password}) from the
+    consolidated truss-platform-secrets blob (TP-461). `azure_database` = role svc_dsl
+    (the Lambdas); batch tooling sets AZURE_PG_SECRET_KEY=azure_database_batch."""
+    secrets = _get_platform_secrets()
+    creds = secrets.get(key)
+    if not isinstance(creds, dict) or not creds:
+        raise ValueError(f"`{key}` credentials not found in truss-platform-secrets")
+    return creds
+
+
 def _load_gcp_credentials_from_secrets() -> str:
     """Load GCP service account JSON from AWS Secrets Manager (centralized truss-platform-secrets)."""
     secret_arn = os.getenv("TRUSS_SECRETS_ARN") or os.getenv("BIGQUERY_SECRET_ARN")

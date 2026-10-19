@@ -1,38 +1,46 @@
 """
-Cloud SQL PostgreSQL client for taxonomy lookups.
+Azure PostgreSQL client for taxonomy lookups (TP-461, 2026-10-19).
 
-Mirrors the truss-data-service-layer JS implementation:
-- Cloud SQL Connector with IAM auth (public IP, no VPC needed)
-- Same GCP service account used for BigQuery
-- Connection pooling via pg8000
-- Knowledge table result caching
+Replaces the Cloud SQL Connector + IAM path: Cloud SQL `truss-api-postgres` is being
+retired, the display layer now lives on the Azure Flexible Server `truss-client-pg`
+(one schema, `api`, for every stage — there is no api_dev / api_staging copy there).
 
-Instance: truss-data-science:europe-west2:truss-api-postgres
-Database: truss-api
-Schemas: api_Dev (dev), api_staging (staging), api (prod)
+Mirrors truss-data-service-layer/services/utils/postgres-database.js (azure-postgres):
+- plain TCP + TLS (certificate verified against the system CA bundle), pg8000 driver
+- credentials from the consolidated `truss-platform-secrets` blob, key
+  AZURE_PG_SECRET_KEY (default `azure_database` = role svc_dsl); the box firewall is
+  an IP allow-list, so the Lambda must sit in the VPC and egress via the NAT EIP
+- port AZURE_PG_PORT (default 6432 = the server's built-in PgBouncer, transaction
+  pooling; this module holds no session state so that is safe)
+- application_name = aifl-<service>-<stage> so sessions are attributable in
+  pg_stat_activity
+- single cached connection per process, serialised by a lock (TRS-471), reconnect
+  on any error, result cache for knowledge tables; callers get None on failure and
+  fall back to BigQuery, exactly as before.
+
+Env overrides (local runs): AZURE_PG_HOST / AZURE_PG_USER / AZURE_PG_PASSWORD /
+AZURE_PG_DATABASE bypass Secrets Manager; POSTGRES_SCHEMA overrides the schema.
 """
 
 import hashlib
 import json
 import logging
 import os
+import ssl
 import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Cloud SQL config (matches DSL JS implementation)
-INSTANCE_CONNECTION_NAME = os.getenv(
-    "CLOUD_SQL_INSTANCE", "truss-data-science:europe-west2:truss-api-postgres"
-)
-DATABASE_NAME = os.getenv("POSTGRES_DATABASE", "truss-api")
+AZURE_PG_PORT = int(os.getenv("AZURE_PG_PORT", "6432"))
+AZURE_PG_SECRET_KEY = os.getenv("AZURE_PG_SECRET_KEY", "azure_database")
+AZURE_PG_CONNECT_TIMEOUT_S = int(os.getenv("AZURE_PG_CONNECT_TIMEOUT_S", "8"))
 MAX_RETRIES = int(os.getenv("POSTGRES_MAX_RETRIES", "2"))
 RETRY_BASE_DELAY_S = 1.0
 CACHE_TTL_S = int(os.getenv("POSTGRES_KNOWLEDGE_CACHE_TTL_S", "3600"))  # 1 hour
 
-# Singletons
-_connector = None
+# Singleton connection (Lambda = single-concurrency per container)
 _pool = None
 
 # Serialise query()/reconnect across threads so non-Lambda callers (CLI, batch
@@ -46,10 +54,10 @@ _cache: Dict[str, Tuple[Any, float]] = {}
 
 
 def _get_api_schema() -> str:
-    """Map DB_STAGE env var to Postgres schema name (matches BQ dataset names)."""
-    stage = (os.getenv("DB_STAGE") or os.getenv("STAGE", "dev")).lower()
-    mapping = {"dev": "api_staging", "staging": "api", "prod": "api"}
-    return mapping.get(stage, "api")
+    """Postgres schema for the display layer. The Azure box carries ONE display
+    layer, `api`, for every stage (the Cloud SQL api_dev / api_staging copies were
+    never loaded there). POSTGRES_SCHEMA overrides for ad-hoc runs."""
+    return os.getenv("POSTGRES_SCHEMA", "api")
 
 
 def _cache_key(sql: str, params: list) -> str:
@@ -57,63 +65,86 @@ def _cache_key(sql: str, params: list) -> str:
     return hashlib.md5(raw.encode()).hexdigest()
 
 
+def _connection_params() -> Dict[str, Any]:
+    """host/user/password/database for the Azure box. Env overrides win; otherwise
+    the `AZURE_PG_SECRET_KEY` entry of truss-platform-secrets ({host, name, user,
+    password}) — the same blob the BigQuery credentials come from."""
+    env = {
+        "host": os.getenv("AZURE_PG_HOST"),
+        "user": os.getenv("AZURE_PG_USER"),
+        "password": os.getenv("AZURE_PG_PASSWORD"),
+        "database": os.getenv("AZURE_PG_DATABASE"),
+    }
+    if all(env.values()):
+        return env
+
+    from core.utils.credentials import get_azure_database_credentials
+    creds = get_azure_database_credentials(AZURE_PG_SECRET_KEY)
+    params = {
+        "host": env["host"] or creds.get("host"),
+        "user": env["user"] or creds.get("user"),
+        "password": env["password"] or creds.get("password"),
+        "database": env["database"] or creds.get("name") or creds.get("database"),
+    }
+    missing = [k for k, v in params.items() if not v]
+    if missing:
+        raise ValueError(
+            f"Azure Postgres credentials incomplete (missing {missing}); set them in "
+            f"truss-platform-secrets under `{AZURE_PG_SECRET_KEY}` or via AZURE_PG_* env"
+        )
+    return params
+
+
+def _application_name() -> str:
+    service = os.getenv("SERVICE_NAME", "automated-annotation")
+    stage = os.getenv("STAGE", "local")
+    return f"aifl-{service}-{stage}"
+
+
 def _get_pool():
-    """Create or return singleton pg8000 connection pool via Cloud SQL Connector."""
-    global _connector, _pool
+    """Create or return the singleton pg8000 connection to the Azure box."""
+    global _pool
 
     if _pool is not None:
         return _pool
 
     try:
-        from google.cloud.sql.connector import Connector
-        import pg8000
+        import pg8000.dbapi as pg
     except ImportError:
-        logger.warning("[Postgres] cloud-sql-python-connector or pg8000 not installed")
+        logger.warning("[Postgres] pg8000 not installed")
         return None
 
     try:
-        # ensure_gcp_adc sets GOOGLE_APPLICATION_CREDENTIALS
-        from core.utils.credentials import ensure_gcp_adc
-        ensure_gcp_adc()
+        params = _connection_params()
     except Exception as e:
-        logger.warning(f"[Postgres] Could not set up GCP credentials: {e}")
+        logger.warning(f"[Postgres] Could not load Azure credentials: {e}")
         return None
 
     try:
-        _connector = Connector()
-
-        def _getconn():
-            return _connector.connect(
-                INSTANCE_CONNECTION_NAME,
-                "pg8000",
-                user=_iam_user(),
-                db=DATABASE_NAME,
-                enable_iam_auth=True,
-                ip_type="PUBLIC",
-            )
-
-        # pg8000 doesn't have a built-in pool, so we use sqlalchemy or manual.
-        # For simplicity, cache a single connection (Lambda = single-concurrency).
-        conn = _getconn()
+        ssl_context = ssl.create_default_context()
+        if os.getenv("AZURE_PG_SSL_NO_VERIFY") == "true":
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+        conn = pg.connect(
+            host=params["host"],
+            port=AZURE_PG_PORT,
+            user=params["user"],
+            password=params["password"],
+            database=params["database"],
+            ssl_context=ssl_context,
+            timeout=AZURE_PG_CONNECT_TIMEOUT_S,
+            application_name=_application_name(),
+        )
         _pool = conn
-        logger.info(f"[Postgres] Connected to {INSTANCE_CONNECTION_NAME}/{DATABASE_NAME}")
+        logger.info(
+            f"[Postgres] Connected to Azure {params['host']}:{AZURE_PG_PORT}/{params['database']} "
+            f"as {params['user']} (schema {_get_api_schema()}, app {_application_name()})"
+        )
         return _pool
     except Exception as e:
         logger.warning(f"[Postgres] Connection failed: {e}")
         _pool = None
         return None
-
-
-def _iam_user() -> str:
-    """Extract IAM user from GCP credentials (email minus domain)."""
-    creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "/tmp/gcp_sa.json")
-    try:
-        with open(creds_path, "r") as f:
-            creds = json.load(f)
-        email = creds.get("client_email", "")
-        return email.replace(".gserviceaccount.com", "")
-    except Exception:
-        return ""
 
 
 def _reconnect():
@@ -187,14 +218,9 @@ def query(sql: str, params: Optional[list] = None, use_cache: bool = True) -> Op
                 return rows
 
             except Exception as e:
-                err_msg = str(e)
-                # Widened: any time we see an error during query, force a
-                # reconnect on the next attempt. Previously only a narrow
-                # keyword list (connection/timeout/reset/broken pipe/eof)
-                # triggered reconnect, so failures like "InternalError",
-                # "InterfaceError", or "cursor already closed" left the
-                # singleton stuck in a broken state forever. The cost of one
-                # extra reconnect on a genuinely-retryable error is small.
+                # Any error forces a reconnect on the next attempt (see TRS-471):
+                # a narrow keyword list left the singleton stuck on
+                # InternalError / InterfaceError / "cursor already closed".
                 if attempt < MAX_RETRIES:
                     delay = RETRY_BASE_DELAY_S * (2 ** attempt)
                     logger.warning(f"[Postgres] Error (attempt {attempt + 1}), reconnecting in {delay}s: {e}")
@@ -214,20 +240,14 @@ def query(sql: str, params: Optional[list] = None, use_cache: bool = True) -> Op
 
 
 def close():
-    """Close connection and connector."""
-    global _pool, _connector
+    """Close the connection."""
+    global _pool
     if _pool:
         try:
             _pool.close()
         except Exception:
             pass
         _pool = None
-    if _connector:
-        try:
-            _connector.close()
-        except Exception:
-            pass
-        _connector = None
 
 
 def clear_cache():

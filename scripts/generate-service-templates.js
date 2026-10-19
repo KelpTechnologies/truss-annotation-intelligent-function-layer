@@ -52,6 +52,18 @@ function generateCloudFormationTemplate(
 ) {
   const requiresDatabase = config.database?.required || false;
   const requiresVPC = config.deployment?.vpc_config?.required || false;
+  // Stack-owned egress-only SG (TP-461, ported from the DSL generator): a Lambda whose
+  // only VPC need is a fixed NAT egress IP (Azure Postgres firewall allow-list) should
+  // not borrow another team's SG and inherit its lifecycle.
+  const createEgressSg = Boolean(requiresVPC && config.deployment.vpc_config?.create_egress_sg);
+  // Interface VPC endpoints with private DNS (Secrets Manager) intercept the public
+  // hostname inside the VPC and their SG must admit the caller, or the call hangs until
+  // the SDK gives up. One 443 rule per listed endpoint SG, scoped to this stack's SG.
+  const endpointIngressSgs = createEgressSg
+    ? (config.deployment.vpc_config?.endpoint_ingress_security_groups || []).filter(
+        (sg) => typeof sg === "string" && /^sg-[0-9a-f]+$/.test(sg)
+      )
+    : [];
   const requiresImageProcessing = config.image_processing !== undefined;
   const requiresDynamoDB =
     config.database?.connection_type === "dynamodb" && requiresDatabase;
@@ -107,10 +119,13 @@ Parameters:
     Default: "${config.aws.vpc_id}"
   SubnetIds:
     Type: CommaDelimitedList
-    Default: "${config.deployment.vpc_config.subnets.join(",")}"
+    Default: "${config.deployment.vpc_config.subnets.join(",")}"`;
+    if (!createEgressSg) {
+      template += `
   SecurityGroupIds:
     Type: CommaDelimitedList
     Default: "${config.deployment.vpc_config.security_groups.join(",")}"`;
+    }
   }
 
   template += `
@@ -147,6 +162,9 @@ Resources:
                   - ec2:CreateNetworkInterface
                   - ec2:DescribeNetworkInterfaces
                   - ec2:DeleteNetworkInterface
+                  - ec2:DescribeSubnets
+                  - ec2:AssignPrivateIpAddresses
+                  - ec2:UnassignPrivateIpAddresses
                 Resource: "*"`;
   }
 
@@ -254,6 +272,40 @@ ${lambdaInvokePermissions.map((arn) => `                  - "${arn}"`).join("\n"
                   - xray:GetSamplingTargets
                 Resource: "*"`;
 
+  if (createEgressSg) {
+    template += `
+
+  # Stack-owned egress-only security group: the Lambda sits in private subnets whose
+  # route table sends 0.0.0.0/0 through the VPC NAT gateway, so every outbound call
+  # leaves from the NAT's Elastic IP, the one address the Azure firewall allow-lists.
+  LambdaEgressSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "\${FunctionName} egress-only (NAT to Azure Postgres / GCP / Pinecone)"
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+          Description: all egress; reachability is decided by the subnet route (NAT)
+      Tags:
+        - Key: Name
+          Value: !Sub "\${FunctionName}-egress"`;
+    endpointIngressSgs.forEach((sg, i) => {
+      template += `
+
+  # Admit this Lambda's egress SG on interface endpoint SG ${sg} (HTTPS only).
+  EndpointIngress${i + 1}:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: "${sg}"
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !Ref LambdaEgressSecurityGroup
+      Description: !Sub "\${FunctionName} HTTPS to interface endpoint (Secrets Manager)"`;
+    });
+  }
+
   template += `
 
   ServiceLambda:
@@ -283,7 +335,13 @@ ${layers}`;
         Mode: Active`;
 
   if (requiresVPC) {
-    template += `
+    template += createEgressSg
+      ? `
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaEgressSecurityGroup
+        SubnetIds: !Ref SubnetIds`
+      : `
       VpcConfig:
         SecurityGroupIds: !Ref SecurityGroupIds
         SubnetIds: !Ref SubnetIds`;
