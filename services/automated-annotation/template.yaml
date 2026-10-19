@@ -213,7 +213,7 @@ Resources:
           TRUSS_SECRETS_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:truss-platform-secrets-yVuz1R"
           VERTEXAI_PROJECT: "truss-data-science"
           AZURE_PG_PORT: "6432"
-          AZURE_PG_SECRET_KEY: "azure_database"
+          AZURE_PG_SECRET_KEY: "azure_database_aifl"
           DB_HOST: !Ref DatabaseHost
 
   ServiceLambdaPermission:
