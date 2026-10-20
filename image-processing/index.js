@@ -16,16 +16,25 @@ try {
 
 const s3 = captureAWSv3Client(new S3Client({ region: process.env.AWS_REGION || "eu-west-2" }));
 const dynamoClient = captureAWSv3Client(new DynamoDBClient({ region: process.env.AWS_REGION || "eu-west-2" }));
-const dynamodb = DynamoDBDocumentClient.from(dynamoClient);
+// removeUndefinedValues: a vectorization failure with no HTTP response (timeout,
+// connection reset) leaves statusCode/statusText/details undefined on the
+// vectorizationError map. Without this the marshaller throws and the whole
+// PutItem is discarded — including the status change — so the record silently
+// stays "processing" forever with no vector and no error.
+const dynamodb = DynamoDBDocumentClient.from(dynamoClient, {
+  marshallOptions: { removeUndefinedValues: true },
+});
 
 // Configuration
 const SOURCE_BUCKET = process.env.SOURCE_BUCKET;
 const PROCESSED_BUCKET = process.env.PROCESSED_BUCKET;
 const PROCESSING_TABLE = process.env.PROCESSING_TABLE;
 const STAGE = process.env.STAGE;
-const VECTORIZATION_API_URL =
-  process.env.VECTORIZATION_API_URL ||
-  "https://image-vectorization-api-gpu-94434742359.us-central1.run.app/vectorize";
+// No fallback URL by design. This used to default to the retired GCP GPU
+// endpoint, so an unset/blank env var silently routed production traffic back
+// to a service we have migrated off. Absent config must fail loudly instead —
+// vectorizeImage() already throws when this is empty.
+const VECTORIZATION_API_URL = process.env.VECTORIZATION_API_URL || "";
 const VECTORIZATION_API_KEY = process.env.VECTORIZATION_API_KEY || null;
 
 // Validate required configuration
@@ -37,6 +46,9 @@ if (!PROCESSED_BUCKET) {
 }
 if (!PROCESSING_TABLE) {
   console.error("ERROR: PROCESSING_TABLE environment variable is not set"); // MIGRATION: critical env var error
+}
+if (!VECTORIZATION_API_URL) {
+  console.error("ERROR: VECTORIZATION_API_URL environment variable is not set"); // MIGRATION: critical env var error
 }
 
 /**
@@ -257,23 +269,30 @@ async function processImageRecord(record) {
       };
     }
 
-    // Update processing status to completed
+    // Only "completed" if the embedding actually landed. Similarity search and
+    // pricing treat a vector-less image as a hard failure, so calling these
+    // completed hides the failure until a downstream consumer trips over it.
+    const vectorOk = Boolean(
+      vectorResult && vectorResult.success && vectorResult.vector
+    );
+    const finalStatus = vectorOk ? "completed" : "vector_failed";
+
     await updateProcessingStatus(
       processingId,
       key,
-      "completed",
+      finalStatus,
       uploadResult,
       null,
       vectorResult
     );
 
     const totalTime = Date.now() - recordStartTime;
-    console.log(`Record processing completed in ${totalTime}ms`); // MIGRATION: record timing
+    console.log(`Record processing finished in ${totalTime}ms (${finalStatus})`); // MIGRATION: record timing
 
     return {
       processingId,
       originalKey: key,
-      status: "completed",
+      status: finalStatus,
       processedImage: uploadResult,
       vectorization: vectorResult,
       timings: {
@@ -298,14 +317,23 @@ async function processImageRecord(record) {
     const filename = keyParts[keyParts.length - 1];
     const processingId = filename.split(".")[0]; // Remove file extension
 
-    // Update processing status to failed
-    await updateProcessingStatus(
-      processingId,
-      key,
-      "failed",
-      null,
-      error.message
-    );
+    // Best-effort: updateProcessingStatus now throws on write failure, and a
+    // failure here must not mask the original error that got us into the catch.
+    try {
+      await updateProcessingStatus(
+        processingId,
+        key,
+        "failed",
+        null,
+        error.message
+      );
+    } catch (statusError) {
+      console.error("Failed to persist 'failed' status:", {
+        processingId,
+        originalError: error.message,
+        statusError: statusError.message,
+      });
+    }
 
     throw error;
   }
@@ -812,7 +840,10 @@ async function updateProcessingStatus(
       statusCode: dbError.$metadata?.httpStatusCode,
       stack: dbError.stack,
     });
-    // Don't throw here as it's not critical for image processing
+    // Must throw. This record is the only durable output of the run — dropping
+    // the write leaves the item stranded at "processing" with the Lambda still
+    // reporting success, so nothing retries and no alarm fires.
+    throw dbError;
   }
 }
 

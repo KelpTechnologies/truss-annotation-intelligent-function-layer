@@ -30,6 +30,12 @@ Parameters:
   DatabaseName:
     Type: String
     Default: "undefined"
+  VpcId:
+    Type: String
+    Default: "vpc-04e79f1770f4205de"
+  SubnetIds:
+    Type: CommaDelimitedList
+    Default: "subnet-0f14f1c73238b61ac,subnet-0fee2f00bb864b0f4,subnet-00c097a58a3d0bea2"
 
 Resources:
   ServiceRole:
@@ -55,6 +61,15 @@ Resources:
                   - secretsmanager:GetSecretValue
                 Resource:
                   - "arn:aws:secretsmanager:eu-west-2:193757560043:secret:truss-platform-secrets*"
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DeleteNetworkInterface
+                  - ec2:DescribeSubnets
+                  - ec2:AssignPrivateIpAddresses
+                  - ec2:UnassignPrivateIpAddresses
+                Resource: "*"
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
@@ -140,6 +155,33 @@ Resources:
                   - xray:GetSamplingTargets
                 Resource: "*"
 
+  # Stack-owned egress-only security group: the Lambda sits in private subnets whose
+  # route table sends 0.0.0.0/0 through the VPC NAT gateway, so every outbound call
+  # leaves from the NAT's Elastic IP, the one address the Azure firewall allow-lists.
+  LambdaEgressSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "${FunctionName} egress-only (NAT to Azure Postgres / GCP / Pinecone)"
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+          Description: all egress; reachability is decided by the subnet route (NAT)
+      Tags:
+        - Key: Name
+          Value: !Sub "${FunctionName}-egress"
+
+  # Admit this Lambda's egress SG on interface endpoint SG sg-06efcbcde6530a742 (HTTPS only).
+  EndpointIngress1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: "sg-06efcbcde6530a742"
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !Ref LambdaEgressSecurityGroup
+      Description: !Sub "${FunctionName} HTTPS to interface endpoint (Secrets Manager)"
+
   ServiceLambda:
     Type: AWS::Lambda::Function
     Properties:
@@ -158,6 +200,10 @@ Resources:
         - "arn:aws:lambda:eu-west-2:193757560043:layer:intelligent-functions-python-DATA:3"
       TracingConfig:
         Mode: Active
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaEgressSecurityGroup
+        SubnetIds: !Ref SubnetIds
       Environment:
         Variables:
           STAGE: !Ref StageName
@@ -166,8 +212,8 @@ Resources:
           LAYER_NAME: "aifl"
           TRUSS_SECRETS_ARN: "arn:aws:secretsmanager:eu-west-2:193757560043:secret:truss-platform-secrets-yVuz1R"
           VERTEXAI_PROJECT: "truss-data-science"
-          CLOUD_SQL_INSTANCE: "truss-data-science:europe-west2:truss-api-postgres"
-          POSTGRES_DATABASE: "truss-api"
+          AZURE_PG_PORT: "6432"
+          AZURE_PG_SECRET_KEY: "azure_database_aifl"
           DB_HOST: !Ref DatabaseHost
 
   ServiceLambdaPermission:

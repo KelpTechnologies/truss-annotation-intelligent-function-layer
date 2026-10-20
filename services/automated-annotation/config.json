@@ -19,15 +19,33 @@
     ],
     "extra_env": {
       "VERTEXAI_PROJECT": "truss-data-science",
-      "CLOUD_SQL_INSTANCE": "truss-data-science:europe-west2:truss-api-postgres",
-      "POSTGRES_DATABASE": "truss-api"
+      "AZURE_PG_PORT": "6432",
+      "AZURE_PG_SECRET_KEY": "azure_database_aifl"
     },
-    "_url_config_note": "API URLs are now stage-aware and configured in stage_urls.py. URLs are selected based on STAGE env var (dev/staging/prod)."
+    "_url_config_note": "API URLs are now stage-aware and configured in stage_urls.py. URLs are selected based on STAGE env var (dev/staging/prod).",
+    "_azure_pg_why": "TP-461 (2026-10-19): taxonomy lookups read the Azure client box truss-client-pg (schema api on every stage) instead of Cloud SQL, which is being retired. Credentials come from truss-platform-secrets[AZURE_PG_SECRET_KEY] (azure_database_aifl = svc_aifl, its own PgBouncer pool so an annotation burst cannot queue in front of the API — Dan, 2026-10-19; azure_database = svc_dsl is the DSL role). 6432 = built-in PgBouncer. The box firewall is an IP allow-list, hence the VPC config below: egress leaves via NAT nat-0204ce6dd026389b7 (EIP 3.9.155.136).",
+    "vpc_config": {
+      "_why": "TP-461: same RDS-Pvt private subnets + NAT EIP as the DSL Azure cutover (#98). Stack-owned egress SG; the Secrets Manager interface endpoint SG must admit it (endpoint_ingress_security_groups) or getSecretValue hangs.",
+      "required": true,
+      "create_egress_sg": true,
+      "security_groups": [],
+      "subnets": [
+        "subnet-0f14f1c73238b61ac",
+        "subnet-0fee2f00bb864b0f4",
+        "subnet-00c097a58a3d0bea2"
+      ],
+      "endpoint_ingress_security_groups": [
+        "sg-06efcbcde6530a742"
+      ]
+    }
   },
   "database": {
     "required": true,
     "connection_type": "dynamodb",
-    "permissions": ["read", "write"],
+    "permissions": [
+      "read",
+      "write"
+    ],
     "tables": [
       "truss-image-processing-${STAGE}",
       "truss-image-processing-dev",
