@@ -141,7 +141,7 @@ class LLMAnnotationAgent:
         self.schema = full_config.get('schema')
         
         # Extract model parameters
-        self.model_name = self.model_config.get('model', 'gemini-2.5-flash')
+        self.model_name = self.model_config.get('model', 'gemini-3.5-flash')
         self.project_id = self.model_config.get('project_id', 'truss-data-science')
         self.location = self.model_config.get('location', 'us-central1')
         
@@ -185,16 +185,28 @@ class LLMAnnotationAgent:
         self.max_output_tokens = self.model_config.get('max_output_tokens', 2048)
         
         # Set model-specific defaults for better performance
+        # 2.5 models retire on Vertex 2026-10-20 (TP-399); 3.5 replacements keep the same base
         model_defaults = {
             "gemini-2.5-pro": {"temperature": 0.1, "max_output_tokens": 5000},
             "gemini-2.5-flash": {"temperature": 0.1, "max_output_tokens": 5000},
             "gemini-2.5-flash-lite": {"temperature": 0.1, "max_output_tokens": 5000},
+            "gemini-3.5-flash": {"temperature": 0.1, "max_output_tokens": 5000},
+            "gemini-3.5-flash-lite": {"temperature": 0.1, "max_output_tokens": 5000},
         }
-        
+
         if self.model_name in model_defaults:
             self.temperature = model_defaults[self.model_name].get("temperature", self.temperature)
             self.max_output_tokens = model_defaults[self.model_name].get("max_output_tokens", self.max_output_tokens)
-        
+
+        # Optional thinking control from model_config (thinking_budget: int, 0 = off;
+        # thinking_level: "minimal"|"low"|"medium"|"high", Gemini 3+). Unset = model default.
+        thinking_kwargs = {}
+        if self.model_config.get('thinking_budget') is not None:
+            thinking_kwargs['thinking_budget'] = int(self.model_config['thinking_budget'])
+        if self.model_config.get('thinking_level'):
+            thinking_kwargs['thinking_level'] = str(self.model_config['thinking_level']).upper()
+        self.thinking_config = types.ThinkingConfig(**thinking_kwargs) if thinking_kwargs else None
+
         logger.debug(f"Initialized agent '{self.config_id}' with model {self.model_name}")
 
     def _extract_valid_ids_from_schema(self, schema_content: dict) -> set:
@@ -406,10 +418,15 @@ class LLMAnnotationAgent:
         return self.client.models.generate_content(
             model=self.model_name,
             contents=contents,
-            config=types.GenerateContentConfig(
-                temperature=self.temperature,
-                max_output_tokens=self.max_output_tokens,
-            )
+            config=self._generation_config()
+        )
+
+    def _generation_config(self) -> types.GenerateContentConfig:
+        """Generation config shared by image and text calls."""
+        return types.GenerateContentConfig(
+            temperature=self.temperature,
+            max_output_tokens=self.max_output_tokens,
+            thinking_config=self.thinking_config,
         )
 
     def _extract_llm_metadata(self, response, elapsed_seconds, call_type):
@@ -613,10 +630,7 @@ class LLMAnnotationAgent:
                     response = self.client.models.generate_content(
                         model=self.model_name,
                         contents=prompt,
-                        config=types.GenerateContentConfig(
-                            temperature=self.temperature,
-                            max_output_tokens=self.max_output_tokens,
-                        )
+                        config=self._generation_config()
                     )
                     call_type = "text"
             llm_meta = self._extract_llm_metadata(response, time.time() - llm_start, call_type)
@@ -997,5 +1011,7 @@ class LLMAnnotationAgent:
     model_defaults = {
         "gemini-2.5-flash-lite": "simple",
         "gemini-2.5-flash": "simple",
-        "gemini-2.5-pro": "simple"
+        "gemini-2.5-pro": "simple",
+        "gemini-3.5-flash-lite": "simple",
+        "gemini-3.5-flash": "simple"
     }
